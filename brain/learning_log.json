@@ -1,0 +1,6 @@
+[
+  {
+    "timestamp": "2025-08-17T18:11:44Z",
+    "content": "Vercel now uses only SECRETS_BLOB (single JSON string with all secrets). App-side loader unpacks SECRETS_BLOB into process.env at runtime. Sync workflow script is simplified and prunes optional envs. Next focus: TikTok API integration after blob pipeline is confirmed."
+  }
+]

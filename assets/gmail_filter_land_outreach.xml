@@ -1,0 +1,27 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns='http://www.w3.org/2005/Atom'
+      xmlns:apps='http://schemas.google.com/apps/2006'>
+  <title>Mail Filters</title>
+  <id>tag:mail.google.com,2008:filters:land-outreach</id>
+  <updated>2025-02-14T00:00:00Z</updated>
+  <entry>
+    <category term='filter' />
+    <title>Land-Outreach Broad Intake</title>
+    <id>tag:mail.google.com,2008:filter:land-outreach-broad</id>
+    <updated>2025-02-14T00:00:00Z</updated>
+    <content />
+    <apps:property name='hasTheWord' value='newer_than:365d ( subject:(land OR property OR parcel OR acreage OR "Coyote Commons") OR subject:(loan OR financing OR lender OR grant OR donor OR foundation OR 501c3 OR nonprofit OR sponsor OR underwriting OR "term sheet" OR "term-sheet") OR from:(loans OR finance OR capital OR funding OR grants OR foundation OR .org) ) -older_than:365d' />
+    <apps:property name='label' value='Land-Outreach' />
+    <apps:property name='markImportant' value='true' />
+  </entry>
+  <entry>
+    <category term='filter' />
+    <title>Land-Outreach Replies</title>
+    <id>tag:mail.google.com,2008:filter:land-outreach-replies</id>
+    <updated>2025-02-14T00:00:00Z</updated>
+    <content />
+    <apps:property name='hasTheWord' value='newer_than:365d in:anywhere has:userlabels ( -from:me OR -from:messyandmagnetic.com ) ( subject:(re: OR fwd:) OR rfc822msgid:* )' />
+    <apps:property name='label' value='Land-Outreach' />
+    <apps:property name='markImportant' value='true' />
+  </entry>
+</feed>

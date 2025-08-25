@@ -1,0 +1,14 @@
+{
+  "full": {
+    "name": "Full Blueprint",
+    "description": "Comprehensive plan",
+    "tier": "full",
+    "price": 144
+  },
+  "mini": {
+    "name": "Mini Blueprint",
+    "description": "Condensed plan",
+    "tier": "mini",
+    "price": 44
+  }
+}

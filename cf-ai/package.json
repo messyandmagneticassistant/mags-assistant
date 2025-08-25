@@ -1,0 +1,11 @@
+{
+  "scripts": {
+    "ai:dev": "wrangler dev",
+    "ai:publish": "wrangler publish"
+  },
+  "devDependencies": {
+    "wrangler": "^3.73.0",
+    "typescript": "^5.4.0",
+    "@cloudflare/workers-types": "^4.20240815.0"
+  }
+}

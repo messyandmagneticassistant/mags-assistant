@@ -1,0 +1,34 @@
+[
+  {
+    "id": "916eebbdbae18b0902637da11d854c82",
+    "username": "@messyandmagnetic",
+    "alias": "messymagnetic@gmail.com",
+    "role": "main",
+    "postFrequency": "3x/day",
+    "interact": true
+  },
+  {
+    "id": "4d35a2f6c75b7e33cac909b43f10cf20",
+    "username": "@willowhazeltea",
+    "alias": "messymagnetic+alt@gmail.com",
+    "role": "booster",
+    "postFrequency": "1x/3days",
+    "interact": true
+  },
+  {
+    "id": "e9f132fe543ba173322d591900d4d4bd",
+    "username": "@maggieassistant",
+    "alias": "messymagnetic.maggie@gmail.com",
+    "role": "booster",
+    "postFrequency": "1x/5days",
+    "interact": true
+  },
+  {
+    "id": "dd2da1cddd2dc41ce5e3edcff09ba046",
+    "username": "@messy.mars4",
+    "alias": "messymagnetic.mars4@gmail.com",
+    "role": "booster",
+    "postFrequency": "1x/4days",
+    "interact": true
+  }
+]

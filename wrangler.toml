@@ -1,0 +1,13 @@
+# Cloudflare Workers configuration
+
+name = "mags-assistant"
+main = "worker/worker.ts"
+account_id = "${CF_ACCOUNT_ID}"
+compatibility_date = "2024-08-01"
+
+kv_namespaces = [
+  { binding = "POSTQ", id = "1b8cbbc4a2f8426194368cb39baded79" }
+]
+
+route = "https://assistant.messyandmagnetic.com/*"
+zone_id = "${CF_ZONE_ID}"

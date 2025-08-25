@@ -1,0 +1,9 @@
+{
+  "captionBot": "Gemini",
+  "commentBot": "Gemini",
+  "blueprintBot": "ChatGPT",
+  "longformBot": "Claude",
+  "debugBot": "Codex",
+  "voiceBot": "ElevenLabs",
+  "queueRelay": "Google Apps Script"
+}

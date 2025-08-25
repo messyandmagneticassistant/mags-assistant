@@ -1,0 +1,11 @@
+{
+  "cleanup": {
+    "auto": true,
+    "floorAware": true,
+    "rooms": ["maroon carpet", "wood kitchen", "bedroom carpet", "any floor"],
+    "blob": { "minArea": 3, "maxArea": 80, "minFrames": 3 },
+    "proofPreview": true,
+    "previewRetentionDays": 7,
+    "fallback": "blur"
+  }
+}

@@ -1,0 +1,13 @@
+# cf-ai/wrangler.toml
+name = "mags-brain"
+main = "src/index.ts"
+account_id = "${CF_ACCOUNT_ID}"
+compatibility_date = "2024-08-01"
+
+[[kv_namespaces]]
+binding = "CONFIGS"
+id = "${CONFIGS_KV_ID}"
+
+[[kv_namespaces]]
+binding = "CONFIGS_PREVIEW"
+id = "${CONFIGS_KV_PREVIEW_ID}"

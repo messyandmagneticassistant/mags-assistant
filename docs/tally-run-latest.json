@@ -1,0 +1,36 @@
+{
+  "timestamp": "2025-08-14T22:22:55.451Z",
+  "worker_url": "https://maggie-worker.messyandmagnetic.workers.dev/tally/webhook",
+  "webhooks": {
+    "3qlZQ9": {
+      "status": "failed",
+      "error": "fetch failed"
+    },
+    "nGPKDo": {
+      "status": "failed",
+      "error": "fetch failed"
+    }
+  },
+  "backfill": {
+    "3qlZQ9": {
+      "processed": 0,
+      "skipped": 0,
+      "error": "fetch failed"
+    },
+    "nGPKDo": {
+      "processed": 0,
+      "skipped": 0,
+      "error": "fetch failed"
+    }
+  },
+  "smoke": {
+    "3qlZQ9": {
+      "ok": false,
+      "error": "connect tunnel failed"
+    },
+    "nGPKDo": {
+      "ok": false,
+      "error": "connect tunnel failed"
+    }
+  }
+}

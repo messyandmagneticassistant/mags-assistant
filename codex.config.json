@@ -1,0 +1,8 @@
+{
+  "tasks": {
+    "deployTikTokBot": "src/automation/codex-tasks.ts#deployTikTokBot",
+    "healMaggie": "src/automation/codex-tasks.ts#healMaggie",
+    "retryPostQueue": "src/automation/maggie-tiktok.ts#retryPostQueue",
+    "notifyViaTelegram": "src/automation/codex-tasks.ts#notifyViaTelegram"
+  }
+}

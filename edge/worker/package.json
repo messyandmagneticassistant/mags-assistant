@@ -1,0 +1,11 @@
+{
+  "name": "mags-secrets-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "wrangler dev"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}

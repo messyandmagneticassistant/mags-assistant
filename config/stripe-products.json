@@ -1,0 +1,12 @@
+{
+  "full": { "productId": "prod_full", "priceId": "price_full", "unit_amount": 22200 },
+  "mini": { "productId": "prod_mini", "priceId": "price_mini", "unit_amount": 8800 },
+  "lite": { "productId": "prod_lite", "priceId": "price_lite", "unit_amount": 14400 },
+  "realignment": { "productId": "prod_realignment", "priceId": "price_realignment", "unit_amount": 11100 },
+  "subscriptions": {
+    "daily": { "productId": "prod_daily", "priceId": "price_daily", "unit_amount": 2200 },
+    "monthly": { "productId": "prod_monthly", "priceId": "price_monthly", "unit_amount": 1200 },
+    "combo": { "productId": "prod_combo", "priceId": "price_combo", "unit_amount": 3000 }
+  },
+  "childAddOn": { "productId": "prod_child", "priceId": "price_child", "unit_amount": 0 }
+}

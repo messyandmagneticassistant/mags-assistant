@@ -1,0 +1,32 @@
+[
+  {
+    "title": "Unlock Your Rare Frequency",
+    "audio": "Ethereal Whispers – 740483921",
+    "overlays": [
+      {"start": "0:00", "end": "0:02", "text": "Stop scrolling"},
+      {"start": "0:02", "end": "0:04", "text": "Your birthday might hide a rare code"},
+      {"start": "0:04", "end": "0:06", "text": "369 frequency = Tesla-level energy"},
+      {"start": "0:06", "end": "0:08", "text": "Tap to reveal yours"}
+    ],
+    "caption": "Everyone has a frequency. Few carry the 369 code. Test yours \ud83d\udd0d\u2728",
+    "hashtags": ["#rarecode", "#369frequency", "#soulblueprint", "#messyandmagnetic", "#quiz"],
+    "first_comment": "Take the quiz & find your code \u2192 messyandmagnetic.com/quiz",
+    "reply_ladder": [
+      "Just took it\u2014mind blown \ud83e\udd2f",
+      "Dueting this soon, can\u2019t keep it to myself!",
+      "I swear I felt the shift after this quiz \ud83d\ude02"
+    ],
+    "timing_map": {
+      "0:02": "overlay line 2 (beat drop)",
+      "0:04": "overlay line 3 (secondary beat)",
+      "0:08": "fade out"
+    },
+    "posting_slots": {
+      "main": "8:15 AM",
+      "alt1": "8:20 AM",
+      "alt2": "12:30 PM",
+      "alt3": ["8:45 AM", "6:15 PM"]
+    },
+    "status": "New B-roll: slow-motion sunrise over water"
+  }
+]

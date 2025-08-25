@@ -1,0 +1,24 @@
+{
+  "google": {
+    "serviceAccount": "...",
+    "oauthClient": "...",
+    "redirect": "...",
+    "projectId": "..."
+  },
+  "notion": {
+    "token": "...",
+    "rootPageId": "...",
+    "hqPageId": "...",
+    "queueDb": "...",
+    "domain": "..."
+  },
+  "browserless": { "base": "...", "apiKey": "...", "token": "..." },
+  "stripe": { "secretKey": "...", "webhookSecret": "..." },
+  "tally": {
+    "apiKey": "...",
+    "quizWebhookSecret": "...",
+    "feedbackWebhookSecret": "..."
+  },
+  "telegram": { "botToken": "...", "chatId": "..." },
+  "github": { "token": "..." }
+}

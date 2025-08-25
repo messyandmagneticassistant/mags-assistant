@@ -1,0 +1,43 @@
+{
+  "owner_legal_name": "Chanel Christine Marraccini",
+  "signature_permission": true,
+  "life_story": [],
+  "trauma_logs": [],
+  "memoir_quotes": [],
+  "grant_notes": [],
+  "land_project_notes": [],
+  "soul_blueprint_products": [],
+  "business_structure": [],
+  "follower_growth_patterns": [],
+  "social_tactics": [],
+  "shadow_boxes": [],
+  "cricut_projects": [],
+  "business_expansions": [],
+  "parenting_setups": [],
+  "grief_triggers": [],
+  "nervous_system_needs": [],
+  "tiktok_strategy": {
+    "last_refresh": null,
+    "notes": [
+      "Next focus: TikTok API integration after blob pipeline is confirmed."
+    ]
+  },
+  "grant_recommendations": [],
+  "memoir_worthy": [],
+  "infra_notes": [
+    "Vercel now uses only SECRETS_BLOB (single JSON string with all secrets). App-side loader unpacks SECRETS_BLOB into process.env at runtime. Sync workflow script is simplified and prunes optional envs."
+  ],
+  "ops_v3_autonomy": {
+    "memory_id": "maggie_ops_v3_autonomy",
+    "intent": "Full agent upgrade to manage social, commerce, and helper bots",
+    "features": [
+      "Auto-research market pricing across Etsy, Amazon Handmade, Shopify, and TikTok Shop and sync with Stripe catalog while maintaining live price sheets.",
+      "Monitor Google Drive raw folder for unedited TikToks, analyze emotion and tone, assign trending audio and overlays, schedule up to 100 posts per day and generate filler content as needed.",
+      "Research TikTok trends hourly and deliver daily top three fits with recording prompts, caption scripts and posting instructions for Chanel.",
+      "Control alt TikTok accounts (Willow, Messy, Bunny) to interact on key posts with realistic bios, profile pics and comment ladders.",
+      "Detect underperforming posts, unlist or delete, re-edit and repost with updated audio and overlays.",
+      "Spawn micro-agents for trend scraping, price updates, comment moderation, donor emails and inventory syncing.",
+      "Send Telegram briefings every 6–12 hours summarizing scheduled posts, flop recoveries, pricing updates, alt activity and tasks."
+    ]
+  }
+}

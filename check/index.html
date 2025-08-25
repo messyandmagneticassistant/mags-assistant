@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Check Panel</title>
+  <style>
+    .status { padding: 4px 8px; border-radius: 4px; }
+    .ok { background: #c8e6c9; }
+    .err { background: #ffcdd2; }
+  </style>
+</head>
+<body>
+  <h1>Check Panel</h1>
+  <div>
+    <button id="testBtn">Insert Test Row</button>
+    <span id="testStatus"></span>
+  </div>
+  <ul>
+    <li><a id="quizLink" href="https://docs.google.com/spreadsheets/d/PASTE_QUIZ_GOOGLE_SHEET_ID_HERE">Quiz Submissions_VIEW</a></li>
+    <li><a id="fbLink" href="https://docs.google.com/spreadsheets/d/PASTE_FEEDBACK_GOOGLE_SHEET_ID_HERE">Feedback Submissions_VIEW</a></li>
+  </ul>
+  <script>
+    async function checkWorker() {
+      try {
+        const r = await fetch('/health');
+        const ok = r.ok;
+        document.getElementById('testStatus').textContent = ok ? 'Worker online' : 'Worker error';
+        document.getElementById('testStatus').className = 'status ' + (ok ? 'ok' : 'err');
+      } catch (e) {
+        document.getElementById('testStatus').textContent = 'Worker error';
+        document.getElementById('testStatus').className = 'status err';
+      }
+    }
+    async function insertTest() {
+      const btn = document.getElementById('testBtn');
+      btn.disabled = true;
+      try {
+        const r = await fetch('/tally/test');
+        const js = await r.json();
+        if (js.ok) {
+          document.getElementById('testStatus').textContent = 'Sheets upsert OK';
+          document.getElementById('testStatus').className = 'status ok';
+        } else {
+          document.getElementById('testStatus').textContent = 'Webhook error';
+          document.getElementById('testStatus').className = 'status err';
+        }
+      } catch (e) {
+        document.getElementById('testStatus').textContent = 'Webhook error';
+        document.getElementById('testStatus').className = 'status err';
+      }
+      btn.disabled = false;
+    }
+    document.getElementById('testBtn').addEventListener('click', insertTest);
+    checkWorker();
+  </script>
+</body>
+</html>

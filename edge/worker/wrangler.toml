@@ -1,0 +1,11 @@
+name = "mags-secrets"
+main = "secrets.ts"
+compatibility_date = "2024-01-01"
+
+[[kv_namespaces]]
+binding = "SECRETS"
+id = "prod_namespace_id"
+preview_id = "preview_namespace_id"
+
+[vars]
+# WORKER_KEY is configured in Cloudflare dashboard

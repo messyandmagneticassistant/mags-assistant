@@ -1,0 +1,47 @@
+[
+  {
+    "id": "prod_mini_blueprint",
+    "name": "Mini Soul Snapshot",
+    "price_code": "price_mini",
+    "tier": "mini",
+    "is_addon": false,
+    "is_child_friendly": true,
+    "upgrade_from": []
+  },
+  {
+    "id": "prod_lite_blueprint",
+    "name": "Lite Soul Reading",
+    "price_code": "price_lite",
+    "tier": "lite",
+    "is_addon": false,
+    "is_child_friendly": true,
+    "upgrade_from": ["mini"]
+  },
+  {
+    "id": "prod_full_blueprint",
+    "name": "Full Soul Blueprint",
+    "price_code": "price_full",
+    "tier": "full",
+    "is_addon": false,
+    "is_child_friendly": true,
+    "upgrade_from": ["mini", "lite"]
+  },
+  {
+    "id": "prod_realignment_blueprint",
+    "name": "Realignment Blueprint",
+    "price_code": "price_realignment",
+    "tier": "realignment",
+    "is_addon": false,
+    "is_child_friendly": true,
+    "upgrade_from": ["mini", "lite"]
+  },
+  {
+    "id": "prod_child_addon",
+    "name": "Child Add-On",
+    "price_code": "price_child",
+    "tier": "full",
+    "is_addon": true,
+    "is_child_friendly": true,
+    "upgrade_from": []
+  }
+]

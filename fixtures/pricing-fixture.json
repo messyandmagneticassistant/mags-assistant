@@ -1,0 +1,22 @@
+{
+  "tiers": {
+    "mini": { "base": 44 },
+    "lite": { "base": 88 },
+    "full": { "base": 144 },
+    "realignment": { "base": 222 }
+  },
+  "depthModifiers": {
+    "base": 1,
+    "deep": 1.3
+  },
+  "systemModifiers": {
+    "include": 60
+  },
+  "addons": {
+    "child": { "price": 5, "promo": 0 },
+    "magnetBundle": { "discount": 20 }
+  },
+  "family": {
+    "full": { "additional": 111 }
+  }
+}

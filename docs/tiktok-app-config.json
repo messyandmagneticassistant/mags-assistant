@@ -1,0 +1,10 @@
+{
+  "appName": "Messy & Magnetic",
+  "website": "https://messyandmagnetic.com",
+  "callbackUrl": "https://messyandmagnetic.com/auth/tiktok/callback",
+  "privacyPolicy": "https://messyandmagnetic.com/privacy",
+  "verificationFile": "tiktok_verification.html",
+  "scopes": ["user.info.profile", "user.info.stats", "video.list"],
+  "lastUpdated": "2024-08-16"
+}
+

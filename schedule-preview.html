@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Mags Schedule Preview</title>
+  <style>
+    body { font-family: sans-serif; }
+    li { margin-bottom: 1em; }
+  </style>
+</head>
+<body>
+  <h1>Queued Clips</h1>
+  <ul id="queue"></ul>
+  <script>
+    fetch('../.schedule-pack.json')
+      .then(r => r.json())
+      .then(data => {
+        const ul = document.getElementById('queue');
+        data.queue.forEach(item => {
+          const li = document.createElement('li');
+          const emoji = item.emoji ? item.emoji + ' ' : '';
+          const sound = item.suggested_sound_url ? `<a href="${item.suggested_sound_url}">${item.suggested_sound}</a>` : (item.suggested_sound || '');
+          const caps = item.captions && item.captions.tiktok ? item.captions.tiktok : '';
+          const tags = item.hashtags ? item.hashtags.join(' ') : '';
+          li.innerHTML = `${emoji}<strong>${item.edit_type || ''}</strong> [${item.emotion || ''}] - ${caps} ${tags} ${sound}`;
+          ul.appendChild(li);
+        });
+      });
+  </script>
+</body>
+</html>
