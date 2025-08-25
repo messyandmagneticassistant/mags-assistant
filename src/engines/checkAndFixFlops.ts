@@ -3,7 +3,14 @@ import { postThread } from '../../postThread';
 import { getLatestPostStats, deletePost, reuploadPost } from '../clients/tiktok-posting';
 import { getCaptionSuggestions } from '../clients/caption-generator';
 
-export async function checkAndFixFlops(bot: BotSession, config: Record<string, any>) {
+export async function checkAndFixFlops(
+  bot: BotSession,
+  config: Record<string, any> = {}
+): Promise<{ success: boolean; message: string }> {
+  const minViews = config.minViews || 500;
+  const minAgeMinutes = config.minAgeMinutes || 45;
+  const debug = config.debug || false;
+
   try {
     await postThread({
       bot,
@@ -11,14 +18,16 @@ export async function checkAndFixFlops(bot: BotSession, config: Record<string, a
     });
 
     const stats = await getLatestPostStats(bot.session);
-    const { id, views, likes, comments, createdAt } = stats || {};
 
-    if (!id) throw new Error('No recent post found to evaluate.');
+    if (!stats?.id) throw new Error('No recent post found to evaluate.');
 
+    const { id, views = 0, createdAt } = stats;
     const ageInMinutes = (Date.now() - new Date(createdAt).getTime()) / 60000;
+    const isFlop = views < minViews && ageInMinutes > minAgeMinutes;
 
-    // Define flop logic (can be tweaked)
-    const isFlop = views < 500 && ageInMinutes > 45;
+    if (debug) {
+      console.log(`[checkAndFixFlops] views: ${views}, age: ${Math.floor(ageInMinutes)} min, isFlop: ${isFlop}`);
+    }
 
     if (isFlop) {
       await postThread({
@@ -41,17 +50,32 @@ export async function checkAndFixFlops(bot: BotSession, config: Record<string, a
         bot,
         message: '🔁 Post re-uploaded with new caption and timing.',
       });
-    } else {
-      await postThread({
-        bot,
-        message: '✅ No flops detected. All posts are performing within range.',
-      });
+
+      return {
+        success: true,
+        message: 'Flop fixed and post reuploaded.',
+      };
     }
+
+    await postThread({
+      bot,
+      message: '✅ No flops detected. All posts are performing within range.',
+    });
+
+    return {
+      success: true,
+      message: 'No flop detected. No action taken.',
+    };
   } catch (err) {
     console.error('[checkAndFixFlops] error:', err);
     await postThread({
       bot,
       message: `❌ Flop fixer failed: ${err.message || err}`,
     });
+
+    return {
+      success: false,
+      message: `Flop fixer error: ${err.message || err}`,
+    };
   }
 }
