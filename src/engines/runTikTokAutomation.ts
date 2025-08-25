@@ -30,7 +30,7 @@ export async function runTikTokAutomation({
       message: `✅ Post uploaded: ${postResult.message}`,
     });
 
-    // Optional: Boost with alternate accounts
+    // 🚀 Booster engagement
     if (config.autoBoost !== false) {
       await boostWithAlts({
         targetUsername: bot.username,
@@ -43,9 +43,13 @@ export async function runTikTokAutomation({
       });
     }
 
-    // Optional: Check for flops and reupload
+    // 🛠️ Flop detection & auto-repost
     if (config.autoFixFlops) {
       await checkAndFixFlops(bot);
+      await postThread({
+        bot,
+        message: '🔁 Checked and fixed any flops.',
+      });
     }
 
   } catch (err) {
