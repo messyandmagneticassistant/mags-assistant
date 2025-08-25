@@ -1,25 +1,31 @@
 import { BotSession } from '../types';
-import { simulateUploadViaBrowser } from './upload-methods/browser'; // placeholder
-import { simulateUploadViaApi } from './upload-methods/api'; // optional
+import { simulateUploadViaBrowser } from './upload-methods/simulateUploadViaBrowser';
+import { simulateUploadViaApi } from './upload-methods/simulateUploadViaApi';
 
-export async function uploadToTikTok(bot: BotSession): Promise<{ success: boolean; title?: string; }> {
+export async function uploadToTikTok(
+  bot: BotSession,
+  config?: Record<string, any>
+): Promise<{ success: boolean; title?: string }> {
   try {
-    // Fallback to browser-based upload
-    const useApi = false; // You can make this dynamic from config
+    const useApi = config?.uploadMethod === 'api';
 
-    let result;
-    if (useApi) {
-      result = await simulateUploadViaApi(bot); // Placeholder API method
-    } else {
-      result = await simulateUploadViaBrowser(bot); // Most commonly used
+    const result = useApi
+      ? await simulateUploadViaApi(bot)
+      : await simulateUploadViaBrowser(bot);
+
+    if (!result?.success) {
+      throw new Error('Upload failed');
     }
 
     return {
       success: true,
-      title: result?.title || 'Untitled',
+      title: result.title || 'Untitled Post',
     };
   } catch (err) {
-    console.error('[uploadToTikTok] Error during upload:', err);
-    return { success: false };
+    console.error('[uploadToTikTok] Upload error:', err);
+    return {
+      success: false,
+      title: undefined,
+    };
   }
 }
