@@ -1,20 +1,27 @@
-import { postMessage } from './src/clients/postq';
+import type { PostThreadParams } from './src/types';
 
-export async function postThread({
-  bot,
-  message,
-}: {
-  bot: { username: string; session: string };
-  message: string;
-}) {
+export async function postThread({ bot, message }: PostThreadParams) {
   try {
-    await postMessage({
-      session: bot.session,
+    const body = {
       username: bot.username,
-      threadId: process.env.POSTQ_THREAD_ID!,
       message,
+    };
+
+    const response = await fetch('https://assistant.messyandmagnetic.com/thread-log', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${process.env.POST_THREAD_SECRET || ''}`,
+      },
+      body: JSON.stringify(body),
     });
+
+    if (!response.ok) {
+      throw new Error(`[postThread] HTTP ${response.status} - ${await response.text()}`);
+    }
+
+    console.info('[postThread] Message posted successfully.');
   } catch (err) {
-    console.error('[postThread] failed to post message:', err);
+    console.error('[postThread] Failed to post message:', err);
   }
 }
