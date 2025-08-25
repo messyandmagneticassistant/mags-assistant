@@ -1,6 +1,35 @@
 import { runMaggieWorkflow } from './runMaggie';
+import { loadSecretsFromBlob } from './utils/loadSecretsFromBlob';
+import { postThread } from './postThread';
 
-// 🧠 Optional: preload anything else here if needed
-// You can add setup logic here later if needed
+async function main() {
+  try {
+    // 🔐 Load all environment secrets from BLOB
+    loadSecretsFromBlob();
 
-runMaggieWorkflow();
+    // 🚀 Run the full Maggie automation
+    await runMaggieWorkflow();
+
+    // ✅ Optional: Success message to PostQ
+    await postThread({
+      bot: {
+        username: process.env.TIKTOK_PROFILE_MAGGIE!,
+        session: process.env.TIKTOK_SESSION_MAGGIE!,
+      },
+      message: '✅ Maggie launched successfully from runner.ts.',
+    });
+
+  } catch (err: any) {
+    console.error('[runner.ts] Error running Maggie:', err);
+    await postThread({
+      bot: {
+        username: process.env.TIKTOK_PROFILE_MAGGIE!,
+        session: process.env.TIKTOK_SESSION_MAGGIE!,
+      },
+      message: `❌ Maggie failed to launch: ${err.message || err}`,
+    });
+    process.exit(1);
+  }
+}
+
+main();
