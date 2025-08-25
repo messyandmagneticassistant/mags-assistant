@@ -1,74 +1,35 @@
-import { runMaggieUpdater } from './runner';
-import { fileURLToPath } from 'url';
-import { loadSecretsFromBlob } from './utils/loadSecretsFromBlob';
-import { runMaggieTikTokLoop } from './src/automation/maggie-tiktok';
-import { runGoogleSheetSync } from './src/automation/google-sheet-sync';
-import { runStripeSync } from './src/automation/stripe-sync';
-import { runNotionTasks } from './src/automation/notion-tasks';
-import { postThread } from './postThread';
+import { decode } from "base64-arraybuffer";
 
-loadSecretsFromBlob(); // ⬅️ Load SECRETS_BLOB into process.env
+export async function loadSecretsFromBlob(): Promise<Record<string, any>> {
+  const blobKey = "SECRET_BLOB"; // ⬅️ this is the actual key in your KV now
 
-const sessions = {
-  main: {
-    username: process.env.TIKTOK_PROFILE_MAIN,
-    session: process.env.TIKTOK_SESSION_MAIN,
-  },
-  willow: {
-    username: process.env.TIKTOK_PROFILE_WILLOW,
-    session: process.env.TIKTOK_SESSION_WILLOW,
-  },
-  maggie: {
-    username: process.env.TIKTOK_PROFILE_MAGGIE,
-    session: process.env.TIKTOK_SESSION_MAGGIE,
-  },
-  mars: {
-    username: process.env.TIKTOK_PROFILE_MARS,
-    session: process.env.TIKTOK_SESSION_MARS,
-  }
-};
+  const CLOUDFLARE_ACCOUNT_ID = "5ff52dc210a86ff34a0dd3664bacb237";
+  const CLOUDFLARE_NAMESPACE_ID = "1b8cbbc4a2f8426194368cb39baded79";
+  const CLOUDFLARE_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN || "vMfaaWOMCYy6KHiaH-xy_vkTDxOaSpiznS0aSR0I";
 
-const DEFAULT_BOT = sessions.maggie;
-
-export async function runFullWorkflow(config: Record<string, any>) {
-  await runMaggieTikTokLoop(
+  const response = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${CLOUDFLARE_NAMESPACE_ID}/values/${blobKey}`,
     {
-      bot: DEFAULT_BOT,
-      supportBots: {
-        willow: sessions.willow,
-        mars: sessions.mars,
-        main: sessions.main,
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${CLOUDFLARE_API_TOKEN}`,
+        "Content-Type": "application/json",
       },
-    },
-    config
+    }
   );
 
-  await runGoogleSheetSync(config);
-  await runStripeSync(config);
-  await runNotionTasks(config);
-}
-
-export async function runMaggieWorkflow() {
-  try {
-    const config = process.env; // Already populated by loadSecretsFromBlob()
-    await runFullWorkflow(config);
-
-    // 🧠 Optional: post system success back to PostQ thread log
-    await postThread({
-      bot: DEFAULT_BOT,
-      message: '✅ Maggie workflow completed successfully.',
-    });
-
-  } catch (err) {
-    console.error('[runMaggie] fatal error:', err);
-    await postThread({
-      bot: DEFAULT_BOT,
-      message: `❌ Maggie workflow failed: ${err.message || err}`,
-    });
-    process.exitCode = 1;
+  if (!response.ok) {
+    throw new Error(`Failed to fetch KV blob: ${response.statusText}`);
   }
-}
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  runMaggieWorkflow();
+  const encoded = await response.text();
+
+  try {
+    const decoded = decode(encoded);
+    const json = new TextDecoder().decode(decoded);
+    const parsed = JSON.parse(json);
+    return parsed;
+  } catch (err) { 
+    throw new Error("Could not decode or parse blob: " + err);
+  }
 }
