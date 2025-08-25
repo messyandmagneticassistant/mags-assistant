@@ -1,8 +1,14 @@
 import { BotSession } from '../types';
 import { postThread } from '../../postThread';
-import { uploadToTikTok } from '../clients/tiktok-upload'; // this wraps the actual browser/API upload logic
+import { uploadToTikTok } from '../clients/tiktok-upload';
 
-export async function uploadNextPost(bot: BotSession, config: Record<string, any>) {
+export async function uploadNextPost(
+  bot: BotSession,
+  config: Record<string, any> = {}
+): Promise<{
+  success: boolean;
+  message: string;
+}> {
   try {
     await postThread({
       bot,
@@ -11,19 +17,33 @@ export async function uploadNextPost(bot: BotSession, config: Record<string, any
 
     const uploadResult = await uploadToTikTok(bot);
 
-    if (uploadResult?.success) {
-      await postThread({
-        bot,
-        message: `✅ Uploaded: ${uploadResult.title || 'Unnamed post'}`,
-      });
-    } else {
-      throw new Error('Upload failed or returned no result');
+    if (!uploadResult?.success) {
+      throw new Error(uploadResult?.error || 'Upload failed or returned no result');
     }
-  } catch (err) {
-    console.error('[uploadNextPost] failed:', err);
+
+    const title = uploadResult.title || 'Unnamed post';
+
     await postThread({
       bot,
-      message: `❌ Failed to upload next post: ${err.message || err}`,
+      message: `✅ Uploaded: ${title}`,
     });
+
+    return {
+      success: true,
+      message: title,
+    };
+  } catch (err) {
+    const errorMsg = err.message || 'Unknown error during upload';
+    console.error('[uploadNextPost] failed:', err);
+
+    await postThread({
+      bot,
+      message: `❌ Failed to upload next post: ${errorMsg}`,
+    });
+
+    return {
+      success: false,
+      message: errorMsg,
+    };
   }
 }
