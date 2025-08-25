@@ -1,5 +1,5 @@
 import { BotSession } from '../../types';
-import { runBrowserUploadFlow } from '../../utils/browser-actions'; // We'll make this next
+import { runBrowserUploadFlow } from '../../utils/browser-actions';
 
 export async function simulateUploadViaBrowser(
   bot: BotSession
@@ -17,6 +17,6 @@ export async function simulateUploadViaBrowser(
     };
   } catch (err) {
     console.error('[simulateUploadViaBrowser] error:', err);
-    return { success: false };
+    return { success: false, title: undefined };
   }
 }
