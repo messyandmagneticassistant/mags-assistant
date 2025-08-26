@@ -28,11 +28,11 @@ export async function simulateCapCutUpload(bot: BotSession): Promise<{ success: 
     const context = await browser.newContext();
     const page = await context.newPage();
 
-    // 1. Visit CapCut template page (example: trending)
+    // 1. Go to template list page
     await page.goto(`https://www.capcut.com/template?search=${encodeURIComponent(TEMPLATE)}`);
-    await page.waitForTimeout(5000); // let page load
+    await page.waitForTimeout(5000);
 
-    // 2. Click the first template
+    // 2. Click first template
     const templateLink = await page.locator('a[href*="template-detail"]').first();
     await templateLink.click();
     await page.waitForTimeout(4000);
@@ -50,12 +50,37 @@ export async function simulateCapCutUpload(bot: BotSession): Promise<{ success: 
     await uploadInput.setInputFiles(path.join(RAW_FOLDER, firstVideo));
     await page.waitForTimeout(10000); // upload + render
 
-    // 5. Export
+    // 5. Export video
     await page.locator('button:has-text("Export")').click();
-    await page.waitForTimeout(10000); // export render
+    await page.waitForTimeout(10000); // allow render
 
-    // 6. Download logic placeholder — this varies depending on CapCut UI
-    // Optional: you can scrape download button or link
-    await page.waitForTimeout(10000);
+    // 6. Try to auto-download
+    const downloadButton = await page.locator('button:has-text("Download")').first();
+    const downloadExists = await downloadButton.isVisible();
 
-    await postThread({
+    if (downloadExists) {
+      await downloadButton.click();
+      await page.waitForTimeout(8000);
+
+      await postThread({
+        bot,
+        message: `📥 CapCut download clicked. Waiting for file...`,
+      });
+    } else {
+      console.warn('[CapCut] No visible download button found.');
+    }
+
+    // ⛔ You can implement download tracking later here if needed
+    // e.g., monitor the Downloads folder or use browser download path
+
+    await browser.close();
+
+    return {
+      success: true,
+      file: path.join(EXPORT_FOLDER, 'default.mp4'), // placeholder
+    };
+  } catch (err) {
+    console.error('[simulateCapCutUpload] error:', err);
+    return { success: false };
+  }
+}
