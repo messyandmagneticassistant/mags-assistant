@@ -12,23 +12,18 @@
     "format": "prettier --write .",
     "test": "node -e \"const fs=require('fs');fs.mkdirSync('docs',{recursive:true});const p='docs/.brain.md';if(!fs.existsSync(p))fs.writeFileSync(p,'');\" && vitest run tests/testBrain.test.ts tests/brain-watch.test.ts",
     "build": "echo 'build ok'",
-
     "dev": "vite",
-
     "maggie": "tsx maggie/index.ts",
     "schedule": "tsx maggie/tasks/scheduler.ts",
     "watch-raw": "tsx maggie/tasks/watch-raw.ts",
     "retry-flops": "tsx maggie/tasks/retry-flops.ts",
-
     "codex": "npx codex",
     "codex:run": "npx codex run",
     "codex:task": "npx codex run task",
     "codex:maggie": "npx codex run runMaggie",
     "codex:fix": "npx codex run fixMaggieErrors",
-
     "maggie:env": "node -r dotenv/config scripts/maggie-env.js",
     "testSECRETS": "tsx scripts/testSECRETS.ts",
-
     "deploy": "echo '⛴️ Deploy placeholder — replace with wrangler publish, vercel deploy, etc.'",
     "deploy:cli": "npx wrangler deploy"
   },
