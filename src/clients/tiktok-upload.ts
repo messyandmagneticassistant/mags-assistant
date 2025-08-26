@@ -2,6 +2,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { BotSession } from '../../types';
 import { runBrowserUploadFlow } from './runBrowserUploadFlow';
+import { generateCaption } from './captionBrain';
 import { postThread } from '../../postThread';
 
 const EXPORT_FOLDER = process.env.CAPCUT_EXPORT_FOLDER || 'uploads/maggie/exported';
@@ -11,24 +12,21 @@ export async function postToTikTok(bot: BotSession): Promise<{ success: boolean;
     // Fallback to most recent export if not set
     if (!bot.lastVideoPath) {
       const files = await fs.readdir(EXPORT_FOLDER);
-      const sorted = files
+      const latestFile = files
         .filter(f => f.endsWith('.mp4') || f.endsWith('.mov'))
-        .map(f => ({ name: f, time: fs.stat(path.join(EXPORT_FOLDER, f)).then(s => s.mtimeMs) }));
+        .sort((a, b) => {
+          const aTime = fs.stat(path.join(EXPORT_FOLDER, a)).then(s => s.mtimeMs);
+          const bTime = fs.stat(path.join(EXPORT_FOLDER, b)).then(s => s.mtimeMs);
+          return bTime - aTime;
+        })[0];
 
-      const results = await Promise.all(sorted.map(async (f) => ({
-        file: f.name,
-        time: await f.time,
-      })));
-
-      const latest = results.sort((a, b) => b.time - a.time)[0];
-      if (!latest) throw new Error('No video file found in export folder.');
-
-      bot.lastVideoPath = path.join(EXPORT_FOLDER, latest.file);
+      if (!latestFile) throw new Error('No video file found in export folder.');
+      bot.lastVideoPath = path.join(EXPORT_FOLDER, latestFile);
     }
 
-    // Default caption if missing
+    // Autogenerate caption if missing
     if (!bot.caption) {
-      bot.caption = '✨ Auto-uploaded by Maggie ✨';
+      bot.caption = await generateCaption(bot);
     }
 
     const attempt = await runBrowserUploadFlow(bot);
@@ -40,9 +38,7 @@ export async function postToTikTok(bot: BotSession): Promise<{ success: boolean;
       });
 
       const retry = await runBrowserUploadFlow(bot);
-      if (!retry.success) {
-        throw new Error('Retry failed.');
-      }
+      if (!retry.success) throw new Error('Retry failed.');
 
       return retry;
     }
@@ -52,9 +48,8 @@ export async function postToTikTok(bot: BotSession): Promise<{ success: boolean;
     console.error('[postToTikTok] error:', err);
     await postThread({
       bot,
-      message: `❌ Maggie could not post the video to TikTok.\n${err}`,
+      message: `❌ Maggie could not post to TikTok.\n${err}`,
     });
-
     return { success: false };
   }
 }
