@@ -36,3 +36,17 @@ export interface MaggieConfig {
   schedulePosts?: boolean;
   feedbackMode?: boolean;
 }
+// ─── SOCIAL INTELLIGENCE TYPES ───
+
+export interface GenerateReplyOptions {
+  comment: string;
+  context?: string;
+  persona?: string; // e.g. 'main', 'maggie', 'mars', 'willow'
+}
+
+export interface CaptionOptions {
+  persona?: string;
+  videoTheme?: string;
+  overlayText?: string;
+  trendingAudio?: string;
+}
