@@ -1,9 +1,9 @@
 // maggie/core/generateCaption.ts
 
-import { log } from '../shared/logger';
-import { getTopicKeywords } from '../utils/topicKeywords';
-import { getTimestampTag } from '../utils/timestampTag';
-import { shuffleArray } from '../utils/shuffle';
+import { log } from '../../shared/logger';
+import { getTopicKeywords } from '../../utils/topicKeywords';
+import { getTimestampTag } from '../../utils/timestampTag';
+import { shuffleArray } from '../../utils/shuffle';
 
 type GenerateInput = {
   title: string;
