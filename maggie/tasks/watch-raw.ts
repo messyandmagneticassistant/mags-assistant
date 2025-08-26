@@ -1,11 +1,10 @@
-// maggie/tasks/watch-raw.ts
-
 import chokidar from 'chokidar';
 import path from 'path';
 import fs from 'fs/promises';
 import { log } from '../shared/logger';
 import { createQueuedPost } from '../core/createQueuedPost';
 import { tgSend } from '../../lib/telegram';
+import { tryDownloadCapCutVersion } from './capcut-handler';
 
 const DROP_FOLDER = 'drop';
 
@@ -23,7 +22,12 @@ export function watchRawFolder() {
       }
 
       const filename = path.basename(filePath);
-      const queued = await createQueuedPost({ path: filePath, originalName: filename });
+
+      // Optional: CapCut download override
+      const capcutVersion = await tryDownloadCapCutVersion(filePath);
+      const usePath = capcutVersion || filePath;
+
+      const queued = await createQueuedPost({ path: usePath, originalName: filename });
 
       log(`[watch-raw] Queued new post: ${queued.title}`);
       await tgSend(`📥 New video dropped & queued:\n<b>${queued.title}</b>`);
