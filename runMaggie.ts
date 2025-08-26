@@ -1,10 +1,48 @@
-// runMaggie.ts (root level)
+// runMaggie.ts
+import { watchRawFolder } from './tasks/watch-raw';
+import { scheduleNextPost } from './tasks/scheduler';
+import { checkForFlops } from './tasks/retry-flops';
+import { intentParser } from './intent-router';
 
-import { loadSecretsFromBlob } from './src/utils/loadSecretsFromBlob';
-import { startMaggie } from './src/maggie'; // or update this path if your main logic is elsewhere
+export interface RunMaggieConfig {
+  force?: boolean;
+  browser?: boolean;
+  browserType?: string;
+  log?: boolean;
+  source?: string;
+}
 
-// Load secrets from Cloudflare KV (SECRETS_BLOB)
-await loadSecretsFromBlob();
+export async function runMaggie(config: RunMaggieConfig = {}): Promise<void> {
+  // 🧠 Auto-wire Maggie's default text commands
+  await intentParser.add([
+    {
+      pattern: /^caption (.+)/i,
+      intent: 'setCaption',
+      extract: (text) => ({ caption: text.match(/^caption (.+)/i)?.[1] || '' }),
+    },
+    {
+      pattern: /^schedule (.+)/i,
+      intent: 'schedulePost',
+      extract: (text) => ({ time: text.match(/^schedule (.+)/i)?.[1] || '' }),
+    },
+    {
+      pattern: /^upload (.+\.mp4)$/i,
+      intent: 'uploadVideo',
+      extract: (text) => ({ videoPath: text.match(/^upload (.+\.mp4)$/i)?.[1] || '' }),
+    },
+    {
+      pattern: /^comment (.+)/i,
+      intent: 'addComment',
+      extract: (text) => ({ comment: text.match(/^comment (.+)/i)?.[1] || '' }),
+    },
+  ]);
 
-// Start Maggie’s main loop or agent logic
-await startMaggie();
+  // 🌀 Start her background task loops
+  watchRawFolder();
+  scheduleNextPost();
+  checkForFlops();
+
+  if (config.log) {
+    console.log('[runMaggie]', config);
+  }
+}
