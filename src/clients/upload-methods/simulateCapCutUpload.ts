@@ -25,59 +25,55 @@ export async function simulateCapCutUpload(bot: BotSession): Promise<{ success: 
       wsEndpoint: 'wss://chrome.browserless.io?token=' + process.env.BROWSERLESS_API_KEY,
     });
 
-    const context = await browser.newContext();
+    const context = await browser.newContext({
+      acceptDownloads: true, // 🧠 Important for tracking real downloads
+    });
+
     const page = await context.newPage();
 
-    // 1. Go to template list page
     await page.goto(`https://www.capcut.com/template?search=${encodeURIComponent(TEMPLATE)}`);
     await page.waitForTimeout(5000);
 
-    // 2. Click first template
     const templateLink = await page.locator('a[href*="template-detail"]').first();
     await templateLink.click();
     await page.waitForTimeout(4000);
 
-    // 3. Click “Use template”
     await page.locator('button:has-text("Use template")').click();
     await page.waitForTimeout(5000);
 
-    // 4. Upload first video in RAW_FOLDER
     const files = await fs.readdir(RAW_FOLDER);
     const firstVideo = files.find((f) => f.endsWith('.mp4') || f.endsWith('.mov'));
     if (!firstVideo) throw new Error('No video file found in raw folder.');
 
     const uploadInput = await page.locator('input[type="file"]').first();
     await uploadInput.setInputFiles(path.join(RAW_FOLDER, firstVideo));
-    await page.waitForTimeout(10000); // upload + render
+    await page.waitForTimeout(10000);
 
-    // 5. Export video
-    await page.locator('button:has-text("Export")').click();
-    await page.waitForTimeout(10000); // allow render
+    // 🔁 Handle export + download with tracking
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('button:has-text("Export")').click(),
+    ]);
 
-    // 6. Try to auto-download
-    const downloadButton = await page.locator('button:has-text("Download")').first();
-    const downloadExists = await downloadButton.isVisible();
+    await postThread({
+      bot,
+      message: `📥 CapCut download started...`,
+    });
 
-    if (downloadExists) {
-      await downloadButton.click();
-      await page.waitForTimeout(8000);
+    const filename = download.suggestedFilename();
+    const outPath = path.join(EXPORT_FOLDER, filename);
 
-      await postThread({
-        bot,
-        message: `📥 CapCut download clicked. Waiting for file...`,
-      });
-    } else {
-      console.warn('[CapCut] No visible download button found.');
-    }
-
-    // ⛔ You can implement download tracking later here if needed
-    // e.g., monitor the Downloads folder or use browser download path
-
+    await download.saveAs(outPath); // ✅ This is the REAL downloaded file
     await browser.close();
+
+    await postThread({
+      bot,
+      message: `✅ CapCut export complete: ${filename}`,
+    });
 
     return {
       success: true,
-      file: path.join(EXPORT_FOLDER, 'default.mp4'), // placeholder
+      file: outPath,
     };
   } catch (err) {
     console.error('[simulateCapCutUpload] error:', err);
