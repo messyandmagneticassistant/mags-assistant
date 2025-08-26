@@ -4,6 +4,7 @@ import { postThread } from '../../postThread';
 import { simulateUploadViaBrowser } from './upload-methods/simulateUploadViaBrowser';
 import { simulateUploadViaApi } from './upload-methods/simulateUploadViaApi';
 import { runBrowserlessCapCut } from '../clients/runBrowserlessCapCut';
+import { generateFullCaptionBundle } from '../brains/caption-brain';
 
 const RAW_CLIP = process.env.CAPCUT_RAW_FOLDER || 'uploads/maggie/raw/default.mp4';
 const EXPORT_DIR = process.env.CAPCUT_EXPORT_FOLDER || 'uploads/maggie/exported';
@@ -17,6 +18,24 @@ export async function uploadToTikTok(
   const useCapCut = config?.useCapCut !== false;
 
   try {
+    // 🧠 Generate caption, overlay, hashtags, first comment
+    const bundle = await generateFullCaptionBundle({
+      persona: bot.profile,
+      videoTheme: config.videoTheme || 'default chaos',
+      tone: config.tone || 'realistic mom chaos',
+    });
+
+    config.caption = bundle.caption;
+    config.hashtags = bundle.hashtags;
+    config.firstComment = bundle.firstComment;
+    config.overlay = bundle.overlay;
+
+    await postThread({
+      bot,
+      message: `🧠 Caption bundle generated:\n\n${bundle.caption}\n\n#${bundle.hashtags.join(' #')}`,
+    });
+
+    // 🎬 Render video with CapCut if enabled
     if (useCapCut) {
       await postThread({
         bot,
@@ -33,6 +52,7 @@ export async function uploadToTikTok(
       config.videoPath = renderedPath;
     }
 
+    // 📤 Upload to TikTok
     await postThread({
       bot,
       message: `📤 Uploading via ${method}...`,
