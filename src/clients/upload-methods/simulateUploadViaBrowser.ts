@@ -2,10 +2,11 @@ import { BotSession } from '../../types';
 import { runBrowserUploadFlow } from '../../utils/browser-actions';
 
 export async function simulateUploadViaBrowser(
-  bot: BotSession
+  bot: BotSession,
+  config: Record<string, any>
 ): Promise<{ success: boolean; title?: string }> {
   try {
-    const result = await runBrowserUploadFlow(bot);
+    const result = await runBrowserUploadFlow(bot, config);
 
     if (!result?.success) {
       throw new Error('Browser upload failed');
