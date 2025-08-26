@@ -2,21 +2,35 @@ import { task } from 'codex'
 
 task('runMaggie', async ({ log, exec }) => {
   log('🚀 Starting Maggie: Soul Agent + TikTok automation')
-  
-  await exec('pnpm install') // make sure dependencies are installed
-  await exec('pnpm build')   // or whatever your project uses
-  await exec('node src/index.ts') // start the local Maggie logic
 
-  log('✅ Maggie has been started.')
+  try {
+    await exec('pnpm install')
+    await exec('pnpm build') // Replace if you use another build system
+    await exec('node src/index.ts') // Adjust if your Maggie entry is elsewhere
+
+    log('✅ Maggie has been started successfully.')
+  } catch (err) {
+    log('❌ Failed to start Maggie. Run `codex task fixMaggieErrors` to repair.')
+    throw err
+  }
 })
 
 task('fixMaggieErrors', async ({ log, exec }) => {
-  log('🛠️ Fixing Maggie environment errors...')
-  
-  await exec('pnpm install --force')  // reinstall to fix corrupted deps
-  await exec('pnpm dedupe')           // deduplicate versions
-  await exec('pnpm update')           // bring everything up to date
-  await exec('pnpm lint --fix || true') // try auto-fix if you use eslint
+  log('🛠️ Repairing Maggie’s environment...')
 
-  log('✅ Maggie repair complete.')
+  try {
+    await exec('pnpm install --force')
+    await exec('pnpm dedupe')
+    await exec('pnpm update')
+    await exec('pnpm rebuild')
+    await exec('pnpm lint --fix || true')
+    await exec('pnpm dlx dotenv-vault pull || true') // optional secrets pull
+    await exec('pnpm dlx wrangler whoami || true')   // optional Cloudflare check
+    await exec('pnpm dlx wrangler deploy || true')   // optional deploy
+
+    log('✅ Maggie environment successfully repaired.')
+  } catch (err) {
+    log('❌ Error during repair. Check logs and try manual fix.')
+    throw err
+  }
 })
