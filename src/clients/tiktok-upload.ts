@@ -3,7 +3,7 @@ import { postThread } from '../../postThread';
 
 import { simulateUploadViaBrowser } from './upload-methods/simulateUploadViaBrowser';
 import { simulateUploadViaApi } from './upload-methods/simulateUploadViaApi';
-import { processWithCapCut } from './capcut-uploader';
+import { runBrowserlessCapCut } from '../clients/runBrowserlessCapCut';
 
 const RAW_CLIP = process.env.CAPCUT_RAW_FOLDER || 'uploads/maggie/raw/default.mp4';
 const EXPORT_DIR = process.env.CAPCUT_EXPORT_FOLDER || 'uploads/maggie/exported';
@@ -14,23 +14,23 @@ export async function uploadToTikTok(
 ): Promise<{ success: boolean; title?: string }> {
   const useApi = config?.uploadMethod === 'api';
   const method = useApi ? 'API' : 'Browser';
-  const useCapCut = config?.useCapCut !== false; // defaults to true
+  const useCapCut = config?.useCapCut !== false;
 
   try {
     if (useCapCut) {
       await postThread({
         bot,
-        message: '🎬 CapCut enhancement enabled. Processing raw footage...',
+        message: '🎬 CapCut enhancement enabled. Rendering via Browserless...',
       });
 
-      const renderedPath = await processWithCapCut(RAW_CLIP, EXPORT_DIR);
+      const renderedPath = await runBrowserlessCapCut(RAW_CLIP, EXPORT_DIR);
 
       await postThread({
         bot,
-        message: `✨ CapCut rendering complete: ${renderedPath}`,
+        message: `✨ CapCut rendering complete. File ready: ${renderedPath}`,
       });
 
-      config.videoPath = renderedPath; // pass into upload
+      config.videoPath = renderedPath;
     }
 
     await postThread({
