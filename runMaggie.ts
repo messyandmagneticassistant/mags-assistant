@@ -1,13 +1,13 @@
 // runMaggie.ts
 
-import { watchRawFolder } from './maggie/tasks/watch-raw';
-import { scheduleNextPost } from './maggie/tasks/scheduler';
-import { checkForFlops } from './maggie/tasks/retry-flops';
-import { intentParser } from './intent-router';
+import { watchRawFolder } from './bots/maggie/tasks/watch-raw.ts';
+import { scheduleNextPost } from './bots/maggie/tasks/scheduler.ts';
+import { checkForFlops } from './bots/maggie/tasks/retry-flops.ts';
+import { intentParser } from './intent-router.ts';
 
-import { threadStateKey } from '@/config/env';
-import { loadConfigFromKV } from '@/utils/loadConfigFromKV';
-import { agentAct } from './bots/agents/agentbrain';
+import { threadStateKey } from './config/env.ts';
+import { loadConfigFromKV } from './utils/loadConfigFromKV.ts';
+import { agentAct } from './bots/agents/agentbrain.ts';
 
 export interface RunMaggieConfig {
   force?: boolean;
