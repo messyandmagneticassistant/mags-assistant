@@ -5,7 +5,7 @@ import path from 'path';
 import { tgSend } from '../../lib/telegram';
 import { log } from '../shared/logger';
 
-const FLOP_THRESHOLD = 100; // adjust based on your avg views (e.g., 100 = low view count)
+const FLOP_THRESHOLD = 100; // Adjust based on your average views
 
 export async function checkForFlops() {
   log('[flops] Checking for flops...');
@@ -14,12 +14,17 @@ export async function checkForFlops() {
   const retryDir = path.resolve('retry');
 
   try {
+    await fs.mkdir(retryDir, { recursive: true });
     const files = await fs.readdir(flopsDir);
+
+    if (files.length === 0) {
+      log('[flops] No flops detected.');
+      return;
+    }
 
     for (const file of files) {
       const filePath = path.join(flopsDir, file);
 
-      // Simulate detection logic (e.g., views under threshold)
       const { views = 0 } = parseMetadataFromFilename(file);
       if (views < FLOP_THRESHOLD) {
         const retryPath = path.join(retryDir, file);
@@ -27,6 +32,8 @@ export async function checkForFlops() {
 
         log(`[flops] Requeued flop: ${file} (views: ${views})`);
         await tgSend(`🌀 Requeued flop: <b>${file}</b> (views: ${views})`);
+      } else {
+        log(`[flops] Skipped (not flop): ${file} (views: ${views})`);
       }
     }
   } catch (err) {
@@ -35,8 +42,8 @@ export async function checkForFlops() {
   }
 }
 
+// Example: 'sunset-rabbit_54views.mp4' → { views: 54 }
 function parseMetadataFromFilename(filename: string): { views?: number } {
-  // Example: 'my-video_37views.mp4' → { views: 37 }
   const match = filename.match(/_(\d+)views/i);
   return match ? { views: parseInt(match[1], 10) } : {};
 }
