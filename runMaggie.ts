@@ -1,7 +1,8 @@
 // runMaggie.ts
-import { watchRawFolder } from './tasks/watch-raw';
-import { scheduleNextPost } from './tasks/scheduler';
-import { checkForFlops } from './tasks/retry-flops';
+
+import { watchRawFolder } from './maggie/tasks/watch-raw';
+import { scheduleNextPost } from './maggie/tasks/scheduler';
+import { checkForFlops } from './maggie/tasks/retry-flops';
 import { intentParser } from './intent-router';
 
 export interface RunMaggieConfig {
