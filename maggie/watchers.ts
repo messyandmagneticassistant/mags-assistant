@@ -1,8 +1,7 @@
 // maggie/watcher.ts
 
-import { chromium } from 'playwright';
-import readline from 'readline';
-import { sendTelegramMessage } from '../utils/telegram';
+import { tgSend } from '../lib/telegram'; // Optional: Replace with your actual notifier(s)
+import { getConfig } from '../utils/config';
 
 export type HeadfulBrowserOptions = {
   mode: string;
@@ -12,19 +11,9 @@ export type HeadfulBrowserOptions = {
 };
 
 export async function enableHeadfulBrowser(options: HeadfulBrowserOptions): Promise<void> {
-  console.log('[enableHeadfulBrowser] Launching headful browser...', options);
-
-  const browser = await chromium.launch({ headless: false });
-  const page = await browser.newPage();
-
-  await page.goto('https://www.tiktok.com');
-
-  if (options.logScreenshots) {
-    await page.screenshot({ path: 'debug.jpg' });
-    console.log('[enableHeadfulBrowser] Screenshot saved as debug.jpg');
-  }
-
-  await browser.close();
+  console.log('[enableHeadfulBrowser] starting', options);
+  // This is where you'd launch puppeteer/playwright headful instance
+  // (Placeholder, implemented elsewhere in Maggie's browser runner)
 }
 
 export type StatusBlock = {
@@ -44,9 +33,11 @@ export type CreateStatusCardOptions = {
 };
 
 export async function createStatusCard(options: CreateStatusCardOptions): Promise<void> {
-  const msg = `📋 ${options.title}\n` + options.blocks.map(b => `• ${b.label}: ${b.value || '—'}`).join('\n');
-  await sendTelegramMessage(msg);
-  console.log('[createStatusCard] Sent to Telegram ✅');
+  console.log('[createStatusCard] creating', options);
+  // Future: Post to dashboard, Discord embed, Telegram, etc.
+  if (options.notify) {
+    await tgSend(`🧠 Status Card: <b>${options.title}</b>\n\n${options.blocks.map(b => `• <b>${b.label}</b>: ${b.value ?? ''}`).join('\n')}`);
+  }
 }
 
 export type StartAgentConsoleOptions = {
@@ -58,24 +49,8 @@ export type StartAgentConsoleOptions = {
 };
 
 export async function startAgentConsole(options: StartAgentConsoleOptions): Promise<void> {
-  if (!options.allowManualInput) return;
-
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-
-  console.log('🧠 Maggie CLI Console — Type a command:');
-
-  rl.on('line', async (input) => {
-    const command = input.trim();
-    if (command.toLowerCase() === 'exit') {
-      rl.close();
-    } else {
-      await sendTelegramMessage(`🧠 Manual Command: ${command}`);
-      console.log(`➡️ Sent command: ${command}`);
-    }
-  });
+  console.log('[startAgentConsole] launching', options);
+  // Future: Open interactive session for Maggie ops
 }
 
 export type PostLogUpdateOptions = {
@@ -85,7 +60,8 @@ export type PostLogUpdateOptions = {
 };
 
 export async function postLogUpdate(options: PostLogUpdateOptions): Promise<void> {
-  const msg = `🔔 ${options.type.toUpperCase()}:\n${options.message}`;
-  await sendTelegramMessage(msg);
-  console.log('[postLogUpdate] Sent to Telegram ✅');
+  console.log('[postLogUpdate]', options);
+  // Future: post to DB, feed, or chat
+  const ctxText = options.context?.length ? ` (${options.context.join(', ')})` : '';
+  await tgSend(`🔍 <b>${options.type.toUpperCase()}</b>${ctxText}\n${options.message}`);
 }
