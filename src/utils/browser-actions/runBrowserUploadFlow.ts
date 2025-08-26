@@ -14,15 +14,48 @@ export async function runBrowserUploadFlow(
       },
       body: JSON.stringify({
         code: `
+          const path = require('path');
+          const fs = require('fs');
+
           module.exports = async ({ page, context }) => {
-            await page.goto('https://www.tiktok.com/upload', { waitUntil: 'networkidle0' });
-            // Upload logic here (drag/drop video, caption, etc.)
-            // Example: await page.type('textarea', 'My new post 🎉');
-            return { success: true, title: 'Auto-uploaded by Maggie' };
+            const session = context.session;
+            const videoPath = context.videoPath || 'uploads/maggie/exported/default.mp4';
+            const caption = context.caption || '✨ Auto-uploaded by Maggie ✨';
+
+            // Set TikTok cookies/session
+            await page.setCookie(...session.cookies);
+
+            // Navigate to upload page
+            await page.goto('https://www.tiktok.com/upload?lang=en', { waitUntil: 'networkidle' });
+            await page.waitForSelector('input[type="file"]', { timeout: 15000 });
+
+            // Upload the video
+            const input = await page.$('input[type="file"]');
+            await input.setInputFiles(path.resolve(videoPath));
+            await page.waitForTimeout(10000); // Let TikTok process the upload
+
+            // Type the caption
+            const textarea = await page.$('textarea');
+            if (textarea) {
+              await textarea.fill(caption);
+            }
+
+            // Click post
+            const postButton = await page.$('button:has-text("Post")');
+            if (postButton) {
+              await postButton.click();
+            } else {
+              throw new Error('No Post button found.');
+            }
+
+            await page.waitForTimeout(5000);
+            return { success: true, title: caption };
           };
         `,
         context: {
           session: bot.session,
+          videoPath: bot.lastVideoPath || undefined,
+          caption: bot.caption || 'Auto-uploaded by Maggie',
         },
       }),
     });
