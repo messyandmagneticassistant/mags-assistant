@@ -10,16 +10,25 @@
     "lint": "echo 'lint ok'",
     "test": "node -e \"const fs=require('fs');fs.mkdirSync('docs',{recursive:true});const p='docs/.brain.md';if(!fs.existsSync(p))fs.writeFileSync(p,'');\" && vitest run tests/testBrain.test.ts tests/brain-watch.test.ts",
     "build": "echo 'build ok'",
-    "testSECRETS": "if command -v tsx >/dev/null 2>&1; then tsx scripts/testSECRETS.ts; else echo 'testSECRETS skipped'; fi",
+    "format": "prettier --write .",
+
     "maggie": "tsx runMaggie.ts",
+    "dev": "vite",
+
     "maggie:env": "node -r dotenv/config scripts/maggie-env.js",
+    "testSECRETS": "tsx scripts/testSECRETS.ts",
+
     "deploy": "echo '⛴️ Deploy placeholder — replace with wrangler publish, vercel deploy, etc.'",
     "deploy:cli": "npx wrangler deploy",
-    "format": "prettier --write .",
-    "dev": "vite"
+
+    "schedule": "tsx maggie/tasks/scheduler.ts",
+    "watch-raw": "tsx maggie/tasks/watch-raw.ts",
+    "retry-flops": "tsx maggie/tasks/retry-flops.ts"
   },
   "dependencies": {
-    "axios": "^1.6.7"
+    "axios": "^1.6.7",
+    "chokidar": "^3.5.3",
+    "node-cron": "^3.0.3"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.21",
