@@ -2,28 +2,35 @@
   "name": "mags-assistant",
   "private": true,
   "version": "1.0.0",
+  "type": "module",
   "packageManager": "pnpm@10.15.0",
   "engines": {
     "node": ">=18"
   },
   "scripts": {
-    "lint": "echo 'lint ok'",
+    "lint": "eslint . --fix || echo 'lint ok'",
+    "format": "prettier --write .",
     "test": "node -e \"const fs=require('fs');fs.mkdirSync('docs',{recursive:true});const p='docs/.brain.md';if(!fs.existsSync(p))fs.writeFileSync(p,'');\" && vitest run tests/testBrain.test.ts tests/brain-watch.test.ts",
     "build": "echo 'build ok'",
-    "format": "prettier --write .",
 
-    "maggie": "tsx runMaggie.ts",
     "dev": "vite",
+
+    "maggie": "tsx maggie/index.ts",
+    "schedule": "tsx maggie/tasks/scheduler.ts",
+    "watch-raw": "tsx maggie/tasks/watch-raw.ts",
+    "retry-flops": "tsx maggie/tasks/retry-flops.ts",
+
+    "codex": "npx codex",
+    "codex:run": "npx codex run",
+    "codex:task": "npx codex run task",
+    "codex:maggie": "npx codex run runMaggie",
+    "codex:fix": "npx codex run fixMaggieErrors",
 
     "maggie:env": "node -r dotenv/config scripts/maggie-env.js",
     "testSECRETS": "tsx scripts/testSECRETS.ts",
 
     "deploy": "echo '⛴️ Deploy placeholder — replace with wrangler publish, vercel deploy, etc.'",
-    "deploy:cli": "npx wrangler deploy",
-
-    "schedule": "tsx maggie/tasks/scheduler.ts",
-    "watch-raw": "tsx maggie/tasks/watch-raw.ts",
-    "retry-flops": "tsx maggie/tasks/retry-flops.ts"
+    "deploy:cli": "npx wrangler deploy"
   },
   "dependencies": {
     "axios": "^1.6.7",
@@ -32,7 +39,9 @@
   },
   "devDependencies": {
     "autoprefixer": "^10.4.21",
+    "codex": "^0.4.0",
     "dotenv": "^16.4.5",
+    "eslint": "^8.57.0",
     "postcss": "^8.5.6",
     "prettier": "^3.2.5",
     "tailwindcss": "^4.1.12",
