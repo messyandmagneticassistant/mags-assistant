@@ -9,19 +9,23 @@ const TEMPLATE = process.env.CAPCUT_TEMPLATE || 'trending';
 const RAW_FOLDER = process.env.CAPCUT_RAW_FOLDER || 'uploads/maggie/raw';
 const EXPORT_FOLDER = process.env.CAPCUT_EXPORT_FOLDER || 'uploads/maggie/exported';
 
-export async function simulateCapCutUpload(
-  bot: BotSession
-): Promise<{ success: boolean; file?: string }> {
+export async function processWithCapCut(
+  inputFile: string = RAW_FOLDER,
+  outputFolder: string = EXPORT_FOLDER,
+  bot?: BotSession
+): Promise<string> {
   if (!USE_CAPCUT) {
     console.log('[CapCut] Skipped: CAPCUT is disabled in env.');
-    return { success: false };
+    return inputFile;
   }
 
   try {
-    await postThread({
-      bot,
-      message: `🎬 Maggie is using CapCut with the "${TEMPLATE}" template...`,
-    });
+    if (bot) {
+      await postThread({
+        bot,
+        message: `🎬 Maggie is using CapCut with the "${TEMPLATE}" template...`,
+      });
+    }
 
     const browser = await chromium.connectOverCDP({
       wsEndpoint: 'wss://chrome.browserless.io?token=' + process.env.BROWSERLESS_API_KEY,
@@ -40,35 +44,37 @@ export async function simulateCapCutUpload(
     await page.locator('button:has-text("Use template")').click();
     await page.waitForTimeout(5000);
 
-    const files = await fs.readdir(RAW_FOLDER);
+    const files = await fs.readdir(inputFile);
     const firstVideo = files.find((f) => f.endsWith('.mp4') || f.endsWith('.mov'));
     if (!firstVideo) throw new Error('No video file found in raw folder.');
 
     const uploadInput = await page.locator('input[type="file"]').first();
-    await uploadInput.setInputFiles(path.join(RAW_FOLDER, firstVideo));
+    await uploadInput.setInputFiles(path.join(inputFile, firstVideo));
     await page.waitForTimeout(10000);
 
     await page.locator('button:has-text("Export")').click();
     await page.waitForTimeout(10000);
 
-    await postThread({
-      bot,
-      message: `✅ CapCut process completed! File: ${firstVideo}`,
-    });
-
     await browser.close();
 
-    return {
-      success: true,
-      file: path.join(EXPORT_FOLDER, firstVideo),
-    };
-  } catch (err) {
-    console.error('[simulateCapCutUpload] CapCut error:', err);
-    await postThread({
-      bot,
-      message: `❌ CapCut error: ${err.message || err}`,
-    });
+    const finalPath = path.join(outputFolder, firstVideo);
 
-    return { success: false };
+    if (bot) {
+      await postThread({
+        bot,
+        message: `✅ CapCut rendering complete! Saved to: ${finalPath}`,
+      });
+    }
+
+    return finalPath;
+  } catch (err) {
+    console.error('[processWithCapCut] CapCut error:', err);
+    if (bot) {
+      await postThread({
+        bot,
+        message: `❌ CapCut error: ${err.message || err}`,
+      });
+    }
+    return inputFile; // fallback to raw if failed
   }
 }
