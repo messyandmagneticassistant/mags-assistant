@@ -4,7 +4,7 @@ import { postNextVideo } from './post-next';
 import { tgSend } from '../../lib/telegram';
 
 let isRunning = false;
-const POST_INTERVAL_MS = 3 * 60 * 1000; // change this to 1–2 min if you want to go aggressive
+const POST_INTERVAL_MS = 3 * 60 * 1000; // Default: every 3 minutes
 
 export async function scheduleNextPost() {
   if (isRunning) return;
@@ -33,6 +33,6 @@ export async function scheduleNextPost() {
   }
 }
 
-function sleep(ms: number) {
+function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
