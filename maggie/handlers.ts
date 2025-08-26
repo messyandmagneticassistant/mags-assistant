@@ -1,50 +1,71 @@
-// maggie/intent-router.ts
+// maggie/handler.ts
 
-export type IntentDefinition = {
-  pattern: RegExp;
-  intent: string;
-  extract: (text: string) => Record<string, any>;
-};
+import { addCommandRouter, intentParser } from './intent-router';
+import { runMaggie } from './index';
+import { checkForFlops } from './tasks/retry-flops';
+import { scheduleNextPost } from './tasks/scheduler';
+import { postLogsTo } from './intent-router';
 
-class IntentParser {
-  private defs: IntentDefinition[] = [];
-
-  async add(defs: IntentDefinition[]): Promise<void> {
-    this.defs.push(...defs);
-  }
-
-  parse(text: string): { intent: string; data: Record<string, any> } | null {
-    for (const def of this.defs) {
-      if (def.pattern.test(text)) {
-        return { intent: def.intent, data: def.extract(text) };
-      }
+await addCommandRouter({
+  async onIntent(intent, data, ctx) {
+    switch (intent) {
+      case 'runMaggie':
+        await runMaggie({ force: true, ...data });
+        break;
+      case 'retryFlops':
+        await checkForFlops();
+        break;
+      case 'nextPost':
+        await scheduleNextPost();
+        break;
+      case 'log':
+        await postLogsTo(data.targets || []);
+        break;
+      case 'pause':
+        console.log('[maggie] Pause requested.'); // You can implement a shared pause flag if needed
+        break;
+      case 'resume':
+        console.log('[maggie] Resume requested.');
+        break;
+      default:
+        console.warn(`[handler] Unknown intent: ${intent}`);
     }
-    return null;
-  }
-}
+  },
+});
 
-export const intentParser = new IntentParser();
-
-type Router = {
-  onIntent: (intent: string, data: any, ctx: any) => Promise<void> | void;
-};
-
-let router: Router | null = null;
-
-export async function addCommandRouter(r: Router): Promise<void> {
-  router = r;
-}
-
-export async function postLogsTo(...targets: string[]): Promise<void> {
-  console.log('[postLogsTo]', targets.join(', '));
-  // Optional: implement Discord, Telegram, or DB log posting here
-}
-
-export async function dispatch(text: string, ctx: Record<string, any> = {}): Promise<void> {
-  const parsed = intentParser.parse(text);
-  if (parsed && router) {
-    await router.onIntent(parsed.intent, parsed.data, ctx);
-  } else {
-    console.warn(`[intent-router] No matching intent found for text: "${text}"`);
-  }
-}
+// Register trigger phrases
+await intentParser.add([
+  {
+    pattern: /^post\s+now$/i,
+    intent: 'runMaggie',
+    extract: () => ({}),
+  },
+  {
+    pattern: /^retry\s+flops$/i,
+    intent: 'retryFlops',
+    extract: () => ({}),
+  },
+  {
+    pattern: /^next\s+post$/i,
+    intent: 'nextPost',
+    extract: () => ({}),
+  },
+  {
+    pattern: /^pause$/i,
+    intent: 'pause',
+    extract: () => ({}),
+  },
+  {
+    pattern: /^resume$/i,
+    intent: 'resume',
+    extract: () => ({}),
+  },
+  {
+    pattern: /^log\s+to\s+(.+)$/i,
+    intent: 'log',
+    extract: (text) => {
+      const match = text.match(/^log\s+to\s+(.+)$/i);
+      return { targets: match?.[1]?.split(',').map(t => t.trim()) || [] };
+    },
+  },
+]);
