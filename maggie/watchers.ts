@@ -1,3 +1,9 @@
+// maggie/watcher.ts
+
+import { chromium } from 'playwright';
+import readline from 'readline';
+import { sendTelegramMessage } from '../utils/telegram';
+
 export type HeadfulBrowserOptions = {
   mode: string;
   stream?: boolean;
@@ -6,7 +12,19 @@ export type HeadfulBrowserOptions = {
 };
 
 export async function enableHeadfulBrowser(options: HeadfulBrowserOptions): Promise<void> {
-  console.log('[enableHeadfulBrowser] starting', options);
+  console.log('[enableHeadfulBrowser] Launching headful browser...', options);
+
+  const browser = await chromium.launch({ headless: false });
+  const page = await browser.newPage();
+
+  await page.goto('https://www.tiktok.com');
+
+  if (options.logScreenshots) {
+    await page.screenshot({ path: 'debug.jpg' });
+    console.log('[enableHeadfulBrowser] Screenshot saved as debug.jpg');
+  }
+
+  await browser.close();
 }
 
 export type StatusBlock = {
@@ -26,7 +44,9 @@ export type CreateStatusCardOptions = {
 };
 
 export async function createStatusCard(options: CreateStatusCardOptions): Promise<void> {
-  console.log('[createStatusCard] creating', options);
+  const msg = `📋 ${options.title}\n` + options.blocks.map(b => `• ${b.label}: ${b.value || '—'}`).join('\n');
+  await sendTelegramMessage(msg);
+  console.log('[createStatusCard] Sent to Telegram ✅');
 }
 
 export type StartAgentConsoleOptions = {
@@ -38,7 +58,24 @@ export type StartAgentConsoleOptions = {
 };
 
 export async function startAgentConsole(options: StartAgentConsoleOptions): Promise<void> {
-  console.log('[startAgentConsole] launching', options);
+  if (!options.allowManualInput) return;
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  console.log('🧠 Maggie CLI Console — Type a command:');
+
+  rl.on('line', async (input) => {
+    const command = input.trim();
+    if (command.toLowerCase() === 'exit') {
+      rl.close();
+    } else {
+      await sendTelegramMessage(`🧠 Manual Command: ${command}`);
+      console.log(`➡️ Sent command: ${command}`);
+    }
+  });
 }
 
 export type PostLogUpdateOptions = {
@@ -48,5 +85,7 @@ export type PostLogUpdateOptions = {
 };
 
 export async function postLogUpdate(options: PostLogUpdateOptions): Promise<void> {
-  console.log('[postLogUpdate] sending', options);
+  const msg = `🔔 ${options.type.toUpperCase()}:\n${options.message}`;
+  await sendTelegramMessage(msg);
+  console.log('[postLogUpdate] Sent to Telegram ✅');
 }
