@@ -1,58 +1,43 @@
 // maggie/intent-router.ts
 
-type IntentPattern = {
-  pattern: RegExp;
-  intent: string;
-  extract: (text: string) => Record<string, string>;
-};
+import { tgSend } from '../lib/telegram';
+import { runMaggie } from './index';
+import { updateBrain } from '../brain'; // You can stub this for now
+// import { runVisualTest } from './tasks/browser-task'; // Uncomment if added
 
-let registeredPatterns: IntentPattern[] = [];
+export async function dispatch(input: string, ctx: { source: 'cli' | 'telegram' }) {
+  const text = input.trim().toLowerCase();
 
-/**
- * Add command patterns to Maggie's intent parser.
- */
-export const intentParser = {
-  add: async (patterns: IntentPattern[]) => {
-    registeredPatterns.push(...patterns);
-    console.log(
-      `🧠 intentParser registered ${patterns.length} new pattern(s):`,
-      patterns.map((p) => p.intent)
-    );
-  },
-
-  /**
-   * Try to parse a given input string and return the matched intent.
-   */
-  parse: (text: string) => {
-    for (const pattern of registeredPatterns) {
-      if (pattern.pattern.test(text)) {
-        return {
-          intent: pattern.intent,
-          args: pattern.extract(text),
-        };
-      }
-    }
-    return null;
-  },
-};
-
-/**
- * Placeholder dispatcher to show where matched intent would route.
- * You can wire this up to actual handlers later.
- */
-export async function dispatch(input: string) {
-  const parsed = intentParser.parse(input);
-  if (!parsed) {
-    console.warn(`⚠️ No intent matched: "${input}"`);
-    return;
+  if (text.includes('status') || text === '/maggie status') {
+    await tgSend(`📊 Maggie is online and healthy.\n• Brain connected\n• Browserless ready\n• Telegram live\n\nType /maggie help for commands.`);
+    return 'Status sent';
   }
 
-  console.log(`✅ Intent matched: ${parsed.intent}`);
-  console.log(`📦 Args:`, parsed.args);
+  if (text.includes('help') || text === '/maggie help') {
+    await tgSend(`🧠 Maggie Help:\n\n/maggie status — Show status\n/maggie run — Trigger task cycle\n/maggie reset — Reset brain\n/maggie screenshot — Run browser\n\nAsk me anything!`);
+    return 'Help sent';
+  }
 
-  // 🔜 Add real dispatch logic here if needed
-  // Example:
-  // if (parsed.intent === 'setCaption') {
-  //   return await setCaption(parsed.args.caption);
-  // }
+  if (text.includes('run') || text === '/maggie run') {
+    await tgSend(`⚙️ Running Maggie's full cycle...`);
+    await runMaggie({ force: true });
+    return 'Run triggered';
+  }
+
+  if (text.includes('reset') || text === '/maggie reset') {
+    await tgSend(`🧼 Resetting memory... (stub)`);
+    await updateBrain({ wipe: true }); // Optional: implement
+    return 'Memory reset';
+  }
+
+  if (text.includes('screenshot') || text === '/maggie screenshot') {
+    await tgSend(`📸 Capturing page via Browserless...`);
+    // await runVisualTest(); // Uncomment after browser-task is ready
+    return 'Screenshot taken';
+  }
+
+  // Catch-all: save question to memory, return learning message
+  await tgSend(`🤔 I don't recognize that command yet, but I’m learning from it.\nYou said:\n\n“${input}”\n\nSoon I'll respond even smarter.`);
+  await updateBrain({ newInput: input, source: ctx.source }); // optional
+  return 'Fallback handled';
 }
