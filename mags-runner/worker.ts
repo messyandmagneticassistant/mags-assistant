@@ -10,13 +10,20 @@ export default {
   },
 
   // 🌐 Handles external HTTP requests
-  async fetch(request: Request): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    if (url.pathname === "/telegram-webhook") {
-      return handleTelegramWebhook(request);
+    if (request.method === "POST" && url.pathname === "/telegram-webhook") {
+      try {
+        return await handleTelegramWebhook(request);
+      } catch (err) {
+        console.error("[worker] Telegram webhook error:", err);
+        return new Response("Error handling Telegram webhook", { status: 500 });
+      }
     }
 
-    return new Response("🧠 Maggie is running (fetch handler online).");
+    return new Response("🧠 Maggie is online and running.", {
+      headers: { "Content-Type": "text/plain" },
+    });
   }
 };
