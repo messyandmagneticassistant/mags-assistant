@@ -17,7 +17,6 @@ export async function runBrowserUploadFlow(
       body: JSON.stringify({
         code: `
           const path = require('path');
-          const fs = require('fs');
 
           module.exports = async ({ page, context }) => {
             const session = context.session;
@@ -25,25 +24,20 @@ export async function runBrowserUploadFlow(
             const caption = context.caption || '✨ Auto-uploaded by Maggie ✨';
 
             await page.setCookie(...session.cookies);
-
             await page.goto('https://www.tiktok.com/upload?lang=en', { waitUntil: 'networkidle' });
             await page.waitForSelector('input[type="file"]', { timeout: 15000 });
 
             const input = await page.$('input[type="file"]');
+            if (!input) throw new Error('Upload input not found.');
             await input.setInputFiles(path.resolve(videoPath));
             await page.waitForTimeout(10000);
 
             const textarea = await page.$('textarea');
-            if (textarea) {
-              await textarea.fill(caption);
-            }
+            if (textarea) await textarea.fill(caption);
 
             const postButton = await page.$('button:has-text("Post")');
-            if (postButton) {
-              await postButton.click();
-            } else {
-              throw new Error('No Post button found.');
-            }
+            if (!postButton) throw new Error('No Post button found.');
+            await postButton.click();
 
             await page.waitForTimeout(5000);
             return { success: true, title: caption };
@@ -58,14 +52,16 @@ export async function runBrowserUploadFlow(
     });
 
     const result = await response.json();
-
-    if (!result || !result.success) {
-      return { success: false, error: 'Browserless script failed or incomplete' };
+    if (!result?.success) {
+      return { success: false, error: result?.error || 'Browserless script failed or incomplete' };
     }
 
     return result;
   } catch (err) {
     console.error('[runBrowserUploadFlow] Error:', err);
-    return { success: false, error: err.message || 'Unknown error' };
+    return {
+      success: false,
+      error: (err as Error).message || 'Unknown error',
+    };
   }
 }
