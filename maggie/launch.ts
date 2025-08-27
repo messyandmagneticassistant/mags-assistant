@@ -1,9 +1,9 @@
-// maggie/launch.ts
+// 📍 File: maggie/launch.ts
 
 import { loadSecretsFromBlob } from '../utils/loadSecretsFromBlob';
 import { dispatch } from './intent-router';
 import { runMaggie } from './index';
-import { tgSend } from '../lib/telegram'; // Adjust path if needed
+import { reportStatus } from '../lib/reportStatus'; // 🔔 Replaces tgSend
 
 // 🧠 Entry point for Maggie's daily cycle
 async function main() {
@@ -14,16 +14,16 @@ async function main() {
 
     if (input) {
       console.log('[launch] Dispatching input:', input);
-      await tgSend(`🟢 CLI Input Detected: "${input}" — Dispatching now...`);
+      await reportStatus(`🟢 <b>CLI Input Detected</b>: <code>${input}</code> — Dispatching now...`);
       await dispatch(input, { source: 'cli' });
     } else {
       console.log('[launch] No input provided. Running Maggie default cycle...');
-      await tgSend(`⚙️ No input provided — Maggie launching default cycle.`);
+      await reportStatus(`⚙️ <b>No input provided</b> — Maggie launching default cycle.`);
       await runMaggie({ force: false });
     }
   } catch (err) {
     console.error('[launch] Fatal error:', err);
-    await tgSend(`❌ Maggie failed during launch: ${err instanceof Error ? err.message : String(err)}`);
+    await reportStatus(`❌ <b>Maggie failed during launch</b>: <code>${err instanceof Error ? err.message : String(err)}</code>`);
   }
 }
 
