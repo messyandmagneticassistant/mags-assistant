@@ -2,8 +2,17 @@
 
 import { getConfig } from '../utils/config';
 
-export async function tgSend(text: string) {
-  const { botToken, chatId } = await getConfig('telegram');
+/**
+ * Sends a message via Telegram bot to the given chat ID (or default if not provided).
+ * 
+ * @param text - The message to send.
+ * @param customChatId - Optional override for the recipient chat ID.
+ * @returns Telegram API response.
+ */
+export async function tgSend(text: string, customChatId?: string) {
+  const { botToken, chatId: defaultChatId } = await getConfig('telegram');
+  const chatId = customChatId || defaultChatId;
+
   if (!botToken || !chatId) {
     console.warn('[tgSend] Missing Telegram credentials');
     return { ok: false, reason: 'MISSING_TELEGRAM_ENV' };
@@ -40,5 +49,5 @@ export async function tgSend(text: string) {
   }
 }
 
-// Optional alias for semantic clarity
+// Alias for semantic clarity
 export const sendTelegramMessage = tgSend;
