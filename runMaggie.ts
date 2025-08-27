@@ -6,7 +6,7 @@ import { checkForFlops } from './bots/maggie/tasks/retry-flops.ts';
 import { intentParser } from './intent-router.ts';
 
 import { threadStateKey } from './config/env.ts';
-import { loadConfigFromKV } from './utils/loadConfigFromKV.ts';
+import { loadConfigFromKV } from './utils/loadSecretsFromBlob.ts';
 import { agentAct } from './bots/agents/agentbrain.ts';
 
 export interface RunMaggieConfig {
@@ -52,22 +52,30 @@ export async function runMaggie(config: RunMaggieConfig = {}): Promise<void> {
     {
       pattern: /^caption (.+)/i,
       intent: 'setCaption',
-      extract: (text) => ({ caption: text.match(/^caption (.+)/i)?.[1] || '' }),
+      extract: (text) => ({
+        caption: text.match(/^caption (.+)/i)?.[1] || '',
+      }),
     },
     {
       pattern: /^schedule (.+)/i,
       intent: 'schedulePost',
-      extract: (text) => ({ time: text.match(/^schedule (.+)/i)?.[1] || '' }),
+      extract: (text) => ({
+        time: text.match(/^schedule (.+)/i)?.[1] || '',
+      }),
     },
     {
       pattern: /^upload (.+\.mp4)$/i,
       intent: 'uploadVideo',
-      extract: (text) => ({ videoPath: text.match(/^upload (.+\.mp4)$/i)?.[1] || '' }),
+      extract: (text) => ({
+        videoPath: text.match(/^upload (.+\.mp4)$/i)?.[1] || '',
+      }),
     },
     {
       pattern: /^comment (.+)/i,
       intent: 'addComment',
-      extract: (text) => ({ comment: text.match(/^comment (.+)/i)?.[1] || '' }),
+      extract: (text) => ({
+        comment: text.match(/^comment (.+)/i)?.[1] || '',
+      }),
     },
   ]);
 
