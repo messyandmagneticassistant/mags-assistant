@@ -4,7 +4,6 @@ import { watch, appendFileSync } from 'fs';
 import { runMaggieWorkflow } from './runMaggie';
 
 // ========== DEPLOY + CLOUD INFRA ==========
-
 export const HOSTNAME = "https://assistant.messyandmagnetic.com";
 export const CF_ROUTE = "https://assistant.messyandmagnetic.com/*";
 export const CF_ACCOUNT_ID = "5ff52dc210a86ff34a0dd3664bacb237";
@@ -57,7 +56,6 @@ export const Maggie = {
 };
 
 // ========== DEPLOYMENT BRAIN SYNC ==========
-
 export async function loadBrainConfig() {
   try {
     return await getConfig('brain');
