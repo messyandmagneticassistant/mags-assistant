@@ -1,29 +1,30 @@
 // scripts/runAllTasks.ts
 
-import { readTasks } from '../lib/task'
-import { runTaskQueue } from '../lib/codex'
+import { readTasks } from '../lib/task.js'
+import { runTaskQueue } from '../lib/codex.js'
 
-async function runAll() {
+/**
+ * Run all tasks in the task queue using Codex.
+ */
+async function runAllTasks() {
+  console.log('🔁 Loading tasks...')
   const tasks = await readTasks()
 
   if (tasks.length === 0) {
-    console.warn('⚠️ No tasks found to run. You may need to generate them first.')
+    console.log('⚠️ No tasks found in tasks.json')
     return
   }
 
   for (const task of tasks) {
+    console.log(`\n🚀 Running task: ${task.name} (${task.type})`)
     try {
-      console.log(`\n🧠 Running Task: ${task.name}`)
-      const result = await runTaskQueue(task)
-      console.log(`✅ Finished: ${task.name}\nResult:\n${result}`)
-    } catch (error: any) {
-      console.error(`❌ Failed task: ${task.name}`, error.message)
+      await runTaskQueue(task)
+    } catch (err: any) {
+      console.error(`❌ Failed to run task ${task.name}:`, err.message)
     }
   }
 
-  console.log('🎯 All tasks completed.')
+  console.log('\n✅ All tasks complete.')
 }
 
-runAll().catch((err) => {
-  console.error('❌ Fatal error running tasks:', err)
-})
+runAllTasks()
