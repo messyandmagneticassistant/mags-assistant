@@ -8,14 +8,14 @@
     "node": ">=18"
   },
   "scripts": {
-    // --- 🧼 Development Utilities ---
+    // --- 🌿 Development Utilities ---
     "lint": "eslint . --fix || echo 'lint ok'",
     "format": "prettier --write .",
 
     // --- ✅ Tests ---
     "test": "node -e \"const fs=require('fs');fs.mkdirSync('docs',{recursive:true});const p='docs/.brain.md';if(!fs.existsSync(p))fs.writeFileSync(p,'');\" && vitest run tests/testBrain.test.ts tests/brain-watch.test.ts",
 
-    // --- 🚧 Build & Dev ---
+    // --- 🛠️ Build & Dev ---
     "build": "echo 'build ok'",
     "dev": "vite",
 
@@ -27,7 +27,7 @@
 
     // --- 🧠 Codex Agent Commands ---
     "codex": "npx codex",
-    "codex:run": "ts-node scripts/runAllTasks.ts", // 💡 Now correctly linked to task runner
+    "codex:run": "ts-node scripts/runAllTasks.ts",
     "codex:task": "npx codex run task",
     "codex:maggie": "npx codex run runMaggie",
     "codex:fix": "npx codex run fixMaggieErrors",
