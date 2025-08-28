@@ -1,31 +1,10 @@
 {
   "owner_legal_name": "Chanel Christine Marraccini",
   "signature_permission": true,
-  "life_story": [],
-  "trauma_logs": [],
-  "memoir_quotes": [],
-  "grant_notes": [],
-  "land_project_notes": [],
-  "soul_blueprint_products": [],
-  "business_structure": [],
-  "follower_growth_patterns": [],
-  "social_tactics": [],
-  "shadow_boxes": [],
-  "cricut_projects": [],
-  "business_expansions": [],
-  "parenting_setups": [],
-  "grief_triggers": [],
-  "nervous_system_needs": [],
-  "tiktok_strategy": {
-    "last_refresh": null,
-    "notes": [
-      "Next focus: TikTok API integration after blob pipeline is confirmed."
-    ]
-  },
-  "grant_recommendations": [],
-  "memoir_worthy": [],
   "infra_notes": [
-    "Vercel now uses only SECRETS_BLOB (single JSON string with all secrets). App-side loader unpacks SECRETS_BLOB into process.env at runtime. Sync workflow script is simplified and prunes optional envs."
+    "Cloudflare now stores canonical brain in KV under key PostQ:thread-state.",
+    "All secrets are loaded via SECRETS_BLOB unpacking in app boot. Vercel is no longer in use.",
+    "Worker endpoint uses WORKER_URL and WORKER_KEY for push and pull of brain state."
   ],
   "ops_v3_autonomy": {
     "memory_id": "maggie_ops_v3_autonomy",
@@ -39,5 +18,105 @@
       "Spawn micro-agents for trend scraping, price updates, comment moderation, donor emails and inventory syncing.",
       "Send Telegram briefings every 6–12 hours summarizing scheduled posts, flop recoveries, pricing updates, alt activity and tasks."
     ]
+  },
+  "tiktok_strategy": {
+    "last_refresh": null,
+    "notes": [
+      "Next focus: TikTok API integration after blob pipeline is confirmed."
+    ]
+  },
+  "kv_metadata": {
+    "key": "PostQ:thread-state",
+    "worker": "Cloudflare Worker",
+    "base": "{{env.WORKER_URL}}",
+    "auth": "{{env.WORKER_KEY}}",
+    "updated": "{{auto-set in script}}"
+  },
+  "platform_flags": {
+    "vercel_used": false,
+    "cloudflare_used": true,
+    "prefer_free_workarounds": true,
+    "autoPostEnabled": true,
+    "autoFixEnabled": true
+  },
+  "tiktok_profile_map": {
+    "MESSY_MAIN": {
+      "env_session_key": "TIKTOK_SESSION_MAIN",
+      "handle": "@messyandmagnetic"
+    },
+    "WILLOW_ALT": {
+      "env_session_key": "TIKTOK_SESSION_WILLOW",
+      "handle": "@willowhazeltea"
+    },
+    "MAGGIE_ALT": {
+      "env_session_key": "TIKTOK_SESSION_MAGGIE",
+      "handle": "@maggieassistant"
+    },
+    "MARS_ALT": {
+      "env_session_key": "TIKTOK_SESSION_MARS",
+      "handle": "@messy.mars4"
+    }
+  },
+  "enabled_integrations": {
+    "notion": true,
+    "telegram": true,
+    "google": true,
+    "stripe": true,
+    "make": false,
+    "browserless": true,
+    "codex": true,
+    "gemini": true
+  },
+  "key_tracking": [
+    "tiktok.username",
+    "tiktok.deviceId",
+    "tiktok.password",
+    "TIKTOK_SESSION_MAIN",
+    "TIKTOK_SESSION_WILLOW",
+    "TIKTOK_SESSION_MAGGIE",
+    "TIKTOK_SESSION_MARS",
+    "ALT_TIKTOK_EMAIL_1",
+    "ALT_TIKTOK_EMAIL_2",
+    "ALT_TIKTOK_EMAIL_3",
+    "stripe.secretKey",
+    "stripe.webhookSecret",
+    "gpt.apiKey",
+    "gemini.apiKey",
+    "notion.token",
+    "notion.dbId",
+    "telegram.botToken",
+    "telegram.chatId",
+    "make.apiKey",
+    "cloudflare.accountId",
+    "cloudflare.apiToken",
+    "cloudflare.zoneId",
+    "cloudflare.workerName",
+    "browserless.url",
+    "browserless.token",
+    "MAGGIE_BROWSER_MODE",
+    "CRON_SECRET",
+    "API_BASE",
+    "maggie.email",
+    "maggie.password",
+    "SECRETS_BLOB"
+  ],
+  "memory_notes": {
+    "life_story": [],
+    "trauma_logs": [],
+    "memoir_quotes": [],
+    "grant_notes": [],
+    "land_project_notes": [],
+    "soul_blueprint_products": [],
+    "business_structure": [],
+    "follower_growth_patterns": [],
+    "social_tactics": [],
+    "shadow_boxes": [],
+    "cricut_projects": [],
+    "business_expansions": [],
+    "parenting_setups": [],
+    "grief_triggers": [],
+    "nervous_system_needs": [],
+    "grant_recommendations": [],
+    "memoir_worthy": []
   }
 }
