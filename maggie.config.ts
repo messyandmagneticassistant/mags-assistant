@@ -3,19 +3,60 @@ import { getConfig } from './utils/config';
 import { watch, appendFileSync } from 'fs';
 import { runMaggieWorkflow } from './runMaggie';
 
+// ========== DEPLOY + CLOUD INFRA ==========
+
 export const HOSTNAME = "https://assistant.messyandmagnetic.com";
 export const CF_ROUTE = "https://assistant.messyandmagnetic.com/*";
 export const CF_ACCOUNT_ID = "5ff52dc210a86ff34a0dd3664bacb237";
 export const CF_ZONE_ID = "2cfbda5c5f45871836cfcf15285f5f13";
 export const CF_KV_NAMESPACE = "POSTQ";
 
-// Founder + identity metadata
+// ========== OWNER INFO ==========
 export const FOUNDER_FULL_NAME = "Chanel Christine Marraccini";
 export const SIGNATURE_PERMISSION_GRANTED = true;
 export const PRIMARY_EMAIL_IDENTITY = {
   name: "Maggie from Messy & Magnetic™",
   email: "maggie@messyandmagnetic.com",
 };
+
+// ========== CORE TASK STRUCTURE ==========
+export const Maggie = {
+  name: "Maggie",
+  role: "Full-stack assistant running business ops, social media, soul delivery, and donor outreach",
+  brain: "config:brain",
+  tasks: ["soulDelivery", "donorHunt", "socialGrowth", "quizProcessing", "errorMonitor"],
+  schedule: ["@hourly"],
+
+  telegram: {
+    enabled: true,
+    token: process.env.TELEGRAM_BOT_TOKEN,
+    chatId: process.env.TELEGRAM_CHAT_ID,
+  },
+
+  stripe: {
+    enabled: true,
+    secretKey: process.env.STRIPE_SECRET_KEY,
+  },
+
+  notion: {
+    enabled: true,
+    apiKey: process.env.NOTION_API_KEY,
+    databaseId: process.env.NOTION_DB_ID,
+  },
+
+  gmail: {
+    enabled: true,
+    sender: process.env.GMAIL_SENDER,
+    replyTo: "hello@messyandmagnetic.com",
+  },
+
+  sheets: {
+    enabled: true,
+    sheetId: process.env.GOOGLE_SHEET_ID,
+  },
+};
+
+// ========== DEPLOYMENT BRAIN SYNC ==========
 
 export async function loadBrainConfig() {
   try {
@@ -52,7 +93,6 @@ export async function loadBrainConfig() {
   }
 }
 
-// Sync the brain config to Cloudflare after each deploy.
 export async function postDeploy() {
   try {
     await updateBrain({ message: 'Deployed brain configuration sync', tiers: 'Full' });
@@ -61,7 +101,6 @@ export async function postDeploy() {
   }
 }
 
-// Allow manual brain updates to trigger the same sync logic.
 export async function manualBrainUpdate(message: string) {
   try {
     await updateBrain({ message, tiers: 'Lite' });
@@ -70,7 +109,6 @@ export async function manualBrainUpdate(message: string) {
   }
 }
 
-// Watch local brain file and log to posted.log when changes occur
 export function watchBrainFile() {
   try {
     watch('.brain.md', async () => {
