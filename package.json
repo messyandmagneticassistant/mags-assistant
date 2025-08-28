@@ -1,29 +1,42 @@
 {
   "name": "mags-assistant",
-  "private": true,
   "version": "1.0.0",
+  "private": true,
   "type": "module",
   "packageManager": "pnpm@10.15.0",
   "engines": {
     "node": ">=18"
   },
   "scripts": {
+    // --- 🧼 Development Utilities ---
     "lint": "eslint . --fix || echo 'lint ok'",
     "format": "prettier --write .",
+
+    // --- ✅ Tests ---
     "test": "node -e \"const fs=require('fs');fs.mkdirSync('docs',{recursive:true});const p='docs/.brain.md';if(!fs.existsSync(p))fs.writeFileSync(p,'');\" && vitest run tests/testBrain.test.ts tests/brain-watch.test.ts",
+
+    // --- 🚧 Build & Dev ---
     "build": "echo 'build ok'",
     "dev": "vite",
+
+    // --- 🤖 Maggie Main Entrypoints ---
     "maggie": "tsx maggie/index.ts",
     "schedule": "tsx maggie/tasks/scheduler.ts",
     "watch-raw": "tsx maggie/tasks/watch-raw.ts",
     "retry-flops": "tsx maggie/tasks/retry-flops.ts",
+
+    // --- 🧠 Codex Agent Commands ---
     "codex": "npx codex",
-    "codex:run": "npx codex run",
+    "codex:run": "ts-node scripts/runAllTasks.ts", // 💡 Now correctly linked to task runner
     "codex:task": "npx codex run task",
     "codex:maggie": "npx codex run runMaggie",
     "codex:fix": "npx codex run fixMaggieErrors",
+
+    // --- 🔐 Environment Management ---
     "maggie:env": "node -r dotenv/config scripts/maggie-env.js",
     "testSECRETS": "tsx scripts/testSECRETS.ts",
+
+    // --- 🚀 Deployment Placeholders ---
     "deploy": "echo '⛴️ Deploy placeholder — replace with wrangler publish, vercel deploy, etc.'",
     "deploy:cli": "npx wrangler deploy"
   },
