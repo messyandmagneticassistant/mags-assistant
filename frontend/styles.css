@@ -1,0 +1,30 @@
+:root{
+  --bg:#faf7fb;
+  --ink:#333;
+  --muted:#666;
+  --brand:#c08ad6;
+  --card:#ffffffcc;
+  --border:#e8dff2;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Inter,sans-serif}
+a{color:var(--brand);text-decoration:none}
+a:hover{text-decoration:underline}
+.site-header,.site-footer{max-width:980px;margin:0 auto;padding:18px}
+.site-header h1{margin:0 0 6px 0;font-weight:700;letter-spacing:.3px}
+nav a{margin-right:14px;font-weight:600}
+.container{max-width:980px;margin:0 auto;padding:0 18px 40px}
+.tagline{color:var(--muted);margin:8px 0 18px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px}
+.card{background:var(--card);backdrop-filter:saturate(140%) blur(6px);border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:0 6px 18px rgba(0,0,0,.04)}
+.card img{width:100%;height:180px;object-fit:cover;background:#f2eaf7}
+.card-body{padding:12px 14px}
+.card h3{margin:2px 0 8px 0;font-size:18px}
+.card p{margin:0 0 10px 0;color:var(--muted);font-size:14px;line-height:1.35}
+.meta{display:flex;align-items:center;justify-content:space-between}
+.price{font-weight:700}
+.buy{appearance:none;border:none;background:var(--brand);color:#fff;padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer}
+.buy:disabled{opacity:.6;cursor:not-allowed}
+.empty{padding:18px;text-align:center;color:var(--muted)}
+input,select,button{font:inherit}
+label{display:block;margin:8px 0 4px}
