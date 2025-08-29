@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Donate • Messy & Magnetic</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="stylesheet" href="./styles.css"/>
+</head>
+<body>
+<header class="site-header">
+  <h1>Donate to Coyote Commons</h1>
+  <nav>
+    <a href="/index.html">Farm Stand</a>
+    <a href="/blueprint.html">Soul Blueprint</a>
+  </nav>
+</header>
+
+<main class="container">
+  <p class="tagline">Help fund the retreat land, scholarships, and community kits.</p>
+
+  <form id="donateForm" class="card" style="padding:16px;">
+    <label>Amount (USD)</label>
+    <input id="amount" type="number" min="5" step="1" value="25" required style="width:100%;padding:10px;margin:6px 0 12px;"/>
+
+    <label>Designation</label>
+    <select id="designation" style="width:100%;padding:10px;margin:6px 0 16px;">
+      <option value="general">General Fund</option>
+      <option value="land">Land Purchase</option>
+      <option value="guest">Guest Scholarships</option>
+      <option value="kids-camp">Kids Camp Buildout</option>
+    </select>
+
+    <button id="donateBtn" class="buy">Donate</button>
+  </form>
+</main>
+
+<footer class="site-footer">
+  <p>© Messy & Magnetic™</p>
+</footer>
+
+<script>
+  const WEBAPP_URL = 'https://maggie.messyandmagnetic.com/api/appscript';
+
+  document.getElementById('donateForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('donateBtn');
+    btn.disabled = true; btn.textContent = 'Creating checkout…';
+    const amount = parseInt(document.getElementById('amount').value, 10);
+    const dest = document.getElementById('designation').value;
+    try {
+      const r = await fetch(`${WEBAPP_URL}?cmd=donate-checkout&amount=${amount}&designation=${encodeURIComponent(dest)}`);
+      const j = await r.json();
+      if (j && j.url) window.location.href = j.url;
+      else alert('Could not create donation session.');
+    } catch {
+      alert('Network error.');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Donate';
+    }
+  });
+</script>
+</body>
+</html>
