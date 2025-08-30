@@ -1,0 +1,102 @@
+// worker/worker.ts  — PUBLIC worker (serves your domain)
+
+import { handleTelegramWebhook } from '../src/handlers/telegram';
+import { runMaggie } from '../maggie/index';
+
+export interface Env {
+  POSTQ: KVNamespace;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  NOTION_API_KEY?: string;
+  NOTION_DB_ID?: string;
+  TELEGRAM_BOT_TOKEN?: string;
+  TELEGRAM_CHAT_ID?: string;
+  OPENAI_API_KEY?: string;
+}
+
+const APPS_SCRIPT_EXEC =
+  'https://script.google.com/macros/s/AKfycbx4p2_JKlcnm7qgSohthqWqzEw5-Rtb4i5uf54opLEIbgrA2zCd1pMBT77ijZKpr55o/exec';
+
+function cors(extra: Record<string, string> = {}) {
+  return {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type,Authorization,Stripe-Signature',
+    ...extra,
+  };
+}
+
+async function proxyAppsScript(request: Request, url: URL) {
+  const target = new URL(APPS_SCRIPT_EXEC);
+  target.search = url.search;
+  const init: RequestInit = { method: request.method, headers: {} };
+  const ct = request.headers.get('content-type');
+  if (ct) (init.headers as any)['content-type'] = ct;
+  if (!['GET', 'HEAD'].includes(request.method)) init.body = await request.arrayBuffer();
+  const r = await fetch(target.toString(), init);
+  const body = await r.arrayBuffer();
+  const h = new Headers(r.headers);
+  Object.entries(cors()).forEach(([k, v]) => h.set(k, v));
+  return new Response(body, { status: r.status, headers: h });
+}
+
+export default {
+  // optional: still run your loop on cron even from public worker
+  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(runMaggie({ force: false }));
+    ctx.waitUntil(fetch(`${APPS_SCRIPT_EXEC}?cmd=pulse`).catch(() => {}));
+  },
+
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+    if (request.method === 'OPTIONS') return new Response('ok', { headers: cors() });
+
+    if (url.pathname === '/' || url.pathname === '/index.html') {
+      return new Response('🧠 Maggie is online — try /health', {
+        headers: { 'content-type': 'text/plain', ...cors() },
+      });
+    }
+
+    if (url.pathname === '/health') {
+      // basic KV sanity check
+      const key = `health:${Date.now()}`;
+      let kv = { write: false, read: false };
+      try {
+        await env.POSTQ.put(key, 'ok', { expirationTtl: 60 });
+        kv = { write: true, read: (await env.POSTQ.get(key)) === 'ok' };
+      } catch (e) {}
+      return new Response(
+        JSON.stringify(
+          {
+            ok: kv.write && kv.read,
+            service: 'maggie-worker',
+            kv,
+            bindings: {
+              POSTQ: !!env.POSTQ,
+              STRIPE_SECRET_KEY: !!env.STRIPE_SECRET_KEY,
+              NOTION_API_KEY: !!env.NOTION_API_KEY,
+              TELEGRAM_BOT_TOKEN: !!env.TELEGRAM_BOT_TOKEN,
+            },
+          },
+          null,
+          2
+        ),
+        { headers: { 'content-type': 'application/json', ...cors() } }
+      );
+    }
+
+    if (url.pathname.startsWith('/api/appscript')) {
+      return proxyAppsScript(request, url);
+    }
+
+    if (request.method === 'POST' && url.pathname === '/telegram-webhook') {
+      try {
+        return await handleTelegramWebhook(request);
+      } catch (e) {
+        return new Response('Telegram error', { status: 500, headers: cors() });
+      }
+    }
+
+    return new Response('Not found', { status: 404, headers: cors() });
+  },
+};
