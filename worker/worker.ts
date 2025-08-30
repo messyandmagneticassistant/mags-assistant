@@ -1,4 +1,4 @@
-// worker/worker.ts  — PUBLIC worker (serves your domain)
+// worker/worker.ts — PUBLIC worker (serves your domain)
 
 import { handleTelegramWebhook } from '../src/handlers/telegram';
 import { runMaggie } from '../maggie/index';
@@ -41,13 +41,12 @@ async function proxyAppsScript(request: Request, url: URL) {
 }
 
 export default {
-  // optional: still run your loop on cron even from public worker
-  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext) {
+  async scheduled(_e: ScheduledController, _env: Env, ctx: ExecutionContext) {
     ctx.waitUntil(runMaggie({ force: false }));
     ctx.waitUntil(fetch(`${APPS_SCRIPT_EXEC}?cmd=pulse`).catch(() => {}));
   },
 
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === 'OPTIONS') return new Response('ok', { headers: cors() });
 
@@ -58,13 +57,12 @@ export default {
     }
 
     if (url.pathname === '/health') {
-      // basic KV sanity check
       const key = `health:${Date.now()}`;
       let kv = { write: false, read: false };
       try {
         await env.POSTQ.put(key, 'ok', { expirationTtl: 60 });
         kv = { write: true, read: (await env.POSTQ.get(key)) === 'ok' };
-      } catch (e) {}
+      } catch {}
       return new Response(
         JSON.stringify(
           {
@@ -92,7 +90,7 @@ export default {
     if (request.method === 'POST' && url.pathname === '/telegram-webhook') {
       try {
         return await handleTelegramWebhook(request);
-      } catch (e) {
+      } catch {
         return new Response('Telegram error', { status: 500, headers: cors() });
       }
     }
