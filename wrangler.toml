@@ -1,17 +1,13 @@
-# Cloudflare Workers configuration
-
 name = "mags-assistant"
 main = "worker/worker.ts"
 account_id = "5ff52dc210a86ff34a0dd3664bacb237"
 compatibility_date = "2024-08-01"
-
 workers_dev = false
 
 kv_namespaces = [
   { binding = "POSTQ", id = "1b8cbbc4a2f8426194368cb39baded79" }
 ]
 
-# Use `routes` array; put zone_id here (not top-level)
 routes = [
   { pattern = "maggie.messyandmagnetic.com/*", zone_id = "2cfbda5c5f45871836cfcf15285f5f13" }
 ]
