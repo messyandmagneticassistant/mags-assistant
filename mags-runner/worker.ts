@@ -1,8 +1,20 @@
-// worker.ts (final)
-import { handleTelegramWebhook } from './src/handlers/telegram';
-import { runMaggie } from './maggie/index';
+// mags-runner/worker.ts — CRON worker
 
-// 👇 paste your Apps Script Web App URL here once
+import { handleTelegramWebhook } from '../src/handlers/telegram';
+import { runMaggie } from '../maggie/index';
+
+export interface Env {
+  POSTQ: KVNamespace;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  NOTION_API_KEY?: string;
+  NOTION_DB_ID?: string;
+  TELEGRAM_BOT_TOKEN?: string;
+  TELEGRAM_CHAT_ID?: string;
+  OPENAI_API_KEY?: string;
+}
+
+// 👇 Apps Script Web App URL
 const APPS_SCRIPT_EXEC =
   'https://script.google.com/macros/s/AKfycbx4p2_JKlcnm7qgSohthqWqzEw5-Rtb4i5uf54opLEIbgrA2zCd1pMBT77ijZKpr55o/exec';
 
@@ -37,47 +49,43 @@ async function proxyAppsScript(request: Request, url: URL) {
 }
 
 export default {
-  // 🔁 Cron (set in Cloudflare → Triggers) e.g. every 10 min
+  // 🔁 Cron (Cloudflare → Triggers) e.g. every 10 min
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext) {
     console.log('⏰ mags-runner tick at', event.cron);
     // 1) run Maggie loop
     ctx.waitUntil(runMaggie({ force: false }));
-    // 2) gently ping Apps Script (keeps sheet sync / donor wave / etc. alive if you wire pulse)
+    // 2) ping Apps Script (optional)
     ctx.waitUntil(fetch(`${APPS_SCRIPT_EXEC}?cmd=pulse`).catch(() => {}));
   },
 
-  // 🌐 HTTP
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  // 🌐 Optional HTTP (handy for workers.dev tests)
+  async fetch(request: Request, _env: Env): Promise<Response> {
     const url = new URL(request.url);
 
     if (request.method === 'OPTIONS') {
       return new Response('ok', { headers: cors() });
     }
 
-    // Health
     if (url.pathname === '/health') {
-      return new Response(JSON.stringify({ ok: true, service: 'maggie-worker' }), {
+      return new Response(JSON.stringify({ ok: true, service: 'mags-runner' }), {
         headers: { 'content-type': 'application/json', ...cors() },
       });
     }
 
-    // Forward to Apps Script
     if (url.pathname.startsWith('/api/appscript')) {
       return proxyAppsScript(request, url);
     }
 
-    // Telegram webhook (POST /telegram-webhook)
     if (request.method === 'POST' && url.pathname === '/telegram-webhook') {
       try {
         return await handleTelegramWebhook(request);
       } catch (err) {
-        console.error('[worker] Telegram webhook error:', err);
+        console.error('[runner] Telegram webhook error:', err);
         return new Response('Error handling Telegram webhook', { status: 500 });
       }
     }
 
-    // Default
-    return new Response('🧠 Maggie is online and running.', {
+    return new Response('mags-runner online', {
       headers: { 'Content-Type': 'text/plain', ...cors() },
     });
   },
