@@ -17,3 +17,8 @@ jobs:
         run: |
           echo "Checking Maggie runner worker..."
           curl -sS https://mags-runner.messyandmagnetic.workers.dev/health || exit 1
+
+      - name: TikTok ping (Browserless session check)
+        run: |
+          echo "Pinging TikTok Browserless endpoint..."
+          curl -sS "https://maggie.messyandmagnetic.com/tasks/tiktok/ping?key=${{ secrets.WORKER_CRON_KEY }}" || exit 1
