@@ -1,39 +1,14 @@
-// worker/worker.ts — PUBLIC worker (serves your domain; Cloudflare-safe)
+// worker/worker.ts — PUBLIC worker (KV-blob config via POSTQ["thread-state"])
 //
-// Keep heavy/Node-only logic in mags-runner/.
-// This public worker stays lean: health, Apps Script proxy, Telegram webhook, CORS,
-// + TikTok/Browserless test + trigger endpoints.
+// Keeps public worker lean: health, Apps Script proxy, Telegram webhook,
+// + TikTok/Browserless ping + trigger. All config comes from a single KV JSON blob.
+//
+// IMPORTANT: The KV namespace binding is POSTQ. The key inside the namespace is "thread-state".
 
 import { handleTelegramCommand } from '../src/telegram/handleCommand';
 
 export interface Env {
   POSTQ: KVNamespace;
-
-  // Optional secrets/bindings you may have set
-  STRIPE_SECRET_KEY?: string;
-  STRIPE_WEBHOOK_SECRET?: string;
-  NOTION_API_KEY?: string;
-  NOTION_DB_ID?: string;
-  TELEGRAM_BOT_TOKEN?: string;
-  TELEGRAM_CHAT_ID?: string;
-  OPENAI_API_KEY?: string;
-
-  // TikTok / Browserless / CapCut
-  BROWSERLESS_API_KEY?: string;
-  BROWSERLESS_BASE_URL?: string; // default to https://chrome.browserless.io if empty
-
-  TIKTOK_SESSION_MAIN?: string;
-  TIKTOK_SESSION_WILLOW?: string;
-  TIKTOK_SESSION_MAGGIE?: string;
-  TIKTOK_SESSION_MARS?: string;
-
-  TIKTOK_PROFILE_MAIN?: string;
-  TIKTOK_PROFILE_WILLOW?: string;
-  TIKTOK_PROFILE_MAGGIE?: string;
-  TIKTOK_PROFILE_MARS?: string;
-
-  // Gate for manual/cron triggers
-  WORKER_CRON_KEY?: string;
 }
 
 const APPS_SCRIPT_EXEC =
@@ -47,74 +22,55 @@ function cors(extra: Record<string, string> = {}) {
       'Content-Type,Authorization,Stripe-Signature,X-Requested-With',
     ...extra,
   };
-{
-  "name": "mags-assistant",
-  "version": "1.0.0",
-  "private": true,
-  "type": "module",
-  "packageManager": "pnpm@10.15.0",
-  "engines": {
-    "node": ">=18"
-  },
-  "scripts": {
-    "lint": "eslint . --fix || echo lint ok",
-    "format": "prettier --write .",
-    "test": "node -e \"const fs=require('fs');fs.mkdirSync('docs',{recursive:true});const p='docs/.brain.md';if(!fs.existsSync(p))fs.writeFileSync(p,'');\" && vitest run tests/testBrain.test.ts tests/brain-watch.test.ts",
-    "build": "echo build ok",
-    "dev": "vite",
-
-    "// --- Maggie tasks ---": "--------------------------------------------",
-    "maggie": "tsx maggie/index.ts",
-    "schedule": "tsx maggie/tasks/scheduler.ts",
-    "watch-raw": "tsx maggie/tasks/watch-raw.ts",
-    "retry-flops": "tsx maggie/tasks/retry-flops.ts",
-
-    "// --- Agents / Codex helpers ---": "----------------------------------",
-    "codex": "npx codex",
-    "codex:run": "ts-node scripts/runAllTasks.ts",
-    "codex:task": "npx codex run task",
-    "codex:maggie": "npx codex run runMaggie",
-    "codex:fix": "npx codex run fixMaggieErrors",
-
-    "// --- Env + diagnostics ---": "--------------------------------------",
-    "maggie:env": "node -r dotenv/config scripts/maggie-env.js",
-    "testSECRETS": "tsx scripts/testSECRETS.ts",
-    "diag:tiktok": "node -r dotenv/config scripts/diag-tiktok.ts",
-
-    "// --- Deploy & logs (Workers) ---": "---------------------------------",
-    "deploy:public": "npx wrangler deploy -c wrangler.toml",
-    "deploy:runner": "npx wrangler deploy -c mags-runner/wrangler.toml",
-    "deploy": "npm run deploy:public && npm run deploy:runner",
-    "tail:public": "npx wrangler tail -c wrangler.toml",
-    "tail:runner": "npx wrangler tail -c mags-runner/wrangler.toml",
-
-    "// --- Quality-of-life sync buttons ---": "----------------------------",
-    "sync:pull": "git pull --rebase origin main",
-    "sync:push": "git add -A && git commit -m \"update\" || echo \"(no changes)\" && git push origin main",
-    "save-deploy": "npm run sync:pull && npm run deploy",
-    "pull-deploy": "git pull origin main && npm run deploy"
-  },
-  "dependencies": {
-    "axios": "^1.6.7",
-    "chokidar": "^3.5.3",
-    "node-cron": "^3.0.3"
-  },
-  "devDependencies": {
-    "autoprefixer": "^10.4.21",
-    "codex": "^0.2.3",
-    "dotenv": "^16.4.5",
-    "eslint": "^8.57.0",
-    "postcss": "^8.5.6",
-    "prettier": "^3.2.5",
-    "tailwindcss": "^4.1.12",
-    "ts-node": "^10.9.2",
-    "tsx": "^3.14.0",
-    "typescript": "^5.4.0",
-    "vite": "^7.1.3",
-    "vitest": "^1.3.1",
-    "wrangler": "^4.33.1"
-  }
 }
+
+/* ---------------- KV blob loader with short cache ---------------- */
+
+type MaggieConfig = {
+  OPENAI_API_KEY?: string;
+  BROWSERLESS_API_KEY?: string;
+  BROWSERLESS_BASE_URL?: string;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  NOTION_API_KEY?: string;
+  TELEGRAM_BOT_TOKEN?: string;
+  TELEGRAM_CHAT_ID?: string;
+
+  WORKER_CRON_KEY?: string;
+
+  TIKTOK_SESSION_MAIN?: string;
+  TIKTOK_SESSION_WILLOW?: string;
+  TIKTOK_SESSION_MAGGIE?: string;
+  TIKTOK_SESSION_MARS?: string;
+
+  TIKTOK_PROFILE_MAIN?: string;
+  TIKTOK_PROFILE_WILLOW?: string;
+  TIKTOK_PROFILE_MAGGIE?: string;
+  TIKTOK_PROFILE_MARS?: string;
+
+  USE_CAPCUT?: string;      // "true"/"false"
+  CAPCUT_TEMPLATE?: string; // e.g. "trending"
+};
+
+const BLOB_KEY = 'thread-state'; // <— your KV blob key
+let _cachedBlob: MaggieConfig | null = null;
+let _cachedAt = 0;
+const CACHE_MS = 60_000; // 60s
+
+async function getBlob(env: Env): Promise<MaggieConfig> {
+  const now = Date.now();
+  if (_cachedBlob && now - _cachedAt < CACHE_MS) return _cachedBlob;
+  const json = await env.POSTQ.get(BLOB_KEY, 'json').catch(() => null);
+  _cachedBlob = (json as MaggieConfig) || {};
+  _cachedAt = now;
+  return _cachedBlob!;
+}
+
+/* ---------------- Helpers ---------------- */
+
+function okAuth(url: URL, cfg: MaggieConfig) {
+  const key = url.searchParams.get('key');
+  return !!key && key === (cfg.WORKER_CRON_KEY || '');
 }
 
 /** Transparent proxy to your Apps Script Web App */
@@ -140,7 +96,6 @@ async function proxyAppsScript(request: Request, url: URL) {
 /** Minimal Telegram webhook: adapts your src/telegram/handleCommand(text) */
 async function handleTelegramWebhook(request: Request): Promise<Response> {
   try {
-    // Telegram sends JSON updates; prefer JSON but fall back to raw text just in case
     let text: string | undefined;
     const ct = request.headers.get('content-type') || '';
     if (ct.includes('application/json')) {
@@ -150,11 +105,7 @@ async function handleTelegramWebhook(request: Request): Promise<Response> {
     } else {
       text = (await request.text()).trim();
     }
-
-    if (!text) {
-      return new Response('ok', { headers: cors() }); // nothing to do
-    }
-
+    if (!text) return new Response('ok', { headers: cors() });
     await handleTelegramCommand(text);
     return new Response('ok', { headers: cors() });
   } catch (e) {
@@ -163,13 +114,10 @@ async function handleTelegramWebhook(request: Request): Promise<Response> {
   }
 }
 
-function authed(url: URL, env: Env) {
-  const key = url.searchParams.get('key');
-  return key && env.WORKER_CRON_KEY && key === env.WORKER_CRON_KEY;
-}
+/* ---------------- Worker entry ---------------- */
 
 export default {
-  // Light cron (optional): ping Apps Script to keep flows warm
+  // optional warm ping
   async scheduled(_e: ScheduledController, _env: Env, ctx: ExecutionContext) {
     ctx.waitUntil(fetch(`${APPS_SCRIPT_EXEC}?cmd=pulse`).catch(() => {}));
   },
@@ -185,32 +133,56 @@ export default {
       });
     }
 
-    // Health (KV read/write + bindings snapshot)
+    // Health (KV read/write + blob presence only)
     if (url.pathname === '/health') {
       const key = `health:${Date.now()}`;
-      let write = false, read = false;
+      let write = false, read = false, blobOk = false;
       try {
         await env.POSTQ.put(key, 'ok', { expirationTtl: 60 });
         write = true;
         read = (await env.POSTQ.get(key)) === 'ok';
       } catch {}
+      try {
+        const blob = await getBlob(env);
+        blobOk = !!blob && typeof blob === 'object';
+      } catch {}
       const payload = {
-        ok: write && read,
+        ok: write && read && blobOk,
         service: 'maggie-public-worker',
-        kv: { write, read },
-        bindings: {
-          POSTQ: !!env.POSTQ,
-          STRIPE_SECRET_KEY: !!env.STRIPE_SECRET_KEY,
-          NOTION_API_KEY: !!env.NOTION_API_KEY,
-          TELEGRAM_BOT_TOKEN: !!env.TELEGRAM_BOT_TOKEN,
-          TELEGRAM_CHAT_ID: !!env.TELEGRAM_CHAT_ID,
-          OPENAI_API_KEY: !!env.OPENAI_API_KEY,
-          BROWSERLESS_API_KEY: !!env.BROWSERLESS_API_KEY,
-          WORKER_CRON_KEY: !!env.WORKER_CRON_KEY,
-        },
+        kv: { write, read, thread_state_present: blobOk },
         ts: new Date().toISOString(),
       };
       return new Response(JSON.stringify(payload, null, 2), {
+        headers: { 'content-type': 'application/json', ...cors() },
+      });
+    }
+
+    // Non-secret diag (booleans only)
+    if (url.pathname === '/diag/config') {
+      const cfg = await getBlob(env);
+      const mask = (k: keyof MaggieConfig) => !!(cfg[k] && String(cfg[k]).trim().length);
+      const present = {
+        OPENAI_API_KEY: mask('OPENAI_API_KEY'),
+        BROWSERLESS_API_KEY: mask('BROWSERLESS_API_KEY'),
+        BROWSERLESS_BASE_URL: mask('BROWSERLESS_BASE_URL'),
+        STRIPE_SECRET_KEY: mask('STRIPE_SECRET_KEY'),
+        STRIPE_WEBHOOK_SECRET: mask('STRIPE_WEBHOOK_SECRET'),
+        NOTION_API_KEY: mask('NOTION_API_KEY'),
+        TELEGRAM_BOT_TOKEN: mask('TELEGRAM_BOT_TOKEN'),
+        TELEGRAM_CHAT_ID: mask('TELEGRAM_CHAT_ID'),
+        WORKER_CRON_KEY: mask('WORKER_CRON_KEY'),
+        TIKTOK_SESSION_MAIN: mask('TIKTOK_SESSION_MAIN'),
+        TIKTOK_SESSION_WILLOW: mask('TIKTOK_SESSION_WILLOW'),
+        TIKTOK_SESSION_MAGGIE: mask('TIKTOK_SESSION_MAGGIE'),
+        TIKTOK_SESSION_MARS: mask('TIKTOK_SESSION_MARS'),
+        TIKTOK_PROFILE_MAIN: mask('TIKTOK_PROFILE_MAIN'),
+        TIKTOK_PROFILE_WILLOW: mask('TIKTOK_PROFILE_WILLOW'),
+        TIKTOK_PROFILE_MAGGIE: mask('TIKTOK_PROFILE_MAGGIE'),
+        TIKTOK_PROFILE_MARS: mask('TIKTOK_PROFILE_MARS'),
+        USE_CAPCUT: mask('USE_CAPCUT'),
+        CAPCUT_TEMPLATE: mask('CAPCUT_TEMPLATE'),
+      };
+      return new Response(JSON.stringify({ ok: true, present }, null, 2), {
         headers: { 'content-type': 'application/json', ...cors() },
       });
     }
@@ -220,20 +192,22 @@ export default {
       return proxyAppsScript(request, url);
     }
 
-    // Telegram webhook endpoint
+    // Telegram webhook
     if (request.method === 'POST' && url.pathname === '/telegram-webhook') {
       return handleTelegramWebhook(request);
     }
 
-    // -------- TikTok / Browserless diagnostics & trigger --------
+    // -------- TikTok / Browserless: ping & post from KV blob --------
 
     // 1) Browserless connectivity ping
     if (url.pathname === '/tasks/tiktok/ping') {
-      if (!authed(url, env)) return new Response('unauthorized', { status: 401, headers: cors() });
-      const base = env.BROWSERLESS_BASE_URL || 'https://chrome.browserless.io';
+      const cfg = await getBlob(env);
+      if (!okAuth(url, cfg)) return new Response('unauthorized', { status: 401, headers: cors() });
+
+      const base = cfg.BROWSERLESS_BASE_URL || 'https://chrome.browserless.io';
       try {
         const r = await fetch(`${base}/sessions`, {
-          headers: { 'x-api-key': String(env.BROWSERLESS_API_KEY || '') },
+          headers: { 'x-api-key': String(cfg.BROWSERLESS_API_KEY || '') },
         });
         return new Response(JSON.stringify({ ok: r.ok, status: r.status, base }), {
           headers: { 'content-type': 'application/json', ...cors() },
@@ -248,22 +222,23 @@ export default {
 
     // 2) Trigger a TikTok post (dry or live)
     if (url.pathname === '/tasks/tiktok/post') {
-      if (!authed(url, env)) return new Response('unauthorized', { status: 401, headers: cors() });
+      const cfg = await getBlob(env);
+      if (!okAuth(url, cfg)) return new Response('unauthorized', { status: 401, headers: cors() });
 
       const profile = url.searchParams.get('profile') ?? 'maggie'; // main | willow | maggie | mars
       const dryRun = url.searchParams.get('dry') === '1';
 
       const sessions: Record<string, string | undefined> = {
-        main: env.TIKTOK_SESSION_MAIN,
-        willow: env.TIKTOK_SESSION_WILLOW,
-        maggie: env.TIKTOK_SESSION_MAGGIE,
-        mars: env.TIKTOK_SESSION_MARS,
+        main: cfg.TIKTOK_SESSION_MAIN,
+        willow: cfg.TIKTOK_SESSION_WILLOW,
+        maggie: cfg.TIKTOK_SESSION_MAGGIE,
+        mars: cfg.TIKTOK_SESSION_MARS,
       };
       const handles: Record<string, string | undefined> = {
-        main: env.TIKTOK_PROFILE_MAIN,
-        willow: env.TIKTOK_PROFILE_WILLOW,
-        maggie: env.TIKTOK_PROFILE_MAGGIE,
-        mars: env.TIKTOK_PROFILE_MARS,
+        main: cfg.TIKTOK_PROFILE_MAIN,
+        willow: cfg.TIKTOK_PROFILE_WILLOW,
+        maggie: cfg.TIKTOK_PROFILE_MAGGIE,
+        mars: cfg.TIKTOK_PROFILE_MARS,
       };
 
       const session = sessions[profile];
@@ -277,13 +252,13 @@ export default {
       }
 
       // optional Browserless sanity check
-      const base = env.BROWSERLESS_BASE_URL || 'https://chrome.browserless.io';
+      const base = cfg.BROWSERLESS_BASE_URL || 'https://chrome.browserless.io';
       const ping = await fetch(`${base}/sessions`, {
-        headers: { 'x-api-key': String(env.BROWSERLESS_API_KEY || '') },
+        headers: { 'x-api-key': String(cfg.BROWSERLESS_API_KEY || '') },
       });
 
-      // 👉 place your real routine call here if you want it live now
-      // e.g.: await postTikTok({ session, handle, dryRun, browserlessKey: env.BROWSERLESS_API_KEY!, base });
+      // 👉 put your real post function here when ready:
+      // await postTikTok({ session, handle, dryRun, browserlessKey: cfg.BROWSERLESS_API_KEY!, base });
 
       return new Response(
         JSON.stringify(
@@ -295,7 +270,7 @@ export default {
             browserless: ping.ok,
             note: dryRun
               ? 'dry run; integrate your real TikTok routine where indicated'
-              : 'trigger accepted; tail logs to watch execution',
+              : 'trigger accepted; tail logs to follow execution',
           },
           null,
           2
