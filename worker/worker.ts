@@ -47,6 +47,74 @@ function cors(extra: Record<string, string> = {}) {
       'Content-Type,Authorization,Stripe-Signature,X-Requested-With',
     ...extra,
   };
+{
+  "name": "mags-assistant",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.15.0",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "lint": "eslint . --fix || echo lint ok",
+    "format": "prettier --write .",
+    "test": "node -e \"const fs=require('fs');fs.mkdirSync('docs',{recursive:true});const p='docs/.brain.md';if(!fs.existsSync(p))fs.writeFileSync(p,'');\" && vitest run tests/testBrain.test.ts tests/brain-watch.test.ts",
+    "build": "echo build ok",
+    "dev": "vite",
+
+    "// --- Maggie tasks ---": "--------------------------------------------",
+    "maggie": "tsx maggie/index.ts",
+    "schedule": "tsx maggie/tasks/scheduler.ts",
+    "watch-raw": "tsx maggie/tasks/watch-raw.ts",
+    "retry-flops": "tsx maggie/tasks/retry-flops.ts",
+
+    "// --- Agents / Codex helpers ---": "----------------------------------",
+    "codex": "npx codex",
+    "codex:run": "ts-node scripts/runAllTasks.ts",
+    "codex:task": "npx codex run task",
+    "codex:maggie": "npx codex run runMaggie",
+    "codex:fix": "npx codex run fixMaggieErrors",
+
+    "// --- Env + diagnostics ---": "--------------------------------------",
+    "maggie:env": "node -r dotenv/config scripts/maggie-env.js",
+    "testSECRETS": "tsx scripts/testSECRETS.ts",
+    "diag:tiktok": "node -r dotenv/config scripts/diag-tiktok.ts",
+
+    "// --- Deploy & logs (Workers) ---": "---------------------------------",
+    "deploy:public": "npx wrangler deploy -c wrangler.toml",
+    "deploy:runner": "npx wrangler deploy -c mags-runner/wrangler.toml",
+    "deploy": "npm run deploy:public && npm run deploy:runner",
+    "tail:public": "npx wrangler tail -c wrangler.toml",
+    "tail:runner": "npx wrangler tail -c mags-runner/wrangler.toml",
+
+    "// --- Quality-of-life sync buttons ---": "----------------------------",
+    "sync:pull": "git pull --rebase origin main",
+    "sync:push": "git add -A && git commit -m \"update\" || echo \"(no changes)\" && git push origin main",
+    "save-deploy": "npm run sync:pull && npm run deploy",
+    "pull-deploy": "git pull origin main && npm run deploy"
+  },
+  "dependencies": {
+    "axios": "^1.6.7",
+    "chokidar": "^3.5.3",
+    "node-cron": "^3.0.3"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.21",
+    "codex": "^0.2.3",
+    "dotenv": "^16.4.5",
+    "eslint": "^8.57.0",
+    "postcss": "^8.5.6",
+    "prettier": "^3.2.5",
+    "tailwindcss": "^4.1.12",
+    "ts-node": "^10.9.2",
+    "tsx": "^3.14.0",
+    "typescript": "^5.4.0",
+    "vite": "^7.1.3",
+    "vitest": "^1.3.1",
+    "wrangler": "^4.33.1"
+  }
+}
 }
 
 /** Transparent proxy to your Apps Script Web App */
