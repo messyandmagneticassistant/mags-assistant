@@ -1,4 +1,4 @@
-name: Deploy Maggie (Cloudflare Workers)
+name: Deploy Maggie (Workers + KV bootstrap)
 
 on:
   push:
@@ -10,6 +10,7 @@ on:
       - "mags-runner/wrangler.toml"
       - "package.json"
       - "pnpm-lock.yaml"
+      - "config/thread-state.json"
   workflow_dispatch:
 
 jobs:
@@ -17,6 +18,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+
+    env:
+      # Wrangler reads the token from env; account/zone IDs are in your tomls, but we keep them here too
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      CF_ACCOUNT_ID:        ${{ secrets.CF_ACCOUNT_ID }}
+      CF_ZONE_ID:           ${{ secrets.CF_ZONE_ID }}
+      CF_KV_POSTQ_NAMESPACE_ID: ${{ secrets.CF_KV_POSTQ_NAMESPACE_ID }}
 
     steps:
       - name: Checkout
@@ -36,14 +44,22 @@ jobs:
       - name: Install deps
         run: pnpm i --frozen-lockfile=false
 
-      # Deploy the PUBLIC worker (root wrangler.toml)
+      # --- Tiny KV bootstrap (optional) ---
+      # If config/thread-state.json exists in the repo, push it to KV as key "thread-state"
+      - name: Sync KV: thread-state (optional)
+        if: ${{ hashFiles('config/thread-state.json') != '' }}
+        run: |
+          echo "Uploading config/thread-state.json to KV key 'thread-state' ..."
+          npx wrangler kv key put \
+            --namespace-id "${CF_KV_POSTQ_NAMESPACE_ID}" \
+            thread-state \
+            --path=config/thread-state.json
+        # (No output of file content to logs)
+
+      # --- Deploy PUBLIC worker (root wrangler.toml) ---
       - name: Deploy public worker
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
         run: npx wrangler deploy -c wrangler.toml --minify
 
-      # Deploy the RUNNER worker (mags-runner/wrangler.toml)
+      # --- Deploy RUNNER worker (mags-runner/wrangler.toml) ---
       - name: Deploy runner worker
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
         run: npx wrangler deploy -c mags-runner/wrangler.toml --minify
