@@ -1,0 +1,19 @@
+name: Maggie Diagnostics
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Health check (public worker)
+        run: |
+          echo "Checking Maggie public worker..."
+          curl -sS https://maggie.messyandmagnetic.com/health || exit 1
+
+      - name: Health check (runner worker)
+        run: |
+          echo "Checking Maggie runner worker..."
+          curl -sS https://mags-runner.messyandmagnetic.workers.dev/health || exit 1
