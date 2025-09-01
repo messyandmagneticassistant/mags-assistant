@@ -15,9 +15,13 @@
 // in your POSTQ namespace (binding name must be POSTQ).
 
 import { handleTelegramCommand } from '../src/telegram/handleCommand';
+import { runDailyDigest } from './summary/digest';
 
 export interface Env {
   POSTQ: KVNamespace; // KV binding defined in wrangler.toml
+  NOTION_API_KEY?: string;
+  NOTION_DB_LOGS?: string;
+  GMAIL_TOKEN?: string;
 }
 
 /* ---------------- Apps Script URL (static) ---------------- */
@@ -99,6 +103,13 @@ async function readJSON<T = any>(req: Request): Promise<T> {
   const ct = req.headers.get('content-type') || '';
   if (!ct.includes('application/json')) throw new Error('Expected application/json');
   return (await req.json()) as T;
+}
+
+async function drainQueue(env: Env) {
+  const list = await env.POSTQ.list({ prefix: 'queue:' }).catch(() => ({ keys: [] as any[] }));
+  for (const k of list.keys) {
+    await env.POSTQ.delete(k.name);
+  }
 }
 
 /** Transparent proxy to your Apps Script Web App */
@@ -372,6 +383,18 @@ export default {
     // Telegram webhook
     if (request.method === 'POST' && url.pathname === '/telegram-webhook') {
       return handleTelegramWebhook(request);
+    }
+
+    if (url.pathname === '/cron/daily') {
+      const cfg = await getBlob(env);
+      if (!okAuth(url, cfg)) {
+        return new Response('unauthorized', { status: 401, headers: cors() });
+      }
+      await drainQueue(env);
+      await runDailyDigest(env);
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { 'content-type': 'application/json', ...cors() },
+      });
     }
 
     // -------- TikTok / Browserless: ping & post from KV blob --------

@@ -184,10 +184,21 @@ Example schedules (configure in Cloudflare Dashboard):
 
 ```
 # daily digest at 09:00 UTC
-0 9 * * * https://maggie-worker.messyandmagnetic.workers.dev/ops/digest
+0 9 * * * https://maggie-worker.messyandmagnetic.workers.dev/cron/daily
 # weekly land summary every Monday at 08:00 UTC
 0 8 * * 1 https://maggie-worker.messyandmagnetic.workers.dev/land/summary
 ```
+
+The Notion database referenced by `NOTION_DB_LOGS` must include the following columns:
+
+| Column | Type |
+| ------ | ---- |
+| Date | Title |
+| TikTok Posts | Number |
+| Engagements | Number |
+| Orders Processed | Number |
+| Readings Delivered | Number |
+| Outreach Attempts | Number |
 
 Example curl for /start:
 
