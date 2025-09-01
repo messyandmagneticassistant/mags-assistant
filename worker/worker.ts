@@ -15,9 +15,11 @@
 // in your POSTQ namespace (binding name must be POSTQ).
 
 import { handleTelegramCommand } from '../src/telegram/handleCommand';
+import { handleTikTok } from './routes/tiktok';
 
 export interface Env {
   POSTQ: KVNamespace; // KV binding defined in wrangler.toml
+  [key: string]: any;
 }
 
 /* ---------------- Apps Script URL (static) ---------------- */
@@ -216,6 +218,9 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === 'OPTIONS') return new Response('ok', { headers: cors() });
+
+    const tik = await handleTikTok(request, env);
+    if (tik) return tik;
 
     // Root
     if (url.pathname === '/' || url.pathname === '/index.html') {

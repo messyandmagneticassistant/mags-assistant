@@ -409,6 +409,22 @@ Early support for generating short-form video drafts from a Google Drive inbox a
 - `TIKTOK_SESSION_COOKIE` – TikTok session with access to trending sounds.
 - `IG_SESSION_COOKIE` – Instagram session for selecting trending audio.
 
+## TikTok posting workflow
+
+1. **Prepare a video** in Google Drive and generate a signed URL. The URL must be directly fetchable; Drive's *Get link* combined with our signer is enough for short-lived access.
+2. **Enqueue the post** with the Worker:
+
+   ```bash
+   curl -X POST "$WORKER_BASE/tiktok/schedule" \
+     -H "X-ADMIN-KEY: $ADMIN_KEY" \
+     -H 'content-type: application/json' \
+     -d '{"jobs":[{"profile":"maggie","videoUrl":"<SIGNED_URL>","caption":"demo","tags":["hello"]}]}'
+   ```
+
+   The queue worker claims each `tiktok.post` job and uploads the video via Browserless.
+
+The Worker can rotate through four profiles (`main`, `willow`, `maggie`, `mars`). Set `TIKTOK_PROFILE_*` and `TIKTOK_SESSION_*` for each account to allow session-based posting.
+
 ## Google Sheets cleanup and forwarding
 
 An Apps Script is provided in `integrations/google_sheets/auto_clean_and_forward.gs` to
