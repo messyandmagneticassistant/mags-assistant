@@ -43,16 +43,14 @@ jobs:
       - name: Install deps
         run: pnpm i --frozen-lockfile=false
 
-      # --- Create the JSON file from a repo secret (no secrets in git) ---
-      - name: Create config/thread-state.json from secret
+      # --- Write thread-state.json and upload to KV in one step ---
+      - name: Bootstrap KV: thread-state
+        env:
+          THREAD_STATE_JSON: ${{ secrets.THREAD_STATE_JSON }}
         run: |
+          set -euo pipefail
           mkdir -p config
-          printf '%s' "${{ secrets.THREAD_STATE_JSON }}" > config/thread-state.json
-
-      # --- Tiny KV bootstrap: upload the JSON to KV as key "thread-state" ---
-      - name: Sync KV: thread-state
-        run: |
-          echo "Uploading config/thread-state.json to KV key 'thread-state' ..."
+          printf '%s' "$THREAD_STATE_JSON" > config/thread-state.json
           npx wrangler kv key put \
             --namespace-id "${CF_KV_POSTQ_NAMESPACE_ID}" \
             thread-state \
