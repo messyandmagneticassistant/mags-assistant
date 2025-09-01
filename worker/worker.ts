@@ -1,5 +1,3 @@
-// worker/worker.ts — unified router (health + optional feature routes)
-
 import { onRequestGet as health, diagConfig } from "./health";
 
 type Ctx = { env: any; request: Request; ctx: ExecutionContext };
@@ -16,17 +14,12 @@ async function tryRoute<T extends Record<string, any>>(
   if (!pathname.startsWith(pathPrefix)) return null;
 
   try {
-    // Dynamically import so the worker still builds when the route module isn't in this PR yet.
     const mod: T = (await import(modPath)) as T;
 
-    // If a generic handler is exported (e.g., `handle`), use it; otherwise try method-specific.
-    if (handlerName && typeof mod[handlerName] === "function") {
-      return await mod[handlerName](req, env, ctx);
+    if (handlerName && typeof (mod as any)[handlerName] === "function") {
+      return await (mod as any)[handlerName](req, env, ctx);
     }
 
-    // Common conventions supported automatically:
-    //  - onRequest (generic)
-    //  - onRequestGet / onRequestPost (Cloudflare Pages-style handlers)
     if (typeof (mod as any).onRequest === "function") {
       return await (mod as any).onRequest({ request: req, env, ctx });
     }
@@ -41,14 +34,12 @@ async function tryRoute<T extends Record<string, any>>(
       return await (mod as any)[methodKey]({ request: req, env, ctx });
     }
 
-    // Fallback: if module exports `handle(req, env, ctx)`
     if (typeof (mod as any).handle === "function") {
       return await (mod as any).handle(req, env, ctx);
     }
 
     return new Response("Route module loaded but no handler found.", { status: 500 });
-  } catch (_err) {
-    // Module not found (or import error) — treat as not handled so other routes can try.
+  } catch {
     return new Response("Not Found", { status: 404 });
   }
 }
@@ -57,43 +48,35 @@ export default {
   async fetch(req: Request, env: any, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
 
-    // Health & diagnostics stay always-on
     if (url.pathname === "/health" && req.method === "GET") {
-      return health({ env } as any);
+      return (health as any)({ env });
     }
     if (url.pathname === "/diag/config" && req.method === "GET") {
-      return diagConfig({ env } as any);
+      return (diagConfig as any)({ env });
     }
 
-    // Optional routes — only respond if the module exists in the current build
-    // TikTok API (uploader/engagement/schedule)
     const tik = await tryRoute("/tiktok/", "./routes/tiktok", null, req, env, ctx);
     if (tik && tik.status !== 404) return tik;
 
-    // Task queue endpoints
     const tasks = await tryRoute("/tasks/", "./routes/tasks", null, req, env, ctx);
     if (tasks && tasks.status !== 404) return tasks;
 
-    // Cron tickers
     const cron = await tryRoute("/cron/", "./routes/cron", null, req, env, ctx);
     if (cron && cron.status !== 404) return cron;
 
-    // Readiness introspection (optional)
     if (url.pathname === "/ready") {
       try {
-        const r = await import("./routes/ready");
-        if (typeof (r as any).onRequestGet === "function") {
-          return await (r as any).onRequestGet({ request: req, env, ctx });
+        const r: any = await import("./routes/ready");
+        if (typeof r.onRequestGet === "function") {
+          return await r.onRequestGet({ request: req, env, ctx });
         }
-        if (typeof (r as any).handle === "function") {
-          return await (r as any).handle(req, env, ctx);
+        if (typeof r.handle === "function") {
+          return await r.handle(req, env, ctx);
         }
       } catch {}
-      // soft 404 when /ready module not present
       return new Response("ready route not installed", { status: 404 });
     }
 
-    // Default response
     return new Response("mags ok", { status: 200, headers: { "content-type": "text/plain" } });
   },
 };
