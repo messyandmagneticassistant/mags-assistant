@@ -3,6 +3,7 @@
 // Public worker stays lean:
 //   - GET  /health                     (KV + blob presence)
 //   - GET  /diag/config                (non-secret booleans of what’s present in blob)
+//   - GET  /ready                      (KV + secrets presence + route list)
 //   - ANY  /api/appscript*             (proxy to Apps Script web app)
 //   - POST /telegram-webhook           (minimal Telegram -> handleTelegramCommand)
 //   - GET  /tasks/tiktok/ping?key=...  (Browserless diagnostics)
@@ -15,6 +16,7 @@
 // in your POSTQ namespace (binding name must be POSTQ).
 
 import { handleTelegramCommand } from '../src/telegram/handleCommand';
+import { ready } from './routes/ready';
 
 export interface Env {
   POSTQ: KVNamespace; // KV binding defined in wrangler.toml
@@ -222,6 +224,11 @@ export default {
       return new Response('🧠 Maggie is online — try /health', {
         headers: { 'content-type': 'text/plain', ...cors() },
       });
+    }
+
+    // Readiness check
+    if (url.pathname === '/ready') {
+      return ready(env);
     }
 
     // Health (KV read/write + blob presence only)

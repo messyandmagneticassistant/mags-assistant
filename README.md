@@ -24,6 +24,21 @@ Production domain: https://mags-assistant.vercel.app
 
 If the GitHub deploy ever fails, run `npx wrangler deploy` locally as a fallback.
 
+## End-to-end
+
+```text
+Client ─▶ Vercel (Next.js) ─▶ Cloudflare Worker ─▶ KV (secrets/config)
+                             └▶ External APIs (OpenAI, Stripe, TikTok…)
+```
+
+## Go live checklist
+
+1. Clone the repo and install deps with `pnpm install`.
+2. Create a Cloudflare Worker with a KV namespace bound as `POSTQ`.
+3. Upload a JSON blob of your secrets to KV using the key `thread-state`.
+4. Set deploy vars like `WORKER_BASE_URL` and `WORKER_KEY` on Vercel.
+5. Deploy the Worker (`npx wrangler deploy`) and the app (`vercel deploy`).
+
 ## Secrets
 
 Source of truth for secrets lives in Cloudflare KV (`secrets.json`).
