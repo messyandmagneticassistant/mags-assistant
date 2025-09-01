@@ -2,8 +2,9 @@
 // Unified chat client for Maggie
 // - OpenAI primary (OPENAI_API_KEY)
 // - GitHub Models fallback (GITHUB_TOKEN)
-// - Streaming + non-streaming
-// - System prompt builder with Notion/Stripe context
+// - Streaming & non-streaming
+// - JSON convenience + system prompt builder
+// - Works in Node and Cloudflare Workers (uses global fetch)
 
 type Role = "system" | "user" | "assistant";
 export type ChatMessage = { role: Role; content: string };
@@ -26,10 +27,8 @@ const DEFAULTS = {
   timeoutMs: 60_000,
 };
 
-// --------------------
-// Utility helpers
-// --------------------
-function getEnv(name: string): string | undefined {
+// ---------- utils ----------
+function env(name: string): string | undefined {
   return (globalThis as any).process?.env?.[name] ?? (globalThis as any)[name];
 }
 
@@ -37,7 +36,7 @@ async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
   try {
-    // @ts-ignore
+    // @ts-ignore AbortSignal is supported in Workers/Node fetch
     return await p;
   } finally {
     clearTimeout(t);
@@ -60,16 +59,13 @@ async function postJSON(
   return { ok: res.ok, status: res.status, json, text, res };
 }
 
-// --------------------
-// OpenAI client
-// --------------------
+// ---------- OpenAI ----------
 async function callOpenAI(messages: ChatMessage[], opts: ChatOptions) {
-  const key = getEnv("OPENAI_API_KEY");
+  const key = env("OPENAI_API_KEY");
   if (!key) throw new Error("Missing OPENAI_API_KEY");
 
   const { openaiModel, temperature, maxTokens, stream, timeoutMs } = {
-    ...DEFAULTS,
-    ...opts,
+    ...DEFAULTS, ...opts,
   };
 
   const { ok, status, json, text, res } = await postJSON(
@@ -89,22 +85,18 @@ async function callOpenAI(messages: ChatMessage[], opts: ChatOptions) {
   );
 
   if (!ok) throw new Error(`OpenAI error ${status}: ${text}`);
-
-  if (stream) return res; // caller handles streaming
+  if (stream) return res; // caller handles SSE stream
   const content = json?.choices?.[0]?.message?.content ?? "";
   return { provider: "openai" as const, content, raw: json };
 }
 
-// --------------------
-// GitHub Models fallback
-// --------------------
+// ---------- GitHub Models fallback ----------
 async function callGitHubModels(messages: ChatMessage[], opts: ChatOptions) {
-  const token = getEnv("GITHUB_TOKEN");
+  const token = env("GITHUB_TOKEN");
   if (!token) throw new Error("Missing GITHUB_TOKEN");
 
   const { githubModel, temperature, maxTokens, timeoutMs } = {
-    ...DEFAULTS,
-    ...opts,
+    ...DEFAULTS, ...opts,
   };
 
   const { ok, status, json, text } = await postJSON(
@@ -127,39 +119,35 @@ async function callGitHubModels(messages: ChatMessage[], opts: ChatOptions) {
   return { provider: "github" as const, content, raw: json };
 }
 
-// --------------------
-// Unified entry point
-// --------------------
+// ---------- Unified entry ----------
 export async function chat(messages: ChatMessage[], options: ChatOptions = {}) {
   const opts = { ...DEFAULTS, ...options };
 
-  // Try OpenAI first if available
-  if (getEnv("OPENAI_API_KEY")) {
+  // Try OpenAI first
+  if (env("OPENAI_API_KEY")) {
     try {
       return await callOpenAI(messages, opts);
-    } catch (err) {
-      console.warn("OpenAI failed, falling back:", err);
+    } catch (e) {
+      console.warn("OpenAI failed, falling back:", e);
     }
   }
 
   // Fallback to GitHub Models
-  if (getEnv("GITHUB_TOKEN")) {
+  if (env("GITHUB_TOKEN")) {
     return await callGitHubModels(messages, opts);
   }
 
   throw new Error("No provider available (set OPENAI_API_KEY or GITHUB_TOKEN)");
 }
 
-// --------------------
-// JSON convenience
-// --------------------
+// ---------- JSON convenience ----------
 export async function chatJSON<T = any>(
   systemPrompt: string,
   userPrompt: string,
   options: ChatOptions = {}
 ): Promise<T> {
   const messages: ChatMessage[] = [
-    { role: "system", content: `${systemPrompt}\nReturn only valid JSON.` },
+    { role: "system", content: `${systemPrompt}\nReturn ONLY valid JSON.` },
     { role: "user", content: userPrompt },
   ];
   const res = await chat(messages, options);
@@ -169,19 +157,18 @@ export async function chatJSON<T = any>(
   return JSON.parse(cleaned) as T;
 }
 
-// --------------------
-// System prompt builder
-// --------------------
+// ---------- System prompt ----------
 export function buildSystemPrompt() {
   let prompt = "You are Mags, the Messy and Magnetic assistant.";
   const parts: string[] = [];
 
-  if (getEnv("NOTION_API_KEY") && getEnv("NOTION_DB_ID")) {
-    parts.push(`You can access Notion. DB ID ${getEnv("NOTION_DB_ID")}.`);
+  if (env("NOTION_API_KEY") && env("NOTION_DB_ID")) {
+    parts.push(`You can access Notion. DB ${env("NOTION_DB_ID")}.`);
   }
-  if (getEnv("STRIPE_SECRET_KEY")) {
+  if (env("STRIPE_SECRET_KEY")) {
     parts.push("You can access Stripe APIs.");
   }
+
   if (parts.length) prompt += " " + parts.join(" ");
   return prompt;
 }
