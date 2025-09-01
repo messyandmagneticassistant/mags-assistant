@@ -15,9 +15,16 @@
 // in your POSTQ namespace (binding name must be POSTQ).
 
 import { handleTelegramCommand } from '../src/telegram/handleCommand';
+import { handleStripeWebhook } from './orders/stripe';
+import { handleTallyWebhook } from './orders/tally';
+
+interface OrdersQueue {
+  send(message: any): Promise<void>;
+}
 
 export interface Env {
   POSTQ: KVNamespace; // KV binding defined in wrangler.toml
+  ORDERS: OrdersQueue; // queue binding for order fulfillment
 }
 
 /* ---------------- Apps Script URL (static) ---------------- */
@@ -372,6 +379,16 @@ export default {
     // Telegram webhook
     if (request.method === 'POST' && url.pathname === '/telegram-webhook') {
       return handleTelegramWebhook(request);
+    }
+
+    if (request.method === 'POST' && url.pathname === '/webhooks/stripe') {
+      const cfg = await getBlob(env);
+      return handleStripeWebhook(request, env, cfg);
+    }
+
+    if (request.method === 'POST' && url.pathname === '/webhooks/tally') {
+      const cfg = await getBlob(env);
+      return handleTallyWebhook(request, env, cfg);
     }
 
     // -------- TikTok / Browserless: ping & post from KV blob --------

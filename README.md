@@ -136,12 +136,29 @@ Add more by editing `public/mags-config.json` under `brain.sources.notion.pinned
 - `POST /api/ops?action=status` – list present env vars
 - `POST /api/ops?action=check` – simple health ping
 - `POST /api/stripe-webhook` – Stripe events (rewrite to `/api/ops?action=stripe-webhook`)
+- `POST /webhooks/stripe` – Stripe checkout + payment webhooks
+- `POST /webhooks/tally` – Tally form submissions
 
 Env vars:
 
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
 - `NEXT_PUBLIC_FETCH_PASS` (optional)
+
+## Orders
+
+The worker logs orders to a Notion database identified by `NOTION_DB_ORDERS`.
+Required properties:
+
+- **Order ID** (title)
+- **Email** (email)
+- **Tier** (select)
+- **Status** (status)
+- **DriveDoc** (url)
+- **PDFLink** (url)
+
+Generated readings are written to Google Drive. Set `ORDERS_DRIVE_FOLDER_ID`
+to the folder where new docs should be created.
 
 ### Maggie Redeploy Endpoint
 POST /api/redeploy
