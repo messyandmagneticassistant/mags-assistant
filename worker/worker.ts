@@ -15,9 +15,12 @@
 // in your POSTQ namespace (binding name must be POSTQ).
 
 import { handleTelegramCommand } from '../src/telegram/handleCommand';
+import { handleCron } from './routes/cron';
+import { handleTasks } from './routes/tasks';
 
 export interface Env {
   POSTQ: KVNamespace; // KV binding defined in wrangler.toml
+  BRAIN: KVNamespace;
 }
 
 /* ---------------- Apps Script URL (static) ---------------- */
@@ -277,6 +280,16 @@ export default {
       return new Response(JSON.stringify({ ok: true, present }, null, 2), {
         headers: { 'content-type': 'application/json', ...cors() },
       });
+    }
+
+    // Cron + task queue endpoints
+    {
+      const res = await handleCron(request, env);
+      if (res) return res;
+    }
+    {
+      const res = await handleTasks(request, env);
+      if (res) return res;
     }
 
     // --- AI endpoints (fully KV-driven) ---

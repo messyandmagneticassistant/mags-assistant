@@ -189,6 +189,18 @@ Example schedules (configure in Cloudflare Dashboard):
 0 8 * * 1 https://maggie-worker.messyandmagnetic.workers.dev/land/summary
 ```
 
+### Worker cron & task queue
+
+The public worker exposes a small FIFO queue backed by the `BRAIN` KV store.
+
+Routes:
+
+- `POST /tasks/enqueue` – add a task `{ type, payload }`
+- `GET /tasks/size` – current queue depth
+- `GET /cron/minute`, `/cron/hourly`, `/cron/daily` – process up to five queued tasks
+
+Supported task types (stubs): `tiktok.post`, `orders.fulfill`, `summary.daily`.
+
 Example curl for /start:
 
 ```sh

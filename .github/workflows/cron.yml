@@ -1,0 +1,25 @@
+name: Maggie Cron
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+    - cron: '0 * * * *'
+    - cron: '30 23 * * *'
+  workflow_dispatch:
+
+jobs:
+  cron:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Minute tick
+        if: github.event.schedule == '*/10 * * * *'
+        run: |
+          curl -sS "https://maggie.messyandmagnetic.com/cron/minute?key=${{ secrets.WORKER_CRON_KEY }}" || exit 1
+      - name: Hourly tick
+        if: github.event.schedule == '0 * * * *'
+        run: |
+          curl -sS "https://maggie.messyandmagnetic.com/cron/hourly?key=${{ secrets.WORKER_CRON_KEY }}" || exit 1
+      - name: Daily tick
+        if: github.event.schedule == '30 23 * * *'
+        run: |
+          curl -sS "https://maggie.messyandmagnetic.com/cron/daily?key=${{ secrets.WORKER_CRON_KEY }}" || exit 1
