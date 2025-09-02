@@ -2,41 +2,26 @@ name: Deploy Worker
 
 on:
   push:
-    branches:
-      - main
-      - '**'           # build preview versions on any branch
   workflow_dispatch: {}
 
 concurrency:
   group: deploy-worker
   cancel-in-progress: true
 
-# make sure the workflow is allowed to push/read & dispatch
-permissions:
-  contents: write
-  actions: write
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout (use PAT if provided)
-        uses: actions/checkout@v4
-        with:
-          # Prefer your PAT (GH_PAT or GITHUB_PAT). Fallback to default token.
-          token: ${{ secrets.GH_PAT || secrets.GITHUB_PAT || github.token }}
+      - uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'pnpm'
+          node-version: "20"
+          cache: "pnpm"
 
-      - name: Enable corepack & install deps (no frozen lockfile)
+      - name: Enable corepack & install deps
         run: |
           corepack enable
-          pnpm --version
           pnpm install --no-frozen-lockfile
 
       - name: Show Wrangler version
@@ -44,10 +29,9 @@ jobs:
 
       - name: Publish (main) or upload version (branches)
         env:
-          # Use the CF token that has Workers + KV write perms
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
-          # Optional: Wrangler can also read account_id from wrangler.toml
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          GH_PAT: ${{ secrets.GH_PAT }}   # 👈 ensure this is added in repo secrets
         run: |
           if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
             npx wrangler deploy -c wrangler.toml
