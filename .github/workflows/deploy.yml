@@ -1,7 +1,6 @@
 name: Deploy Worker
 on:
   push:
-    branches: [ "main" ]
   workflow_dispatch: {}
 
 jobs:
@@ -11,11 +10,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: "20" }
-      - run: npm i -g wrangler@3
-      - run: wrangler --version
+      - run: corepack enable
+      - run: pnpm run ci:build
       - name: Publish
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
         run: |
-          wrangler publish --account-id $CF_ACCOUNT_ID
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            npx wrangler deploy
+          else
+            npx wrangler versions upload
+          fi
