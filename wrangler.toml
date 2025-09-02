@@ -1,7 +1,15 @@
+# wrangler.toml (root) – main public Worker
 name = "mags-assistant"
 main = "worker/worker.ts"
+account_id = "5ff52dc210a86ff34a0dd3664bacb237"   # <-- your account id
 compatibility_date = "2024-11-21"
 workers_dev = true
+
+# KV binding your code expects. Put the ACTUAL namespace id here.
+# Do NOT use ${{ secrets.* }} inside wrangler.toml – Wrangler can't read GitHub context.
+[[kv_namespaces]]
+binding = "BRAIN"
+id = "1b8cbbc4a2f8426194368cb39baded79"       # PostQ id you showed
 
 [vars]
 ENV = "prod"
