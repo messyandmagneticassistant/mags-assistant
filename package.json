@@ -11,29 +11,36 @@
     "lint": "eslint . --fix || echo lint ok",
     "format": "prettier --write .",
     "test": "node -e \"const fs=require('fs');fs.mkdirSync('docs',{recursive:true});const p='docs/.brain.md';if(!fs.existsSync(p))fs.writeFileSync(p,'');\" && vitest run tests/testBrain.test.ts tests/brain-watch.test.ts",
+
     "build": "echo build ok",
-    "dev": "vite",
+    "ci:build": "pnpm install --no-frozen-lockfile && pnpm run build",
+    "start": "wrangler dev -c wrangler.toml --local",
+
     "// --- Maggie tasks ---": "--------------------------------------------",
     "maggie": "tsx maggie/index.ts",
     "schedule": "tsx maggie/tasks/scheduler.ts",
     "watch-raw": "tsx maggie/tasks/watch-raw.ts",
     "retry-flops": "tsx maggie/tasks/retry-flops.ts",
+
     "// --- Agents / Codex helpers ---": "----------------------------------",
     "codex": "npx codex",
     "codex:run": "ts-node scripts/runAllTasks.ts",
     "codex:task": "npx codex run task",
     "codex:maggie": "npx codex run runMaggie",
     "codex:fix": "npx codex run fixMaggieErrors",
+
     "// --- Env + diagnostics ---": "--------------------------------------",
     "maggie:env": "node -r dotenv/config scripts/maggie-env.js",
     "testSECRETS": "tsx scripts/testSECRETS.ts",
     "diag:tiktok": "node -r dotenv/config scripts/diag-tiktok.ts",
+
     "// --- Deploy & logs (Workers) ---": "---------------------------------",
     "deploy:public": "npx wrangler deploy -c wrangler.toml",
     "deploy:runner": "npx wrangler deploy -c mags-runner/wrangler.toml",
     "deploy": "npm run deploy:public && npm run deploy:runner",
     "tail:public": "npx wrangler tail -c wrangler.toml",
     "tail:runner": "npx wrangler tail -c mags-runner/wrangler.toml",
+
     "// --- Quality-of-life sync buttons ---": "----------------------------",
     "sync:pull": "git pull --rebase origin main",
     "sync:push": "git add -A && git commit -m \"update\" || echo \"(no changes)\" && git push origin main",
