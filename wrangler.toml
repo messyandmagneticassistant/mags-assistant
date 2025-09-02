@@ -3,6 +3,10 @@ main = "worker/worker.ts"
 compatibility_date = "2024-11-21"
 workers_dev = true
 
+[[kv_namespaces]]
+binding = "POSTQ"
+id = "__KV_POSTQ_ID__"
+
 [vars]
 ENV = "prod"
 
