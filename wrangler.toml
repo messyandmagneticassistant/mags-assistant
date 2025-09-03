@@ -1,22 +1,8 @@
-# wrangler.toml — PUBLIC worker
-# Cloudflare has the Worker named "tight-snow-2840", so keep this name
-name = "tight-snow-2840"
+name = "mags-assistant"
 main = "worker/worker.ts"
+account_id = "YOUR_ACCOUNT_ID"
 compatibility_date = "2024-11-21"
 workers_dev = true
-# account_id is provided at CI time via the CF_ACCOUNT_ID secret
-
-# --- KV bindings (use the real IDs from your dashboard) ---
-# From your screenshots, PostQ has this id. If yours differs, paste the exact ID.
-[[kv_namespaces]]
-binding = "PostQ"
-id = "1b8cbbc4a2f8426194368cb39baded79"
 
 [vars]
 ENV = "prod"
-
-[placement]
-mode = "smart"
-
-[observability]
-enabled = true
