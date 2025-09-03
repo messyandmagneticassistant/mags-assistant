@@ -1,15 +1,16 @@
-# wrangler.toml (root) – main public Worker
-name = "mags-assistant"
+# wrangler.toml — PUBLIC worker
+# Cloudflare has the Worker named "tight-snow-2840", so keep this name
+name = "tight-snow-2840"
 main = "worker/worker.ts"
-account_id = "5ff52dc210a86ff34a0dd3664bacb237"   # <-- your account id
 compatibility_date = "2024-11-21"
 workers_dev = true
+# account_id is provided at CI time via the CF_ACCOUNT_ID secret
 
-# KV binding your code expects. Put the ACTUAL namespace id here.
-# Do NOT use ${{ secrets.* }} inside wrangler.toml – Wrangler can't read GitHub context.
+# --- KV bindings (use the real IDs from your dashboard) ---
+# From your screenshots, PostQ has this id. If yours differs, paste the exact ID.
 [[kv_namespaces]]
-binding = "BRAIN"
-id = "1b8cbbc4a2f8426194368cb39baded79"       # PostQ id you showed
+binding = "PostQ"
+id = "1b8cbbc4a2f8426194368cb39baded79"
 
 [vars]
 ENV = "prod"
