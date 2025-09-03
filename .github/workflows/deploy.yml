@@ -17,13 +17,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'pnpm'   # only a cache hint; does NOT install pnpm
+          cache: pnpm
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 9
-      # ^ This installs pnpm and adds it to PATH
 
       - name: Install deps
         run: pnpm install --no-frozen-lockfile
