@@ -11,30 +11,23 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/checkout@v4
 
-      # Install Node
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
+          cache: "pnpm"   # just cache, no pnpm install here
 
-      # Install pnpm (this is the missing piece)
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-          run_install: false
-
-      # (Optional) speed up installs with a pnpm store cache
-      - name: Cache pnpm store
-        id: pnpm-cache
-        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: ${{ runner.os }}-pnpm-
+      # Use Corepack to activate the pnpm version from package.json
+      - name: Enable Corepack & pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.15.0 --activate
+          pnpm --version
 
       - name: Install deps
         run: pnpm install --no-frozen-lockfile
@@ -42,13 +35,12 @@ jobs:
       - name: Show versions
         run: |
           node -v
-          pnpm -v
           npx wrangler --version
 
       - name: Publish (main) or upload version (branches)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-          CF_ACCOUNT_ID:        ${{ secrets.CF_ACCOUNT_ID }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
         run: |
           if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
             npx wrangler deploy -c wrangler.toml
