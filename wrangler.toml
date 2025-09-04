@@ -2,7 +2,7 @@ name = "mags-assistant"
 main = "worker/worker.ts"
 compatibility_date = "2025-09-03"
 
-# Do NOT set account_id here — GitHub Actions injects it from secrets.
+# ✅ GitHub Actions injects account_id from secrets; don't hardcode it.
 
 [vars]
 ENV = "prod"
@@ -11,15 +11,15 @@ ENV = "prod"
 binding = "BRAIN"
 id = "1b8cbbc4a2f8426194368cb39baded79"
 
-# Route Maggie subdomain
+# ✅ Worker routes (ONLY Maggie). Assistant UI will be served by Cloudflare Pages.
 [[routes]]
 pattern = "maggie.messyandmagnetic.com/*"
 zone_name = "messyandmagnetic.com"
 
-# Route Assistant subdomain
-[[routes]]
-pattern = "assistant.messyandmagnetic.com/*"
-zone_name = "messyandmagnetic.com"
-
 [triggers]
 crons = ["*/5 * * * *"]
+
+# ✅ Required so 'wrangler pages deploy' stops complaining.
+[pages]
+project_name = "assistant-ui"
+build_output_dir = "ui/dist"
