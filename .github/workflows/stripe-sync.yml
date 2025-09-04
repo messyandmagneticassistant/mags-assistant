@@ -1,0 +1,26 @@
+name: stripe-sync
+
+on:
+  workflow_dispatch:
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: corepack enable
+      - run: pnpm install --no-frozen-lockfile
+      - id: sync
+        run: >-
+          tsx -e "import('./src/commerce/sync.ts').then(m=>m.reconcile().then(r=>{console.log(JSON.stringify(r,null,2));const fs=require('fs');fs.writeFileSync('stripe-sync.json',JSON.stringify(r)); if (r.created.length||r.updated.length||r.missing.length||r.orphaned.length){console.log('diff');} else {console.log('no-diff');}}))"
+      - name: create pull request
+        if: success()
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          commit-message: chore(stripe): reconcile catalog
+          title: chore(stripe): reconcile catalog
+          body: Automated reconciliation of Stripe catalog
