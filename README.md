@@ -5,8 +5,12 @@
 Maggie now auto-cleans small pellet-like blobs on all floor types.
 She saves a short proof preview (before/after side-by-side) in content/preview/ for 7 days, then auto-deletes them to keep storage clean.
 
+## Docs
+- [Inventory](docs/INVENTORY.md)
+- [Quickstart](docs/QUICKSTART.md)
+
 ### Pellet Cleaner
-Run `pnpm run clean:pellets` to nuke local node_modules and .pnpm-store, prune old packages, and reinstall fresh.  
+Run `pnpm run clean:pellets` to nuke local node_modules and .pnpm-store, prune old packages, and reinstall fresh.
 Useful if installs are failing or local deps look corrupted.
 
 

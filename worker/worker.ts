@@ -121,6 +121,26 @@ export default {
       if (r && r.status !== 404) return r;
     }
 
+    // Admin
+    {
+      const r = await tryRoute("/admin/", "./routes/admin", null, req, env, ctx);
+      if (r && r.status !== 404) return r;
+    }
+
+    // Planner / Compose / Schedule
+    {
+      const r = await tryRoute("/planner", "./routes/planner", null, req, env, ctx);
+      if (r && r.status !== 404) return r;
+    }
+    {
+      const r = await tryRoute("/compose", "./routes/planner", null, req, env, ctx);
+      if (r && r.status !== 404) return r;
+    }
+    {
+      const r = await tryRoute("/schedule", "./routes/planner", null, req, env, ctx);
+      if (r && r.status !== 404) return r;
+    }
+
     // TikTok (uploader/engagement/schedule)
     {
       const r = await tryRoute("/tiktok/", "./routes/tiktok", null, req, env, ctx);
@@ -186,6 +206,14 @@ export default {
     try {
       const tasks: any = await import("./routes/tasks");
       if (typeof tasks.onScheduled === "function") ctx.waitUntil(tasks.onScheduled(event, env));
+    } catch {}
+    try {
+      const tiktok: any = await import("./routes/tiktok");
+      if (typeof tiktok.onScheduled === "function") ctx.waitUntil(tiktok.onScheduled(event, env));
+    } catch {}
+    try {
+      const planner: any = await import("./routes/planner");
+      if (typeof planner.onScheduled === "function") ctx.waitUntil(planner.onScheduled(event, env));
     } catch {}
   },
 };
