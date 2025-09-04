@@ -2,15 +2,21 @@ name = "mags-assistant"
 main = "worker/worker.ts"
 compatibility_date = "2025-09-03"
 
+# Do NOT set account_id here — GitHub Actions injects it from secrets.
+
 [vars]
 ENV = "prod"
 
-# Keep this section and DO NOT change the id value.
 [[kv_namespaces]]
 binding = "BRAIN"
-id = "1b8cbbc4a2f8426194368cb39baded79"   # <-- keep my current value
+id = "1b8cbbc4a2f8426194368cb39baded79"
 
-# Route my Worker to the custom domain
-routes = [
-  { pattern = "maggie.messyandmagnetic.com/*", zone_name = "messyandmagnetic.com" }
-]
+# Route Maggie subdomain
+[[routes]]
+pattern = "maggie.messyandmagnetic.com/*"
+zone_name = "messyandmagnetic.com"
+
+# Route Assistant subdomain
+[[routes]]
+pattern = "assistant.messyandmagnetic.com/*"
+zone_name = "messyandmagnetic.com"
