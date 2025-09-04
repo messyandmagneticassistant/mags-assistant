@@ -18,6 +18,7 @@ jobs:
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+      THREAD_STATE_JSON:  ${{ secrets.THREAD_STATE_JSON }}
       # Optional, if present it should be a JSON array of URLs
       UPTIME_ENDPOINTS:   ${{ secrets.UPTIME_ENDPOINTS }}
     steps:
@@ -33,7 +34,7 @@ jobs:
           elif [ -n "$SECRET" ]; then
             LIST="$SECRET"
           else
-            LIST='["https://maggie.messyandmagnetic.com/health","https://assistant.messyandmagnetic.com/health"]'
+            LIST='["https://maggie.messyandmagnetic.com/health","https://assistant.messyandmagnetic.com","https://maggie.messyandmagnetic.com/ready"]'
           fi
           echo "list=$LIST" >> "$GITHUB_OUTPUT"
 
