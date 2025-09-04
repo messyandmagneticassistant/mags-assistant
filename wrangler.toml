@@ -20,3 +20,6 @@ zone_name = "messyandmagnetic.com"
 [[routes]]
 pattern = "assistant.messyandmagnetic.com/*"
 zone_name = "messyandmagnetic.com"
+
+[triggers]
+crons = ["*/5 * * * *"]
