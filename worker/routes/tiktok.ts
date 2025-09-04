@@ -39,6 +39,10 @@ export async function onRequestGet({ request, env }: { request: Request; env: an
     return json({ ok: true, plan });
   }
 
+  if (pathname === '/tiktok/health') {
+    return json({ ok: true });
+  }
+
   return new Response('Not Found', { status: 404, headers: CORS });
 }
 
@@ -100,6 +104,13 @@ export async function onRequestPost({ request, env }: { request: Request; env: a
     }
     await write(env, 'tiktok:queue', queue);
     return json({ ok: true, postId });
+  }
+
+  if (pathname === '/tiktok/engage') {
+    const queue = (await read(env, 'tiktok:queue')) || [];
+    queue.push({ kind: 'engage', ...body, runAt: Date.now() });
+    await write(env, 'tiktok:queue', queue);
+    return json({ ok: true });
   }
 
   return new Response('Not Found', { status: 404, headers: CORS });

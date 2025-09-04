@@ -24,6 +24,7 @@ export const ROUTES = [
   '/diag/config',
   '/api/browser/session',
   '/admin/status',
+  '/admin/social/status',
   '/admin/trigger',
   '/tiktok/accounts',
   '/tiktok/cookies',
@@ -33,14 +34,42 @@ export const ROUTES = [
   '/tiktok/eng/persona',
   '/tiktok/eng/orchestrate',
   '/tiktok/eng/plan',
+  '/tiktok/health',
+  '/tiktok/engage',
   '/planner/run',
   '/planner/today',
   '/compose',
   '/schedule',
 ];
 
-// GET /admin/status — light diagnostics so you can see what’s wired
-export async function onRequestGet({ env }: { env: any }) {
+// GET handlers for admin endpoints
+export async function onRequestGet({ request, env }: { request: Request; env: any }) {
+  const url = new URL(request.url);
+
+  // protected social status
+  if (url.pathname === '/admin/social/status') {
+    if (request.headers.get('x-api-key') !== env.POST_THREAD_SECRET) {
+      return json({ ok: false, error: 'unauthorized' }, 401);
+    }
+    const queueRaw = await env.POSTQ.get('social:queue:tiktok');
+    const windowsRaw = await env.POSTQ.get('social:analytics:windows');
+    const lastPostedAt = await env.POSTQ.get('social:lastPostedAt');
+    const lastScore = await env.POSTQ.get('social:lastScore');
+    const stats = {
+      queueCount: queueRaw ? JSON.parse(queueRaw).length : 0,
+      nextWindowsUTC: windowsRaw ? JSON.parse(windowsRaw) : [],
+      lastPostedAt: lastPostedAt ? Number(lastPostedAt) : null,
+      lastScore: lastScore ? Number(lastScore) : null,
+      24hPosts: 0,
+      24hAvgViews: 0,
+    };
+    return json({ ok: true, ...stats });
+  }
+
+  if (url.pathname !== '/admin/status') {
+    return json({ ok: false, error: 'not-found' }, 404);
+  }
+
   const now = new Date().toISOString();
   // Safe probes; each in try{} so a missing binding doesn’t 500
   let kvKeysSample: string[] = [];

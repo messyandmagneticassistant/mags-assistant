@@ -93,7 +93,7 @@ export default {
       try {
         const admin: any = await import("./routes/admin");
         // admin.onRequestGet expects { env }
-        return await admin.onRequestGet({ env });
+        return await admin.onRequestGet({ request: req, env });
       } catch {}
     }
     if (url.pathname === "/admin/trigger" && req.method === "POST") {

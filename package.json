@@ -29,6 +29,8 @@
     "maggie:env": "node -r dotenv/config scripts/maggie-env.js",
     "testSECRETS": "tsx scripts/testSECRETS.ts",
     "diag:tiktok": "node -r dotenv/config scripts/diag-tiktok.ts",
+    "social:run": "tsx src/social/orchestrate.ts",
+    "social:dryrun": "tsx src/social/orchestrate.ts --dryrun",
     "// --- Deploy & logs (Workers) ---": "---------------------------------",
     "deploy:public": "npx wrangler deploy -c wrangler.toml",
     "deploy:runner": "npx wrangler deploy -c mags-runner/wrangler.toml",
