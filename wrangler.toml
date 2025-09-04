@@ -2,8 +2,6 @@ name = "mags-assistant"
 main = "worker/worker.ts"
 compatibility_date = "2025-09-03"
 
-account_id = "5ff52dc210a86ff34a0dd3664bacb237"
-
 [vars]
 ENV = "prod"
 
