@@ -29,23 +29,20 @@ async function tryRoute<T extends Record<string, any>>(
 ): Promise<Response | null> {
   const { pathname } = new URL(req.url);
 
-  // Exact prefix (avoid matching /tasksX)
   if (!(pathname === pathPrefix || pathname.startsWith(pathPrefix))) return null;
 
   try {
     const mod: T = (await import(modPath)) as T;
 
-    // explicit handler if provided
     if (handlerName && typeof (mod as any)[handlerName] === "function") {
       return await (mod as any)[handlerName](req, env, ctx);
     }
 
-    // Cloudflare Pages/Functions style
+    // Cloudflare Functions style
     if (typeof (mod as any).onRequest === "function") {
       return await (mod as any).onRequest({ request: req, env, ctx });
     }
 
-    // Method-specific handlers
     const methodKey =
       req.method === "GET" ? "onRequestGet" :
       req.method === "POST" ? "onRequestPost" :
@@ -57,7 +54,6 @@ async function tryRoute<T extends Record<string, any>>(
       return await (mod as any)[methodKey]({ request: req, env, ctx });
     }
 
-    // Generic handler(req, env, ctx)
     if (typeof (mod as any).handle === "function") {
       return await (mod as any).handle(req, env, ctx);
     }
@@ -67,7 +63,6 @@ async function tryRoute<T extends Record<string, any>>(
       headers: cors({ "content-type": "text/plain; charset=utf-8" }),
     });
   } catch {
-    // Module not present yet (PRs can land in any order)
     return new Response("Not Found", {
       status: 404,
       headers: cors({ "content-type": "text/plain; charset=utf-8" }),
@@ -93,7 +88,28 @@ export default {
       return (diagConfig as any)({ env });
     }
 
-    // Orders: Stripe / Tally webhooks (present only if those modules exist)
+    // --- Admin special-casing to match admin.ts signatures ---
+    if (url.pathname === "/admin/status" && req.method === "GET") {
+      try {
+        const admin: any = await import("./routes/admin");
+        // admin.onRequestGet expects { env }
+        return await admin.onRequestGet({ env });
+      } catch {}
+    }
+    if (url.pathname === "/admin/trigger" && req.method === "POST") {
+      try {
+        const admin: any = await import("./routes/admin");
+        // admin.onRequestPost expects (request)
+        return await admin.onRequestPost(req);
+      } catch {}
+    }
+    // Fallback for any future /admin/* routes that use the generic pattern
+    {
+      const r = await tryRoute("/admin/", "./routes/admin", null, req, env, ctx);
+      if (r && r.status !== 404) return r;
+    }
+
+    // Orders: Stripe / Tally webhooks
     if (url.pathname === "/webhooks/stripe") {
       const r = await tryRoute("/webhooks/stripe", "./orders/stripe", null, req, env, ctx);
       if (r && r.status !== 404) return r;
@@ -109,7 +125,7 @@ export default {
       if (r && r.status !== 404) return r;
     }
 
-    // AI endpoints (e.g., /ai/ping, /ai/json, etc.)
+    // AI endpoints
     {
       const r = await tryRoute("/ai/", "./routes/ai", null, req, env, ctx);
       if (r && r.status !== 404) return r;
@@ -118,12 +134,6 @@ export default {
     // Legacy Apps Script proxy
     {
       const r = await tryRoute("/api/appscript", "./routes/appscript", null, req, env, ctx);
-      if (r && r.status !== 404) return r;
-    }
-
-    // Admin
-    {
-      const r = await tryRoute("/admin/", "./routes/admin", null, req, env, ctx);
       if (r && r.status !== 404) return r;
     }
 
@@ -191,13 +201,13 @@ export default {
 
   // ------------- Cron (Cloudflare scheduled triggers) -------------
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    // Optional warm ping for Apps Script (kept harmless if not configured)
+    // Optional warm ping (harmless if unset)
     try {
       const warmUrl = env?.APPS_SCRIPT_EXEC || env?.APPS_SCRIPT_WEBAPP_URL;
       if (warmUrl) ctx.waitUntil(fetch(warmUrl).then(() => {}));
     } catch {}
 
-    // Let /routes/cron & /routes/tasks hook scheduled if they exist
+    // Let optional modules hook scheduled if present
     try {
       const cron: any = await import("./routes/cron");
       if (typeof cron.runScheduled === "function") ctx.waitUntil(cron.runScheduled(event, env));
