@@ -1,10 +1,25 @@
+// worker/routes/admin.ts
+
+// --- CORS helpers (simple JSON API) ---
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-api-key',
+  'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type,Authorization',
 };
 
-const ROUTES = [
+function json(data: any, status = 200) {
+  return new Response(JSON.stringify(data, null, 2), {
+    status,
+    headers: { ...CORS, 'content-type': 'application/json; charset=utf-8' },
+  });
+}
+
+export function onRequestOptions() {
+  return new Response(null, { status: 204, headers: CORS });
+}
+
+// Routes we expose from the admin surface
+export const ROUTES = [
   '/health',
   '/diag/config',
   '/api/browser/session',
@@ -24,47 +39,41 @@ const ROUTES = [
   '/schedule',
 ];
 
-function json(data: any, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { ...CORS, 'content-type': 'application/json' },
-  });
-}
-
-export async function onRequestGet({ request, env }: { request: Request; env: any }) {
-  const { pathname } = new URL(request.url);
-  if (pathname !== '/admin/status') return new Response('Not Found', { status: 404, headers: CORS });
-
+// GET /admin/status — light diagnostics so you can see what’s wired
+export async function onRequestGet({ env }: { env: any }) {
+  const now = new Date().toISOString();
+  // Safe probes; each in try{} so a missing binding doesn’t 500
   let kvKeysSample: string[] = [];
-  try {
-    const list = await env.POSTQ.list({ limit: 10 });
-    kvKeysSample = list.keys.map((k: any) => k.name);
-  } catch {}
-
   let trendsAgeMinutes: number | null = null;
+  let queueSize: number | null = null;
+  let accountsCount: number | null = null;
+
   try {
-    const ts = await env.POSTQ.get('tiktok:trends:ts');
-    if (ts) trendsAgeMinutes = Math.floor((Date.now() - Number(ts)) / 60000);
+    const list = await env.BRAIN.list({ prefix: 'thread-state' });
+    kvKeysSample = (list.keys ?? []).slice(0, 5).map((k: any) => k.name);
   } catch {}
 
-  let queueSize = 0;
   try {
-    const q = await env.POSTQ.get('tiktok:queue', 'json');
-    if (Array.isArray(q)) queueSize = q.length;
+    const v = await env.BRAIN.get('tiktok:trends:updatedAt');
+    if (v) trendsAgeMinutes = Math.floor((Date.now() - Number(v)) / 60000);
   } catch {}
 
-  let accountsCount = 0;
   try {
-    const accounts = await env.POSTQ.get('tiktok:accounts', 'json');
-    if (accounts) accountsCount = Object.keys(accounts).length;
+    const size = await env.BRAIN.get('ops:queue:size');
+    if (size) queueSize = Number(size);
+  } catch {}
+
+  try {
+    const n = await env.BRAIN.get('tiktok:accounts:count');
+    if (n) accountsCount = Number(n);
   } catch {}
 
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const cronConfigured = !!env.WORKER_CRON_KEY || !!env.CRON_SECRET;
+  const cronConfigured = !!env.WORKERS_CRON;
 
   return json({
     ok: true,
-    now: new Date().toISOString(),
+    now,
     timezone,
     routesCount: ROUTES.length,
     kvKeysSample,
@@ -75,29 +84,44 @@ export async function onRequestGet({ request, env }: { request: Request; env: an
   });
 }
 
-export async function onRequestPost({ request, env }: { request: Request; env: any }) {
-  const { pathname } = new URL(request.url);
-  if (pathname !== '/admin/trigger') return new Response('Not Found', { status: 404, headers: CORS });
+// POST /admin/trigger  { "kind": "plan" | "trends" | "tick" | "ops" }
+export async function onRequestPost(request: Request) {
+  const url = new URL(request.url);
+  if (url.pathname !== '/admin/trigger') return json({ ok: false, error: 'not-found' }, 404);
 
-  const body = await request.json().catch(() => ({}));
+  const body = await request.json().catch(() => ({} as any));
   switch (body.kind) {
     case 'plan': {
-      const mod = await import('../../src/planner');
-      if (typeof (mod as any).runPlanner === 'function') await (mod as any).runPlanner(env, {});
+      try {
+        const mod: any = await import('../planner/index');
+        if (typeof mod.runScheduled === 'function') await mod.runScheduled(null as any, null as any);
+      } catch {}
       break;
     }
     case 'trends': {
-      const mod = await import('../../src/trends');
-      if (typeof (mod as any).refreshTrends === 'function') await (mod as any).refreshTrends(env);
+      try {
+        const mod: any = await import('../tiktok/index');
+        if (typeof mod.refreshTrends === 'function') await mod.refreshTrends();
+      } catch {}
       break;
     }
     case 'tick': {
-      const mod = await import('./tiktok');
-      if (typeof (mod as any).runNextJob === 'function') await (mod as any).runNextJob(env);
+      try {
+        const mod: any = await import('../tiktok/index');
+        if (typeof mod.runNextJob === 'function') await mod.runNextJob();
+      } catch {}
+      break;
+    }
+    case 'ops': {
+      try {
+        const mod: any = await import('../ops/queue');
+        if (typeof mod.runScheduled === 'function') await mod.runScheduled(null as any, null as any);
+      } catch {}
       break;
     }
     default:
       return json({ ok: false, error: 'unknown kind' }, 400);
   }
+
   return json({ ok: true });
 }
