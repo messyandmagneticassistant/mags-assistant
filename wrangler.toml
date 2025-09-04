@@ -1,13 +1,16 @@
-# wrangler.toml
 name = "mags-assistant"
 main = "worker/worker.ts"
 compatibility_date = "2025-09-03"
 
-account_id = "5ff52dc210a86ff34a0dd3664bacb237"  # <-- your account id
-
 [vars]
 ENV = "prod"
 
+# Keep this section and DO NOT change the id value.
 [[kv_namespaces]]
 binding = "BRAIN"
-id = "1b8cbbc4a2f8426194368cb39baded79"
+id = "1b8cbbc4a2f8426194368cb39baded79"   # <-- keep my current value
+
+# Route my Worker to the custom domain
+routes = [
+  { pattern = "maggie.messyandmagnetic.com/*", zone_name = "messyandmagnetic.com" }
+]
