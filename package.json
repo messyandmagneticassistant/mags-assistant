@@ -41,7 +41,10 @@
     "save-deploy": "npm run sync:pull && npm run deploy",
     "pull-deploy": "git pull origin main && npm run deploy",
     "cf:whoami": "wrangler whoami",
-    "cf:deploy": "wrangler deploy -c wrangler.toml --minify && wrangler deploy -c mags-runner/wrangler.toml --minify"
+    "cf:deploy": "wrangler deploy -c wrangler.toml --minify && wrangler deploy -c mags-runner/wrangler.toml --minify",
+    "social:dryrun": "tsx src/social/orchestrate.ts --dryrun",
+    "video:one": "tsx scripts/video-doctor.ts --file=",
+    "video:approve": "tsx scripts/review-approve.ts --id="
   },
   "dependencies": {
     "axios": "^1.6.7",

@@ -1,0 +1,18 @@
+name: Social Orchestrator
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        run: |
+          corepack enable && corepack prepare pnpm@10.15.0 --activate
+          pnpm i
+      - name: Orchestrate queue
+        run: pnpm tsx src/social/orchestrate.ts

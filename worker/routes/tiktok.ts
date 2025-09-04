@@ -39,6 +39,11 @@ export async function onRequestGet({ request, env }: { request: Request; env: an
     return json({ ok: true, plan });
   }
 
+  if (pathname === '/tiktok/review-queue') {
+    const review = (await read(env, 'tiktok:review')) || [];
+    return json({ ok: true, review });
+  }
+
   return new Response('Not Found', { status: 404, headers: CORS });
 }
 
@@ -75,6 +80,24 @@ export async function onRequestPost({ request, env }: { request: Request; env: a
     queue.push({ kind: 'post', ...body, runAt: Date.now() });
     await write(env, 'tiktok:queue', queue);
     return json({ ok: true });
+  }
+
+  if (pathname === '/tiktok/schedule') {
+    const queue = (await read(env, 'tiktok:queue')) || [];
+    queue.push({ kind: 'schedule', ...body });
+    await write(env, 'tiktok:queue', queue);
+    return json({ ok: true });
+  }
+
+  if (pathname === '/tiktok/reschedule') {
+    const queue = (await read(env, 'tiktok:queue')) || [];
+    queue.push({ kind: 'reschedule', ...body });
+    await write(env, 'tiktok:queue', queue);
+    return json({ ok: true });
+  }
+
+  if (pathname === '/tiktok/capcut/apply-template') {
+    return json({ status: 'requires-manual', template: body.templateRef, cuts: body.assets || [] });
   }
 
   if (pathname === '/tiktok/eng/rules') {
