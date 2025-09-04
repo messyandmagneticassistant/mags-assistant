@@ -2,17 +2,63 @@ name: Social Orchestrator
 
 on:
   workflow_dispatch:
+    inputs:
+      override:
+        description: 'Optional JSON to override endpoints/config'
+        required: false
+        default: ''
   schedule:
+    # run every 30 minutes
     - cron: "*/30 * * * *"
 
 jobs:
-  run:
+  dryrun:
+    name: Dryrun (no posting)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Node
-        run: |
-          corepack enable && corepack prepare pnpm@10.15.0 --activate
-          pnpm i
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 10.15.0
+
+      - name: Install deps
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Run social dryrun
+        run: pnpm run social:dryrun
+
+  orchestrate:
+    name: Orchestrate queue (post/schedule)
+    # run on schedule or manual dispatch
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 10.15.0
+
+      - name: Install deps
+        run: pnpm install --no-frozen-lockfile
+
       - name: Orchestrate queue
-        run: pnpm tsx src/social/orchestrate.ts
+        env:
+          THREAD_STATE_JSON: ${{ secrets.THREAD_STATE_JSON }}
+          POST_THREAD_SECRET: ${{ secrets.POST_THREAD_SECRET }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        # If your orchestrator file name differs, change the path below
+        run: pnpm tsx src/social/orchestrate.ts '${{ github.event.inputs.override }}'
+
