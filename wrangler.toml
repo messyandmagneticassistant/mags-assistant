@@ -25,6 +25,7 @@ zone_name = "messyandmagnetic.com"
 [triggers]
 crons = ["*/5 * * * *"]
 
-# === Cloudflare Pages (Wrangler Beta) ===
-# This single, top-level key is what Pages was asking for in the logs.
-pages_build_output_dir = "ui/dist"
+# === Cloudflare Pages ===
+[pages]
+project_name = "assistant-ui"
+build_output_dir = "ui/dist"

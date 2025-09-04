@@ -81,6 +81,7 @@ export async function onRequestGet({ env }: { env: any }) {
     queueSize,
     accountsCount,
     cronConfigured,
+    "24hPosts": 0,
   });
 }
 
