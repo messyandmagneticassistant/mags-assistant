@@ -109,6 +109,36 @@ export default {
       if (r && r.status !== 404) return r;
     }
 
+    // Email routes
+    {
+      const r = await tryRoute("/email/", "./routes/email", null, req, env, ctx);
+      if (r && r.status !== 404) return r;
+    }
+
+    // Outreach routes
+    {
+      const r = await tryRoute("/outreach/", "./routes/outreach", null, req, env, ctx);
+      if (r && r.status !== 404) return r;
+    }
+
+    // Sync routes
+    {
+      const r = await tryRoute("/sync/", "./routes/sync", null, req, env, ctx);
+      if (r && r.status !== 404) return r;
+    }
+
+    // Ops queue endpoints
+    {
+      const r = await tryRoute("/ops/", "./routes/ops", null, req, env, ctx);
+      if (r && r.status !== 404) return r;
+    }
+
+    // Admin surface
+    {
+      const r = await tryRoute("/admin/", "./routes/admin", null, req, env, ctx);
+      if (r && r.status !== 404) return r;
+    }
+
     // AI endpoints (e.g., /ai/ping, /ai/json, etc.)
     {
       const r = await tryRoute("/ai/", "./routes/ai", null, req, env, ctx);
@@ -186,6 +216,18 @@ export default {
     try {
       const tasks: any = await import("./routes/tasks");
       if (typeof tasks.onScheduled === "function") ctx.waitUntil(tasks.onScheduled(event, env));
+    } catch {}
+
+    // Ops queue processing
+    try {
+      const ops: any = await import("./routes/ops");
+      if (typeof ops.runScheduled === "function") ctx.waitUntil(ops.runScheduled(event, env));
+    } catch {}
+
+    // TikTok queue & trends if present
+    try {
+      const tt: any = await import("./routes/tiktok");
+      if (typeof tt.runScheduled === "function") ctx.waitUntil(tt.runScheduled(event, env));
     } catch {}
   },
 };

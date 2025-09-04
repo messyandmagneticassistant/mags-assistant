@@ -192,6 +192,11 @@ Backfill: provide `TALLY_API_KEY` and run the **Backfill Tally** sheet menu or t
 
 Docs: [Apps Script deploy](docs/apps-script-deploy.md) · [Sheet details](docs/tally-sheets.md) · [Curl tests](docs/tally-tests.md)
 
+### Email inbound
+
+Point your Gmail Apps Script WebApp to `https://assistant.messyandmagnetic.com/email/inbound` with JSON `{ from, to, subject, html?, text? }`.
+
+
 ### Smoke tests
 
 The `smoke` GitHub Action checks the worker `/health` endpoint and posts synthetic payloads to `/tally-intake`. View logs in the Actions tab and re-run the workflow as needed.

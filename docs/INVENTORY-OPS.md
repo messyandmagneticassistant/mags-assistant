@@ -1,0 +1,200 @@
+# Ops Inventory
+
+## Routes
+- GET /health → worker/health.ts
+- GET /diag/config → worker/health.ts
+- POST /webhooks/stripe → worker/orders/stripe.ts
+- POST /webhooks/tally → worker/orders/tally.ts
+- POST /telegram-webhook → worker/routes/telegram.ts
+- POST /email/inbound → worker/routes/email.ts
+- POST /email/reply → worker/routes/email.ts
+- GET /email/status → worker/routes/email.ts
+- POST /outreach/lead → worker/routes/outreach.ts
+- POST /outreach/enqueue → worker/routes/outreach.ts
+- GET /outreach/lead → worker/routes/outreach.ts
+- GET /outreach/leads → worker/routes/outreach.ts
+- POST /sync/notion → worker/routes/sync.ts
+- POST /sync/drive → worker/routes/sync.ts
+- POST /ops/enqueue → worker/routes/ops.ts
+- POST /ops/tick → worker/routes/ops.ts
+- GET /admin/status → worker/routes/admin.ts
+- POST /admin/trigger → worker/routes/admin.ts
+- /ai/* → worker/routes/ai (if present)
+- /api/appscript → worker/routes/appscript (if present)
+- /tiktok/* → worker/routes/tiktok (if present)
+- /tasks/* → worker/routes/tasks (if present)
+- /cron/* → worker/routes/cron (if present)
+- /api/browser → worker/routes/browser.ts
+- GET /ready → worker/routes/ready (if present)
+
+## Env vars
+- AI
+- ALLOWED_DOMAINS
+- ALLOWED_ORIGINS
+- API_BASE
+- BROWSERLESS_API_KEY
+- BROWSERLESS_API_URL
+- BROWSERLESS_BASE_URL
+- BROWSERLESS_TOKEN
+- BUFFER_ACCESS_TOKEN
+- BUFFER_PROFILE_ID
+- CAPCUT_EXPORT_FOLDER
+- CAPCUT_RAW_FOLDER
+- CAPCUT_TEMPLATE
+- CHAN_DRIVE_ROOT_ID
+- CHAT_PASSWORD
+- CLOUDFLARE_API_TOKEN
+- CODEX_MODEL
+- CONFIGS
+- COYOTE_DRIVE_FOLDER_ID
+- COYOTE_NOTION_PAGE_ID
+- CRON_SECRET
+- DALL_E_STYLE_PROMPT
+- DONORS_DATABASE_ID
+- DRIVE_INBOX_FOLDER_ID
+- DRIVE_PRODUCT_IMAGES_ROOT_ID
+- DRY_RUN
+- EXECUTION_PAUSED
+- FETCH_PASS
+- FILING_STATUS
+- FOLLOWUPS_DUE_COUNT
+- FORCE_API_UPLOAD
+- GAS_INTAKE_URL
+- GCP_DO_DISABLE
+- GCP_LOCATION
+- GCP_PROJECT_ID
+- GCP_SA_EMAIL
+- GCP_SA_KEY_JSON
+- GCP_SCOPES
+- GEMINI_API_KEY
+- GITHUB_REDEPLOY_TOKEN
+- GMAIL_SENDER
+- GOOGLE_APPLICATION_CREDENTIALS
+- GOOGLE_CLIENT_EMAIL
+- GOOGLE_CLIENT_ID
+- GOOGLE_CLIENT_SECRET
+- GOOGLE_CREDENTIALS_JSON
+- GOOGLE_KEY_URL
+- GOOGLE_PRIVATE_KEY
+- GOOGLE_REDIRECT_URI
+- GOOGLE_SHEET_ID
+- HOT_LEADS
+- INSTAGRAM_API_KEY
+- KV
+- LATEST_BUDGET_URL
+- LATEST_METRICS_URL
+- LATEST_ONEPAGER_URL
+- LATEST_SELLER_LETTER_URL
+- LINKEDIN_API_KEY
+- MAGGIE_LOG_TO_CONSOLE
+- MAGS_KEY
+- MASTER_MEMORY_SHEET_ID
+- MM_DRIVE_ARCHIVE_ID
+- MM_DRIVE_CHANCUB_PARENT_ID
+- MM_DRIVE_FAILED_ID
+- MM_DRIVE_INBOX_ID
+- MM_DRIVE_MM_PARENT_ID
+- MM_DRIVE_READY_ID
+- MM_DRIVE_REVIEW_ID
+- MM_DRIVE_ROOT_ID
+- NEUTER
+- NEXT_PUBLIC_FETCH_PASS
+- NEXT_PUBLIC_GITHUB_OWNER
+- NEXT_PUBLIC_GITHUB_REPO
+- NEXT_PUBLIC_SITE_URL
+- NODE_ENV
+- NOTIFY_EMAIL
+- NOTION_API_KEY
+- NOTION_DATABASE_ID
+- NOTION_DB_ID
+- NOTION_DB_RUNS_ID
+- NOTION_HQ_PAGE_ID
+- NOTION_INBOX_PAGE_ID
+- NOTION_ORDER_DB
+- NOTION_PROFILE_DB_ID
+- NOTION_QUEUE_DB
+- NOTION_QUEUE_DB_ID
+- NOTION_ROOT_PAGE_ID
+- NOTION_SOCIAL_DB
+- NOTION_STRIPE_DB_ID
+- NOTION_TOKEN
+- NOTION_TRACKER_LINK
+- OFFLINE_MODE
+- OPENAI_API_KEY
+- PINTEREST_API_KEY
+- PLEDGED_TOTAL
+- POSTQ
+- POST_INTERVAL_MS
+- POST_THREAD_SECRET
+- PREFERRED_OPENAI_MODEL
+- PRICE_HISTORY_SHEET_ID
+- PROD_DOMAIN
+- PROFILE_DB_ID
+- PROPERTY_STAGE
+- RECEIVED_TOTAL
+- RESEND_API_KEY
+- RESEND_FROM
+- SALES_TAX_STATE
+- SALES_TAX_ZIP
+- SCHEDULER
+- SCRAPER_PROVIDER
+- SECRETS_BLOB
+- SECRET_BLOB
+- SENDGRID_API_KEY
+- SHEETS_TRACKER_LINK
+- STRIPE_SECRET_KEY
+- STRIPE_WEBHOOK_SECRET
+- TALLY_API_KEY
+- TALLY_WEBHOOK_SECRET
+- TARGET_PRICE
+- TELEGRAM_BOT_TOKEN
+- TELEGRAM_CALLBACK_SECRET
+- TELEGRAM_CHAT_ID
+- TELEGRAM_DEV_ID
+- TIKTOK_ACCESS_TOKEN
+- TIKTOK_API_UPLOAD_URL
+- TIKTOK_APP_ID
+- TIKTOK_APP_SECRET
+- TIKTOK_CLIENT_KEY
+- TIKTOK_CLIENT_SECRET
+- TIKTOK_PROFILE_MAGGIE
+- TIKTOK_REDIRECT_URL
+- TIKTOK_REFRESH_TOKEN
+- TIKTOK_SESSION_MAGGIE
+- TIKTOK_SESSION_MARS
+- TIKTOK_SESSION_WILLOW
+- TWITTER_API_KEY
+- USE_CAPCUT
+- VERCEL_URL
+- WARM_LEADS
+- WORKER_BASE_URL
+- WORKER_KEY
+- WORKER_URL
+- YOUTUBE_API_KEY
+
+## KV keys
+- email:inbox:<id>
+- leads:<uuid>
+- stripe:evt:<id>
+- tally:evt:<id>
+- queue:ops
+- tiktok:queue
+- thread-state:persona
+- thread-state:boosters
+
+## Integrations
+- Email/CRM: Apps Script broker with /email/inbound and /email/reply
+- Stripe/Tally: webhook endpoints queue jobs
+- Telegram: /telegram-webhook with admin commands
+- Notion/Drive sync: /sync/notion and /sync/drive
+- Task queues: queue:ops (KV), tiktok:queue
+- Scheduler: Cloudflare cron via worker scheduled()
+
+## Roles checklist
+- [x] Email triage & reply
+- [x] Grants & donor outreach queue
+- [x] Stripe + Tally wiring sanity
+- [x] Notion & Drive sync
+- [x] Telegram controls
+- [x] Ops queue + scheduler
+- [x] Admin surface
