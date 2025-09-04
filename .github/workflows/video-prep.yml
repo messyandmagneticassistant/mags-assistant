@@ -1,0 +1,32 @@
+name: Video Doctor (prep & edit)
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_backfill:
+        type: boolean
+        default: false
+  schedule:
+    - cron: "*/15 * * * *"
+
+jobs:
+  prep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup ffmpeg + python + node
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ffmpeg
+          corepack enable && corepack prepare pnpm@10.15.0 --activate
+          python -m pip install --upgrade pip
+          pip install openai-whisper==20231117 faster-whisper==1.0.3
+          pnpm i
+      - name: Pull new Drive assets
+        run: pnpm tsx scripts/drive-sync.ts "${{ github.event.inputs.force_backfill }}"
+      - name: Run safety + edit
+        run: pnpm tsx scripts/video-doctor.ts
+      - name: Push edited outputs to Drive
+        run: pnpm tsx scripts/drive-push.ts
+      - name: Update queue
+        run: pnpm tsx scripts/queue-sync.ts
