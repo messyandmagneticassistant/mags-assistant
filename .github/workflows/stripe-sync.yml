@@ -1,0 +1,38 @@
+name: Stripe Sync
+
+on:
+  workflow_dispatch:
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.15.0 --activate
+      - run: pnpm install --frozen-lockfile
+      - name: Run reconcile
+        env:
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+        run: pnpm tsx src/commerce/sync.ts > stripe-sync.json
+      - name: Commit summary
+        run: |
+          git config user.name github-actions
+          git config user.email actions@github.com
+          git add stripe-sync.json || true
+          git commit -m "chore: stripe sync" || echo "no changes"
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: automation/stripe-sync
+          title: "chore: stripe catalog sync"
+          body: "Automated Stripe product reconciliation"
+          commit-message: "chore: stripe sync"

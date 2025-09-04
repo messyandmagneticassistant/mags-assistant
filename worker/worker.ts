@@ -103,6 +103,18 @@ export default {
       if (r && r.status !== 404) return r;
     }
 
+    // Orders fulfillment
+    {
+      const r = await tryRoute("/orders/", "./orders/fulfill", null, req, env, ctx);
+      if (r && r.status !== 404) return r;
+    }
+
+    // Donor endpoints
+    {
+      const r = await tryRoute("/donors", "./routes/donors", null, req, env, ctx);
+      if (r && r.status !== 404) return r;
+    }
+
     // Minimal Telegram webhook
     if (url.pathname === "/telegram-webhook") {
       const r = await tryRoute("/telegram-webhook", "./routes/telegram", null, req, env, ctx);
