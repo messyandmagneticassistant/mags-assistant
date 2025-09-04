@@ -1,25 +1,30 @@
+# wrangler.toml — final
+
 name = "mags-assistant"
 main = "worker/worker.ts"
 compatibility_date = "2025-09-03"
 
-# ✅ GitHub Actions injects account_id from secrets; don't hardcode it.
+# GitHub Actions injects CF_ACCOUNT_ID & token; don't hardcode account_id.
 
+# === Worker env vars ===
 [vars]
 ENV = "prod"
 
+# === KV ===
 [[kv_namespaces]]
 binding = "BRAIN"
 id = "1b8cbbc4a2f8426194368cb39baded79"
 
-# ✅ Worker routes (ONLY Maggie). Assistant UI will be served by Cloudflare Pages.
+# === Routes (Worker only) ===
+# UI is served by Cloudflare Pages; do NOT route assistant.* here.
 [[routes]]
 pattern = "maggie.messyandmagnetic.com/*"
 zone_name = "messyandmagnetic.com"
 
+# === Cron ===
 [triggers]
 crons = ["*/5 * * * *"]
 
-# ✅ Required so 'wrangler pages deploy' stops complaining.
-[pages]
-project_name = "assistant-ui"
-build_output_dir = "ui/dist"
+# === Cloudflare Pages (Wrangler Beta) ===
+# This single, top-level key is what Pages was asking for in the logs.
+pages_build_output_dir = "ui/dist"
