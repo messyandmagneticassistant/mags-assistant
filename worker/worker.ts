@@ -139,6 +139,12 @@ export default {
       if (r && r.status !== 404) return r;
     }
 
+    // Browserless session
+    {
+      const r = await tryRoute("/api/browser", "./routes/browser", null, req, env, ctx);
+      if (r && r.status !== 404) return r;
+    }
+
     // Readiness
     if (url.pathname === "/ready") {
       try {
