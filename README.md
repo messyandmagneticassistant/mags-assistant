@@ -24,6 +24,24 @@ Production domain: https://mags-assistant.vercel.app
 
 If the GitHub deploy ever fails, run `npx wrangler deploy` locally as a fallback.
 
+## How to run the UI locally
+
+```sh
+cd ui
+pnpm install
+pnpm dev
+```
+
+Visit <http://localhost:5173> to chat with the Worker or open a Browserless session.
+
+## How to use Browserless session
+
+Create a new session via the Worker and receive a WebSocket URL:
+
+```sh
+curl -X POST https://maggie.messyandmagnetic.com/api/browser/session
+```
+
 ## Secrets
 
 Source of truth for secrets lives in Cloudflare KV (`secrets.json`).
