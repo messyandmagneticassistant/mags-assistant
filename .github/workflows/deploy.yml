@@ -1,9 +1,12 @@
+# .github/workflows/deploy.yml
 name: Deploy Worker
 
 on:
-  workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: deploy-worker
@@ -14,27 +17,41 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+
       - name: Enable Corepack & pnpm
         run: |
           corepack enable
           corepack prepare pnpm@10.15.0 --activate
           pnpm --version
+
+      # Install all workspace deps (includes worker + shared)
       - name: Install deps
         run: pnpm install --no-frozen-lockfile
+
       - name: Show Wrangler version
         run: npx wrangler --version
-      - name: Publish (main) or upload version (branches)
+
+      - name: Publish (main) or upload version (PR/branches)
         env:
+          # keep both names to satisfy wrangler/env differences
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
         run: |
+          # Use the wrangler.toml at repo root (main: worker/worker.ts)
+          CFG="--config wrangler.toml"
+
           if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
-            npx wrangler deploy --config wrangler.toml
+            echo "→ Deploying to production…"
+            npx wrangler deploy $CFG
           else
-            npx wrangler versions upload --config wrangler.toml
+            echo "→ Non-main branch: uploading a preview version…"
+            npx wrangler versions upload $CFG
           fi
