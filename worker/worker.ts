@@ -119,6 +119,24 @@ export default {
       if (r && r.status !== 404) return r;
     }
 
+    // Donor endpoints
+    {
+      const r = await tryRoute("/donors", "./routes/donors", null, req, env, ctx);
+      if (r && r.status !== 404) return r;
+    }
+
+    // Admin config endpoints
+    if (url.pathname === "/admin/config") {
+      const r = await tryRoute("/admin/config", "./routes/config", null, req, env, ctx);
+      if (r && r.status !== 404) return r;
+    }
+
+    // Offerings (products catalog)
+    if (url.pathname === "/api/offerings") {
+      const r = await tryRoute("/api/offerings", "./routes/offerings", null, req, env, ctx);
+      if (r && r.status !== 404) return r;
+    }
+
     // Minimal Telegram webhook
     if (url.pathname === "/telegram-webhook") {
       const r = await tryRoute("/telegram-webhook", "./routes/telegram", null, req, env, ctx);
