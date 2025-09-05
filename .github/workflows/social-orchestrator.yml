@@ -4,21 +4,18 @@ on:
   workflow_dispatch:
     inputs:
       override:
-        description: "Optional JSON to override endpoints/config"
+        description: 'Optional JSON to override endpoints/config'
         required: false
-        default: ""
+        default: ''
   schedule:
     - cron: "*/30 * * * *" # every 30 minutes
 
-# avoid overlapping runs
-concurrency:
-  group: social-orchestrator-${{ github.ref }}
-  cancel-in-progress: true
-
+# Shared env for all jobs
 env:
-  NODE_VERSION: "20"
-  PNPM_VERSION: "10.15.0"
-  NODE_OPTIONS: "--enable-source-maps"
+  NODE_VERSION: '20'
+  PNPM_VERSION: '10.15.0'
+  NODE_OPTIONS: '--enable-source-maps'
+  # Optional, only used if present
   TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
   TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
   POST_THREAD_SECRET: ${{ secrets.POST_THREAD_SECRET }}
@@ -33,20 +30,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 👉 Install pnpm BEFORE setup-node (so cache: pnpm can find it)
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v2
         with:
           version: ${{ env.PNPM_VERSION }}
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-
-      - name: Install deps
-        run: pnpm install --no-frozen-lockfile
+      - name: Install deps (retry)
+        run: |
+          set -e
+          pnpm install --no-frozen-lockfile
 
       - name: Run social dryrun
         run: pnpm run social:dryrun
@@ -61,6 +59,7 @@ jobs:
 
   orchestrate:
     name: Orchestrate queue (post/schedule)
+    # run on schedule or manual dispatch
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -68,23 +67,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 👉 Install pnpm BEFORE setup-node (so cache: pnpm can find it)
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v2
         with:
           version: ${{ env.PNPM_VERSION }}
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
+      - name: Install deps (retry)
+        run: |
+          set -e
+          pnpm install --no-frozen-lockfile
 
-      - name: Install deps
-        run: pnpm install --no-frozen-lockfile
-
+      # ⬇️ Only pass the override when it's non-empty to avoid ENOENT on ''
       - name: Orchestrate queue
-        run: pnpm tsx src/social/orchestrate.ts '${{ github.event.inputs.override }}'
+        run: |
+          if [ -n "${{ github.event.inputs.override }}" ]; then
+            echo "Using override JSON from dispatch input"
+            pnpm tsx src/social/orchestrate.ts '${{ github.event.inputs.override }}'
+          else
+            pnpm tsx src/social/orchestrate.ts
+          fi
 
       - name: On failure, send Telegram alert
         if: failure() && env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID
