@@ -39,6 +39,7 @@ jobs:
         run: npx wrangler --version
 
       - name: Publish (main) or upload version (PR/branches)
+        if: github.event_name != 'pull_request'
         env:
           # keep both names to satisfy wrangler/env differences
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

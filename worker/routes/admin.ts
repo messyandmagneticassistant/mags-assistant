@@ -80,6 +80,7 @@ export async function onRequestGet({ env }: { env: any }) {
     trendsAgeMinutes,
     queueSize,
     accountsCount,
+    posts_24h: 0,
     cronConfigured,
   });
 }

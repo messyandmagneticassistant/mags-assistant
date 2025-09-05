@@ -42,7 +42,7 @@
     "pull-deploy": "git pull origin main && npm run deploy",
     "cf:whoami": "wrangler whoami",
     "cf:deploy": "wrangler deploy -c wrangler.toml --minify && wrangler deploy -c mags-runner/wrangler.toml --minify",
-    "social:dryrun": "tsx src/social/orchestrate.ts --dryrun",
+    "social:dryrun": "tsx worker/social/orchestrator.ts --dryrun",
     "video:one": "tsx scripts/video-doctor.ts --file=",
     "video:approve": "tsx scripts/review-approve.ts --id="
   },
@@ -61,7 +61,7 @@
     "prettier": "^3.2.5",
     "tailwindcss": "^4.1.12",
     "ts-node": "^10.9.2",
-    "tsx": "^3.14.0",
+      "tsx": "^4.8.2",
     "typescript": "^5.4.0",
     "vite": "^7.1.3",
     "vitest": "^1.3.1",
