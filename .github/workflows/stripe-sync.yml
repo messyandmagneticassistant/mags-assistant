@@ -1,26 +1,42 @@
-name: stripe-sync
+name: Stripe Sync
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 6 * * *" # daily at 06:00 UTC
+
+concurrency:
+  group: stripe-sync-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+  PNPM_VERSION: "10.15.0"
+  STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
 
 jobs:
   reconcile:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
         with:
-          node-version: 20
-      - run: corepack enable
-      - run: pnpm install --no-frozen-lockfile
-      - id: sync
-        run: >-
-          tsx -e "import('./src/commerce/sync.ts').then(m=>m.reconcile().then(r=>{console.log(JSON.stringify(r,null,2));const fs=require('fs');fs.writeFileSync('stripe-sync.json',JSON.stringify(r)); if (r.created.length||r.updated.length||r.missing.length||r.orphaned.length){console.log('diff');} else {console.log('no-diff');}}))"
-      - name: create pull request
-        if: success()
-        uses: peter-evans/create-pull-request@v6
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
-          commit-message: chore(stripe): reconcile catalog
-          title: chore(stripe): reconcile catalog
-          body: Automated reconciliation of Stripe catalog
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install deps
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Reconcile products/plans
+        env:
+          STRIPE_SECRET_KEY: ${{ env.STRIPE_SECRET_KEY }}
+        run: pnpm tsx src/commerce/sync.ts
