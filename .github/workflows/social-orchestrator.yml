@@ -10,6 +10,10 @@ on:
   schedule:
     - cron: "*/30 * * * *" # every 30 minutes
 
+concurrency:
+  group: social-orchestrator-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   NODE_VERSION: '20'
   PNPM_VERSION: '10.15.0'
@@ -31,13 +35,15 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'pnpm'
+          node-version: ${{ env.NODE_VERSION }} # no pnpm cache
 
-      - name: Install pnpm globally
-        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
+      - name: Install pnpm (via Corepack)
+        run: |
+          corepack enable
+          corepack prepare pnpm@${{ env.PNPM_VERSION }} --activate
+          pnpm -v
 
-      - name: Install deps (retry)
+      - name: Install deps
         run: pnpm install --no-frozen-lockfile
 
       - name: Run social dryrun
@@ -64,16 +70,18 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'pnpm'
 
-      - name: Install pnpm globally
-        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
+      - name: Install pnpm (via Corepack)
+        run: |
+          corepack enable
+          corepack prepare pnpm@${{ env.PNPM_VERSION }} --activate
+          pnpm -v
 
-      - name: Install deps (retry)
+      - name: Install deps
         run: pnpm install --no-frozen-lockfile
 
       - name: Orchestrate queue
-        run: pnpm tsx src/social/orchestrate.ts '${{ github.event.inputs.override }}'
+        run: pnpm tsx src/social/orchestrate.ts "${{ github.event.inputs.override }}"
 
       - name: On failure, send Telegram alert
         if: failure() && env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID
