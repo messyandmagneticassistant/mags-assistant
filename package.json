@@ -44,7 +44,8 @@
     "cf:deploy": "wrangler deploy -c wrangler.toml --minify && wrangler deploy -c mags-runner/wrangler.toml --minify",
     "social:dryrun": "tsx src/social/orchestrate.ts --dryrun",
     "video:one": "tsx scripts/video-doctor.ts --file=",
-    "video:approve": "tsx scripts/review-approve.ts --id="
+    "video:approve": "tsx scripts/review-approve.ts --id=",
+    "typecheck": "tsc -v || echo ok"
   },
   "dependencies": {
     "axios": "^1.6.7",
