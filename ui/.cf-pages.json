@@ -1,0 +1,5 @@
+{
+  "buildCommand": "pnpm -C ui install --no-frozen-lockfile && pnpm -C ui build",
+  "buildOutputDirectory": "ui/dist",
+  "rootDir": "."
+}
