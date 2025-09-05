@@ -7,8 +7,18 @@ on:
         description: 'Optional JSON to override endpoints/config'
         required: false
         default: ''
+  # every 30 minutes
   schedule:
-    - cron: "*/30 * * * *" # every 30 minutes
+    - cron: "*/30 * * * *"
+
+# keep permissions minimal
+permissions:
+  contents: read
+
+# don’t let multiple runs stomp on each other
+concurrency:
+  group: social-orchestrator-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   NODE_VERSION: '20'
@@ -27,21 +37,31 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
+
+      # Ensure pnpm exists (action + fallback) — fixes “Unable to locate executable file: pnpm”
       - name: Setup pnpm
         uses: pnpm/action-setup@v2
         with:
           version: ${{ env.PNPM_VERSION }}
-      - name: Install deps (retry)
+      - name: Ensure pnpm available
         run: |
-          set -e
-          pnpm install --no-frozen-lockfile
+          if ! command -v pnpm >/dev/null 2>&1; then
+            npm i -g pnpm@${{ env.PNPM_VERSION }}
+          fi
+          pnpm -v
+
+      - name: Install deps (retry-friendly)
+        run: pnpm install --no-frozen-lockfile
+
       - name: Run social dryrun
         run: pnpm run social:dryrun
+
       - name: On failure, send Telegram alert
         if: failure() && env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID
         run: |
@@ -52,27 +72,43 @@ jobs:
 
   orchestrate:
     name: Orchestrate queue (post/schedule)
+    # run on schedule or manual dispatch
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
+
+      # Ensure pnpm exists (action + fallback)
       - name: Setup pnpm
         uses: pnpm/action-setup@v2
         with:
           version: ${{ env.PNPM_VERSION }}
-      - name: Install deps (retry)
+      - name: Ensure pnpm available
         run: |
-          set -e
-          pnpm install --no-frozen-lockfile
+          if ! command -v pnpm >/dev/null 2>&1; then
+            npm i -g pnpm@${{ env.PNPM_VERSION }}
+          fi
+          pnpm -v
+
+      - name: Install deps (retry-friendly)
+        run: pnpm install --no-frozen-lockfile
+
       - name: Orchestrate queue
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ env.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ env.TELEGRAM_CHAT_ID }}
+          POST_THREAD_SECRET: ${{ env.POST_THREAD_SECRET }}
+          THREAD_STATE_JSON:  ${{ env.THREAD_STATE_JSON }}
         run: pnpm tsx src/social/orchestrate.ts '${{ github.event.inputs.override }}'
+
       - name: On failure, send Telegram alert
         if: failure() && env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID
         run: |
