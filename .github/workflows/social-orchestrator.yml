@@ -1,64 +1,120 @@
 name: Social Orchestrator
 
+# Least-privilege permissions for Actions
+permissions:
+  contents: read
+
+concurrency:
+  # one run at a time for this workflow; cancel any in-progress run if a new one starts
+  group: social-orchestrator-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   workflow_dispatch:
     inputs:
       override:
-        description: 'Optional JSON to override endpoints/config'
+        description: 'Optional JSON to override endpoints/config (passed to orchestrator)'
         required: false
         default: ''
   schedule:
     # run every 30 minutes
     - cron: "*/30 * * * *"
 
+env:
+  # Shared env for all jobs
+  NODE_VERSION: '20'
+  PNPM_VERSION: '10.15.0'
+  NODE_OPTIONS: '--enable-source-maps'
+  # These are optional; if not set in repo secrets, steps that use them will simply be skipped
+  TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+  TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+  POST_THREAD_SECRET: ${{ secrets.POST_THREAD_SECRET }}
+  THREAD_STATE_JSON: ${{ secrets.THREAD_STATE_JSON }}
+
 jobs:
   dryrun:
     name: Dryrun (no posting)
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+    timeout-minutes: 15
 
-      - uses: actions/setup-node@v4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
 
-      - uses: pnpm/action-setup@v2
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
         with:
-          version: 10.15.0
+          version: ${{ env.PNPM_VERSION }}
 
-      - name: Install deps
-        run: pnpm install --no-frozen-lockfile
+      - name: Install deps (retry)
+        run: |
+          set -e
+          pnpm install --no-frozen-lockfile || pnpm install --no-frozen-lockfile
 
       - name: Run social dryrun
         run: pnpm run social:dryrun
+
+      - name: On failure, send Telegram alert
+        if: failure() && env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != ''
+        run: |
+          MSG="❌ Social DRYRUN failed on $GITHUB_REPOSITORY@${GITHUB_REF_NAME} — $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" -d text="$MSG" -d disable_web_page_preview=true
 
   orchestrate:
     name: Orchestrate queue (post/schedule)
     # run on schedule or manual dispatch
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+    timeout-minutes: 25
 
-      - uses: actions/setup-node@v4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
 
-      - uses: pnpm/action-setup@v2
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
         with:
-          version: 10.15.0
+          version: ${{ env.PNPM_VERSION }}
 
-      - name: Install deps
-        run: pnpm install --no-frozen-lockfile
+      - name: Install deps (retry)
+        run: |
+          set -e
+          pnpm install --no-frozen-lockfile || pnpm install --no-frozen-lockfile
+
+      - name: Prepare override payload (from dispatch input)
+        id: override
+        run: |
+          # Write the override JSON (if any) to a file so shells don't mangle quotes
+          echo '${{ github.event.inputs.override }}' > .override.json
+          echo "file=.override.json" >> "$GITHUB_OUTPUT"
 
       - name: Orchestrate queue
-        env:
-          THREAD_STATE_JSON: ${{ secrets.THREAD_STATE_JSON }}
-          POST_THREAD_SECRET: ${{ secrets.POST_THREAD_SECRET }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        # If your orchestrator file name differs, change the path below
-        run: pnpm tsx src/social/orchestrate.ts '${{ github.event.inputs.override }}'
+        # If your file is named differently, change 'src/social/orchestrate.ts'
+        run: |
+          if [ -s "${{ steps.override.outputs.file }}" ]; then
+            echo "Using override JSON:"
+            cat "${{ steps.override.outputs.file }}"
+            pnpm tsx src/social/orchestrate.ts "$(cat "${{ steps.override.outputs.file }}")"
+          else
+            pnpm tsx src/social/orchestrate.ts
+          fi
 
+      - name: On failure, send Telegram alert
+        if: failure() && env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != ''
+        run: |
+          MSG="❌ Social ORCHESTRATE failed on $GITHUB_REPOSITORY@${GITHUB_REF_NAME} — $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" -d text="$MSG" -d disable_web_page_preview=true
