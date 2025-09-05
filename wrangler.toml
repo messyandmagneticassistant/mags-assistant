@@ -4,7 +4,7 @@ name = "mags-assistant"
 main = "worker/worker.ts"
 compatibility_date = "2025-09-03"
 
-# GitHub Actions injects CF_ACCOUNT_ID & token; don't hardcode account_id.
+# ✅ GitHub Actions injects account_id from secrets; don't hardcode it.
 
 # === Worker env vars ===
 [vars]
@@ -16,7 +16,7 @@ binding = "BRAIN"
 id = "1b8cbbc4a2f8426194368cb39baded79"
 
 # === Routes (Worker only) ===
-# UI is served by Cloudflare Pages; do NOT route assistant.* here.
+# UI is served by Cloudflare Pages; leave routes only for the Worker.
 [[routes]]
 pattern = "maggie.messyandmagnetic.com/*"
 zone_name = "messyandmagnetic.com"
@@ -25,7 +25,7 @@ zone_name = "messyandmagnetic.com"
 [triggers]
 crons = ["*/5 * * * *"]
 
-# === Cloudflare Pages (Wrangler Beta) ===
+# === Cloudflare Pages (for the /ui app) ===
 [pages]
 project_name = "assistant-ui"
 build_output_dir = "ui/dist"
