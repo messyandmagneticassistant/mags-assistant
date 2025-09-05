@@ -10,12 +10,10 @@ on:
   schedule:
     - cron: "*/30 * * * *" # every 30 minutes
 
-# Shared env for all jobs
 env:
   NODE_VERSION: '20'
   PNPM_VERSION: '10.15.0'
   NODE_OPTIONS: '--enable-source-maps'
-  # Optional, only used if present
   TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
   TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
   POST_THREAD_SECRET: ${{ secrets.POST_THREAD_SECRET }}
@@ -30,21 +28,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: ${{ env.PNPM_VERSION }}
+      - name: Install pnpm globally
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
 
       - name: Install deps (retry)
-        run: |
-          set -e
-          pnpm install --no-frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
       - name: Run social dryrun
         run: pnpm run social:dryrun
@@ -59,7 +53,6 @@ jobs:
 
   orchestrate:
     name: Orchestrate queue (post/schedule)
-    # run on schedule or manual dispatch
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -67,31 +60,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: ${{ env.PNPM_VERSION }}
+      - name: Install pnpm globally
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
 
       - name: Install deps (retry)
-        run: |
-          set -e
-          pnpm install --no-frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
-      # ⬇️ Only pass the override when it's non-empty to avoid ENOENT on ''
       - name: Orchestrate queue
-        run: |
-          if [ -n "${{ github.event.inputs.override }}" ]; then
-            echo "Using override JSON from dispatch input"
-            pnpm tsx src/social/orchestrate.ts '${{ github.event.inputs.override }}'
-          else
-            pnpm tsx src/social/orchestrate.ts
-          fi
+        run: pnpm tsx src/social/orchestrate.ts '${{ github.event.inputs.override }}'
 
       - name: On failure, send Telegram alert
         if: failure() && env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID
