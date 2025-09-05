@@ -28,26 +28,45 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 1) Set up Node (no pnpm cache here)
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'pnpm'
 
+      # 2) Install pnpm and ensure it's on PATH
       - name: Setup pnpm
         uses: pnpm/action-setup@v2
         with:
           version: ${{ env.PNPM_VERSION }}
           run_install: false
 
-      - name: Install deps (retry)
+      # Fallback in case the runner image changes and pnpm isn't exposed
+      - name: Ensure pnpm is available
         run: |
-          set -e
-          pnpm install --no-frozen-lockfile
+          if ! command -v pnpm >/dev/null 2>&1; then
+            npm i -g pnpm@${{ env.PNPM_VERSION }}
+          fi
+          pnpm --version
 
+      # 3) Cache pnpm store
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      # 4) Install deps
+      - name: Install deps
+        run: pnpm install --no-frozen-lockfile
+
+      # 5) Run dryrun
       - name: Run social dryrun
         run: pnpm run social:dryrun
 
+      # Notify if anything in this job fails
       - name: On failure, send Telegram alert
         if: failure() && env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID
         run: |
@@ -69,7 +88,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'pnpm'
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v2
@@ -77,10 +95,23 @@ jobs:
           version: ${{ env.PNPM_VERSION }}
           run_install: false
 
-      - name: Install deps (retry)
+      - name: Ensure pnpm is available
         run: |
-          set -e
-          pnpm install --no-frozen-lockfile
+          if ! command -v pnpm >/dev/null 2>&1; then
+            npm i -g pnpm@${{ env.PNPM_VERSION }}
+          fi
+          pnpm --version
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install deps
+        run: pnpm install --no-frozen-lockfile
 
       - name: Orchestrate queue
         run: pnpm tsx src/social/orchestrate.ts '${{ github.event.inputs.override }}'
