@@ -2,27 +2,17 @@ name: Stripe Sync
 
 on:
   workflow_dispatch:
-    inputs:
-      since:
-        description: 'Optional ISO date (e.g. 2025-08-01) to only sync newer records'
-        required: false
-        default: ''
   schedule:
-    - cron: '0 * * * *' # hourly
-
-concurrency:
-  group: stripe-sync-${{ github.ref }}
-  cancel-in-progress: true
+    - cron: "0 * * * *" # every hour
 
 env:
   NODE_VERSION: '20'
   PNPM_VERSION: '10.15.0'
   NODE_OPTIONS: '--enable-source-maps'
-  # Secrets (add these in Settings → Secrets and variables → Actions)
-  STRIPE_API_KEY:      ${{ secrets.STRIPE_API_KEY }}
-  STRIPE_WEBHOOK_SEC:  ${{ secrets.STRIPE_WEBHOOK_SEC }} # optional, if your script needs it
-  TELEGRAM_BOT_TOKEN:  ${{ secrets.TELEGRAM_BOT_TOKEN }}
-  TELEGRAM_CHAT_ID:    ${{ secrets.TELEGRAM_CHAT_ID }}
+  STRIPE_API_KEY: ${{ secrets.STRIPE_API_KEY }}
+  STRIPE_WEBHOOK_SEC: ${{ secrets.STRIPE_WEBHOOK_SEC }}
+  TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+  TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
 jobs:
   sync:
@@ -39,36 +29,17 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
 
-      - name: Enable pnpm via Corepack
-        run: |
-          corepack enable
-          corepack prepare pnpm@${{ env.PNPM_VERSION }} --activate
-          pnpm --version
+      - name: Install pnpm
+        run: corepack enable && corepack prepare pnpm@${{ env.PNPM_VERSION }} --activate
 
       - name: Install deps
         run: pnpm install --no-frozen-lockfile
 
-      # If you already have a package.json script, this will run it.
-      # Fallback runs a typical TS file directly if the script is missing.
       - name: Run sync
+        run: pnpm tsx scripts/stripe-sync.ts
         env:
-          SINCE: ${{ github.event.inputs.since }}
-        run: |
-          if pnpm -s run | grep -q '^stripe:sync'; then
-            pnpm run stripe:sync --if-present
-          elif [ -f scripts/stripe-sync.ts ]; then
-            pnpm tsx scripts/stripe-sync.ts "${SINCE}"
-          elif [ -f src/stripe/sync.ts ]; then
-            pnpm tsx src/stripe/sync.ts "${SINCE}"
-          else
-            echo "❌ Could not find a stripe sync entrypoint (script or ts file)."
-            exit 1
-          fi
-        if: ${{ env.STRIPE_API_KEY != '' }}
-
-      - name: Skip (missing STRIPE_API_KEY)
-        if: ${{ env.STRIPE_API_KEY == '' }}
-        run: echo "Skipping Stripe Sync because STRIPE_API_KEY is not configured."
+          STRIPE_API_KEY: ${{ secrets.STRIPE_API_KEY }}
+          STRIPE_WEBHOOK_SEC: ${{ secrets.STRIPE_WEBHOOK_SEC }}
 
       - name: On failure, send Telegram alert
         if: failure() && env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID
