@@ -5,7 +5,7 @@
   "type": "module",
   "packageManager": "pnpm@10.15.0",
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "scripts": {
     "lint": "eslint . --fix || echo lint ok",
@@ -14,38 +14,51 @@
     "build": "echo build ok",
     "typecheck": "tsc -v || echo ok",
     "ci:build": "pnpm install --no-frozen-lockfile && pnpm run build",
+
+    "// --- Local dev ---": "--------------------------------------------",
     "start": "wrangler dev -c wrangler.toml --local",
+
     "// --- Maggie tasks ---": "--------------------------------------------",
     "maggie": "tsx maggie/index.ts",
     "schedule": "tsx maggie/tasks/scheduler.ts",
     "watch-raw": "tsx maggie/tasks/watch-raw.ts",
     "retry-flops": "tsx maggie/tasks/retry-flops.ts",
+
     "// --- Agents / Codex helpers ---": "----------------------------------",
     "codex": "npx codex",
     "codex:run": "ts-node scripts/runAllTasks.ts",
     "codex:task": "npx codex run task",
     "codex:maggie": "npx codex run runMaggie",
     "codex:fix": "npx codex run fixMaggieErrors",
+
     "// --- Env + diagnostics ---": "--------------------------------------",
     "maggie:env": "node -r dotenv/config scripts/maggie-env.js",
     "testSECRETS": "tsx scripts/testSECRETS.ts",
     "diag:tiktok": "node -r dotenv/config scripts/diag-tiktok.ts",
+
     "// --- Deploy & logs (Workers) ---": "---------------------------------",
     "deploy:public": "npx wrangler deploy -c wrangler.toml",
     "deploy:runner": "npx wrangler deploy -c mags-runner/wrangler.toml",
     "deploy": "npm run deploy:public && npm run deploy:runner",
     "tail:public": "npx wrangler tail -c wrangler.toml",
     "tail:runner": "npx wrangler tail -c mags-runner/wrangler.toml",
-    "// --- Quality-of-life sync buttons ---": "----------------------------",
+
+    "// --- Git helpers ---": "--------------------------------------------",
     "sync:pull": "git pull --rebase origin main",
     "sync:push": "git add -A && git commit -m \"update\" || echo \"(no changes)\" && git push origin main",
     "save-deploy": "npm run sync:pull && npm run deploy",
     "pull-deploy": "git pull origin main && npm run deploy",
+
     "cf:whoami": "wrangler whoami",
     "cf:deploy": "wrangler deploy -c wrangler.toml --minify && wrangler deploy -c mags-runner/wrangler.toml --minify",
+
+    "// --- Social / Video ---": "------------------------------------------",
     "social:dryrun": "tsx src/social/orchestrate.ts --dryrun",
     "video:one": "tsx scripts/video-doctor.ts --file=",
-    "video:approve": "tsx scripts/review-approve.ts --id="
+    "video:approve": "tsx scripts/review-approve.ts --id=",
+
+    "// --- Stripe ---": "-----------------------------------------------",
+    "stripe:sync": "tsx scripts/stripe-sync.ts"
   },
   "dependencies": {
     "axios": "^1.6.7",
