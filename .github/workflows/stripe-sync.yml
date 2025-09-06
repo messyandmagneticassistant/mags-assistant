@@ -1,42 +1,79 @@
 name: Stripe Sync
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      since:
+        description: 'Optional ISO date (e.g. 2025-08-01) to only sync newer records'
+        required: false
+        default: ''
   schedule:
-    - cron: "0 6 * * *" # daily at 06:00 UTC
+    - cron: '0 * * * *' # hourly
 
 concurrency:
   group: stripe-sync-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: "20"
-  PNPM_VERSION: "10.15.0"
-  STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+  NODE_VERSION: '20'
+  PNPM_VERSION: '10.15.0'
+  NODE_OPTIONS: '--enable-source-maps'
+  # Secrets (add these in Settings → Secrets and variables → Actions)
+  STRIPE_API_KEY:      ${{ secrets.STRIPE_API_KEY }}
+  STRIPE_WEBHOOK_SEC:  ${{ secrets.STRIPE_WEBHOOK_SEC }} # optional, if your script needs it
+  TELEGRAM_BOT_TOKEN:  ${{ secrets.TELEGRAM_BOT_TOKEN }}
+  TELEGRAM_CHAT_ID:    ${{ secrets.TELEGRAM_CHAT_ID }}
 
 jobs:
-  reconcile:
+  sync:
+    name: Run Stripe sync
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: ${{ env.PNPM_VERSION }}
-
-      - name: Setup Node
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
+          cache: 'pnpm'
+
+      - name: Enable pnpm via Corepack
+        run: |
+          corepack enable
+          corepack prepare pnpm@${{ env.PNPM_VERSION }} --activate
+          pnpm --version
 
       - name: Install deps
         run: pnpm install --no-frozen-lockfile
 
-      - name: Reconcile products/plans
+      # If you already have a package.json script, this will run it.
+      # Fallback runs a typical TS file directly if the script is missing.
+      - name: Run sync
         env:
-          STRIPE_SECRET_KEY: ${{ env.STRIPE_SECRET_KEY }}
-        run: pnpm tsx src/commerce/sync.ts
+          SINCE: ${{ github.event.inputs.since }}
+        run: |
+          if pnpm -s run | grep -q '^stripe:sync'; then
+            pnpm run stripe:sync --if-present
+          elif [ -f scripts/stripe-sync.ts ]; then
+            pnpm tsx scripts/stripe-sync.ts "${SINCE}"
+          elif [ -f src/stripe/sync.ts ]; then
+            pnpm tsx src/stripe/sync.ts "${SINCE}"
+          else
+            echo "❌ Could not find a stripe sync entrypoint (script or ts file)."
+            exit 1
+          fi
+        if: ${{ env.STRIPE_API_KEY != '' }}
+
+      - name: Skip (missing STRIPE_API_KEY)
+        if: ${{ env.STRIPE_API_KEY == '' }}
+        run: echo "Skipping Stripe Sync because STRIPE_API_KEY is not configured."
+
+      - name: On failure, send Telegram alert
+        if: failure() && env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID
+        run: |
+          MSG="❌ Stripe Sync failed on \`${{ github.repository }}\` @ ${{ github.ref_name }} (run ${{ github.run_id }})"
+          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d text="$MSG"
