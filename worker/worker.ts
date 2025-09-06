@@ -1,7 +1,12 @@
 // worker/worker.ts — finalized unified router (KV-first, CORS, cron-safe)
 import { onRequestGet as health, diagConfig } from "./health";
 
-type Env = any;
+type Env = {
+  RESEND_API_KEY?: string;
+  RESEND_FROM_EMAIL?: string;
+  RESEND_FROM_NAME?: string;
+  [key: string]: any;
+};
 type Ctx = { env: Env; request: Request; ctx: ExecutionContext };
 
 // ---------------- CORS helpers ----------------
@@ -86,6 +91,26 @@ export default {
     }
     if (url.pathname === "/diag/config" && req.method === "GET") {
       return (diagConfig as any)({ env });
+    }
+    if (url.pathname === "/diag/email" && req.method === "GET") {
+      const { getEmailConfig } = await import("../utils/email");
+      const { fromEmail, fromName, apiKey } = getEmailConfig(env);
+      const domain = fromEmail.split("@")[1] || "";
+      let domainVerified: boolean | undefined;
+      if (apiKey) {
+        try {
+          const resp = await fetch("https://api.resend.com/domains", {
+            headers: { Authorization: `Bearer ${apiKey}` },
+          });
+          const data = await resp.json();
+          const match = data?.data?.find((d: any) => d.name === domain);
+          domainVerified = match?.status === "verified";
+        } catch {}
+      }
+      return new Response(
+        JSON.stringify({ ok: true, from: `${fromName} <${fromEmail}>`, domain, domainVerified }),
+        { status: 200, headers: cors({ "content-type": "application/json" }) }
+      );
     }
 
     // --- Admin special-casing to match admin.ts signatures ---
