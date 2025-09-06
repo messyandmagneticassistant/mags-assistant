@@ -46,7 +46,11 @@ jobs:
       - name: Install deps
         run: pnpm install --no-frozen-lockfile
 
+      - name: Ensure tmp dir exists
+        run: mkdir -p tmp
       - name: Run social dryrun
+        env:
+          QUEUE_DIR: tmp
         run: pnpm run social:dryrun
 
       - name: On failure, send Telegram alert
@@ -80,8 +84,12 @@ jobs:
       - name: Install deps
         run: pnpm install --no-frozen-lockfile
 
+      - name: Ensure tmp dir exists
+        run: mkdir -p tmp
       - name: Orchestrate queue
-        run: pnpm tsx src/social/orchestrate.ts "${{ github.event.inputs.override }}"
+        env:
+          QUEUE_DIR: tmp
+        run: pnpm tsx src/social/orchestrate.ts '${{ github.event.inputs.override }}'
 
       - name: On failure, send Telegram alert
         if: failure() && env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID
