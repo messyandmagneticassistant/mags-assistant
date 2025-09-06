@@ -31,3 +31,8 @@ curl $WORKER_URL/admin/status
 ## Notes
 - Use responsibly and respect TikTok ToS.
 - Space out automation steps to avoid rate limits.
+
+## Email (Resend)
+- Secrets: `RESEND_API_KEY`, optional `RESEND_FROM_EMAIL`, `RESEND_FROM_NAME`
+- Send a test email: `pnpm email:test`
+- Check worker: `curl "$WORKER_URL/diag/email"`
