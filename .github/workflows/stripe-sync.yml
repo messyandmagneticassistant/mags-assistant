@@ -2,23 +2,29 @@ name: Stripe Sync
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 * * * *" # every hour
+  # (optional) run every 12h
+  # schedule:
+  #   - cron: "0 */12 * * *"
 
 env:
   NODE_VERSION: '20'
   PNPM_VERSION: '10.15.0'
   NODE_OPTIONS: '--enable-source-maps'
+
+  # Stripe (set these in repo Secrets)
   STRIPE_API_KEY: ${{ secrets.STRIPE_API_KEY }}
   STRIPE_WEBHOOK_SEC: ${{ secrets.STRIPE_WEBHOOK_SEC }}
+
+  # Optional Telegram alerts
   TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-  TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+  TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
 
 jobs:
   sync:
     name: Run Stripe sync
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,19 +33,29 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'pnpm'
+          # IMPORTANT: do NOT request pnpm cache here (it errors before pnpm exists)
+          # cache: 'pnpm'
 
-      - name: Install pnpm
-        run: corepack enable && corepack prepare pnpm@${{ env.PNPM_VERSION }} --activate
+      # Either Corepack or pnpm/action-setup works. Corepack is simplest.
+      - name: Enable pnpm via Corepack
+        run: |
+          corepack enable
+          corepack prepare pnpm@${{ env.PNPM_VERSION }} --activate
+          pnpm --version
 
       - name: Install deps
         run: pnpm install --no-frozen-lockfile
 
+      # If you intentionally want to skip when STRIPE_API_KEY is missing, keep this guard
       - name: Run sync
-        run: pnpm tsx scripts/stripe-sync.ts
-        env:
-          STRIPE_API_KEY: ${{ secrets.STRIPE_API_KEY }}
-          STRIPE_WEBHOOK_SEC: ${{ secrets.STRIPE_WEBHOOK_SEC }}
+        if: ${{ env.STRIPE_API_KEY != '' }}
+        run: |
+          # adjust the script path if yours differs
+          pnpm tsx scripts/stripe-sync.ts
+
+      - name: Skip (missing STRIPE_API_KEY)
+        if: ${{ env.STRIPE_API_KEY == '' }}
+        run: echo "Skipping; STRIPE_API_KEY is not set."
 
       - name: On failure, send Telegram alert
         if: failure() && env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID
