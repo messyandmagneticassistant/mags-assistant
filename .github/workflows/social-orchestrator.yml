@@ -1,100 +1,36 @@
 name: Social Orchestrator
 
 on:
-  workflow_dispatch:
-    inputs:
-      override:
-        description: 'Optional JSON to override endpoints/config'
-        required: false
-        default: ''
   schedule:
-    - cron: "*/30 * * * *" # every 30 minutes
-
-concurrency:
-  group: social-orchestrator-${{ github.ref }}
-  cancel-in-progress: true
-
-env:
-  NODE_VERSION: '20'
-  PNPM_VERSION: '10.15.0'
-  NODE_OPTIONS: '--enable-source-maps'
-  TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-  TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
-  POST_THREAD_SECRET: ${{ secrets.POST_THREAD_SECRET }}
-  THREAD_STATE_JSON:  ${{ secrets.THREAD_STATE_JSON }}
+    - cron: "7 15 * * *" # daily; adjust later based on analytics
+  workflow_dispatch:
 
 jobs:
-  dryrun:
-    name: Dryrun (no posting)
+  run:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }} # no pnpm cache
-
-      - name: Install pnpm (via Corepack)
+          node-version: 20
+          cache: pnpm
+      - name: Enable PNPM via Corepack
         run: |
           corepack enable
-          corepack prepare pnpm@${{ env.PNPM_VERSION }} --activate
-          pnpm -v
-
+          corepack prepare pnpm@10.15.0 --activate
+          pnpm --version
       - name: Install deps
         run: pnpm install --no-frozen-lockfile
-
-      - name: Ensure tmp dir exists
-        run: mkdir -p tmp
-      - name: Run social dryrun
+      - name: Run social (dryrun unless enabled)
         env:
-          QUEUE_DIR: tmp
-        run: pnpm run social:dryrun
-
-      - name: On failure, send Telegram alert
-        if: failure() && env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID
+          ENABLE_SOCIAL: ${{ secrets.ENABLE_SOCIAL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # add any TikTok/Instagram secrets required by your scripts
         run: |
-          MSG="❌ Social DRYRUN failed on \`${{ github.repository }}\` @ ${{ github.ref_name }} (run ${{ github.run_id }})"
-          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d chat_id="${TELEGRAM_CHAT_ID}" \
-            -d text="$MSG"
-
-  orchestrate:
-    name: Orchestrate queue (post/schedule)
-    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Install pnpm (via Corepack)
-        run: |
-          corepack enable
-          corepack prepare pnpm@${{ env.PNPM_VERSION }} --activate
-          pnpm -v
-
-      - name: Install deps
-        run: pnpm install --no-frozen-lockfile
-
-      - name: Ensure tmp dir exists
-        run: mkdir -p tmp
-      - name: Orchestrate queue
-        env:
-          QUEUE_DIR: tmp
-        run: pnpm tsx src/social/orchestrate.ts '${{ github.event.inputs.override }}'
-
-      - name: On failure, send Telegram alert
-        if: failure() && env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID
-        run: |
-          MSG="❌ Social ORCHESTRATE failed on \`${{ github.repository }}\` @ ${{ github.ref_name }} (run ${{ github.run_id }})"
-          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d chat_id="${TELEGRAM_CHAT_ID}" \
-            -d text="$MSG"
+          if [ "${ENABLE_SOCIAL}" = "true" ]; then
+            pnpm run social:dryrun | tee social.log
+          else
+            echo "Posting disabled (ENABLE_SOCIAL!=true). Running analysis only."
+            pnpm run social:dryrun | tee social.log
+          fi

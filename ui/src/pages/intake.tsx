@@ -6,6 +6,7 @@ type FormMap = Record<string, string>; // label -> formId
 export default function IntakePage() {
   const [forms, setForms] = useState<FormMap>({});
   const [formId, setFormId] = useState<string | null>(null);
+  const [submitted, setSubmitted] = useState(false);
 
   useEffect(() => {
     const product = new URLSearchParams(window.location.search).get("product") ?? "";
@@ -38,7 +39,13 @@ export default function IntakePage() {
         ))}
       </div>
 
-      {formId ? <FormEmbed formId={formId} /> : <p>Loading…</p>}
+      {submitted ? (
+        <p>Thanks! Check your email shortly.</p>
+      ) : formId ? (
+        <FormEmbed formId={formId} onSubmit={() => setSubmitted(true)} />
+      ) : (
+        <p>Loading…</p>
+      )}
     </div>
   );
 }

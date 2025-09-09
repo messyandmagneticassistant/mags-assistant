@@ -55,3 +55,25 @@ jobs:
             echo "→ Non-main branch: uploading a preview version…"
             npx wrangler versions upload $CFG
           fi
+
+  seed-stripe:
+    needs: deploy
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Enable Corepack & pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.15.0 --activate
+          pnpm --version
+      - name: Install deps
+        run: pnpm install --no-frozen-lockfile
+      - name: Seed Stripe
+        env:
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+        run: pnpm seed:stripe

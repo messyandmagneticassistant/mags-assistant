@@ -13,6 +13,12 @@
 | `STRIPE_SECRET_KEY` | Stripe API key | Vercel, Cloudflare Worker |
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret | Vercel, Cloudflare Worker |
 | `RESEND_API_KEY` | Resend email API key | Vercel, Cloudflare Worker |
+| `RESEND_FROM_EMAIL` | Resend from email | Vercel, Cloudflare Worker |
+| `RESEND_FROM_NAME` | Resend from name | Vercel, Cloudflare Worker |
+| `APPS_SCRIPT_WEBAPP_URL` | Apps Script webapp endpoint | Cloudflare Worker |
+| `APPS_SCRIPT_SECRET` | Secret for Apps Script webapp (or reuse `GEMINI_AGENT_SECRET`) | Cloudflare Worker |
+| `NOTION_API_KEY` | Notion API key | Vercel, Cloudflare Worker |
+| `NOTION_DB_ID` | Notion database ID | Vercel, Cloudflare Worker |
 | `WORKER_KEY` | Shared key for worker calls | Vercel, Cloudflare Worker |
 | `CRON_SECRET` | Secret token for cron jobs | Vercel, Cloudflare Worker |
 | `GOOGLE_CLIENT_EMAIL` | Google service account email | Vercel, Cloudflare Worker |
@@ -28,4 +34,5 @@
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID | GitHub secrets |
 | `CLOUDFLARE_ZONE_ID` | Cloudflare zone ID | GitHub secrets (optional) |
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API token | GitHub secrets |
+| `ENABLE_SOCIAL` | Set to `true` to allow social posts | GitHub secrets |
 

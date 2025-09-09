@@ -55,11 +55,13 @@
 
     "// --- Social / Video ---": "------------------------------------------",
     "social:dryrun": "tsx src/social/orchestrate.ts --dryrun",
+    "social:enable": "echo ENABLE_SOCIAL=true >> $GITHUB_ENV",
     "video:one": "tsx scripts/video-doctor.ts --file=",
     "video:approve": "tsx scripts/review-approve.ts --id=",
 
     "// --- Stripe ---": "-----------------------------------------------",
-    "stripe:sync": "tsx scripts/stripe-sync.ts"
+    "stripe:sync": "tsx scripts/stripe-sync.ts",
+    "seed:stripe": "tsx scripts/seed/stripe.ts"
   },
   "dependencies": {
     "axios": "^1.6.7",
