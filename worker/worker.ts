@@ -113,6 +113,11 @@ export default {
       );
     }
 
+    if (url.pathname === "/diag/email/test" && req.method === "POST") {
+      const r = await tryRoute("/diag/email/test", "./routes/email", null, req, env, ctx);
+      if (r && r.status !== 404) return r;
+    }
+
     // --- Admin special-casing to match admin.ts signatures ---
     if (url.pathname === "/admin/status" && req.method === "GET") {
       try {
@@ -141,6 +146,12 @@ export default {
     }
     if (url.pathname === "/webhooks/tally") {
       const r = await tryRoute("/webhooks/tally", "./orders/tally", null, req, env, ctx);
+      if (r && r.status !== 404) return r;
+    }
+
+    // Orders links
+    {
+      const r = await tryRoute("/orders", "./routes/orders", null, req, env, ctx);
       if (r && r.status !== 404) return r;
     }
 
