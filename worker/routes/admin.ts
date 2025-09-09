@@ -25,6 +25,8 @@ export const ROUTES = [
   '/diag/config',
   '/api/browser/session',
   '/admin/status',
+  '/admin/social-mode',
+  '/admin/social/seed',
   '/admin/trigger',
   '/tiktok/accounts',
   '/tiktok/cookies',
@@ -47,6 +49,11 @@ export async function onRequestGet({ request, env }: { request: Request; env: an
   // Super-light health probe if someone hits /health through this route file
   if (pathname === '/health') {
     return json({ ok: true, pong: true });
+  }
+
+  if (pathname === '/admin/social-mode') {
+    const live = env.ENABLE_SOCIAL === 'true';
+    return json({ ok: true, mode: live ? 'LIVE' : 'DRYRUN' });
   }
 
   const now = new Date().toISOString();
@@ -104,8 +111,23 @@ export async function onRequestGet({ request, env }: { request: Request; env: an
 }
 
 // POST /admin/trigger  { "kind": "plan" | "trends" | "tick" | "ops" }
-export async function onRequestPost({ request }: { request: Request }) {
+export async function onRequestPost({ request, env }: { request: Request; env: any }) {
   const url = new URL(request.url);
+
+  if (url.pathname === '/admin/social/seed') {
+    if (request.headers.get('x-api-key') !== env.POST_THREAD_SECRET) {
+      return json({ ok: false, error: 'unauthorized' }, 401);
+    }
+    try {
+      const mod: any = await import('../../src/social/defaults');
+      if (typeof mod.ensureDefaults === 'function') {
+        const config = await mod.ensureDefaults(env);
+        return json({ ok: true, config });
+      }
+    } catch {}
+    return json({ ok: false, error: 'seed-failed' }, 500);
+  }
+
   if (url.pathname !== '/admin/trigger') {
     return json({ ok: false, error: 'not-found' }, 404);
   }
