@@ -1,51 +1,66 @@
-import { parseSubmission } from '../../src/forms/schema';
+import { parseSubmission } from "../../src/forms/schema";
 
 interface Env {
   TALLY_SIGNING_SECRET?: string;
   BRAIN: KVNamespace;
 }
 
-async function verifySignature(req: Request, secret: string): Promise<boolean> {
-  const sig = req.headers.get('tally-signature');
+async function verifySignature(raw: string, req: Request, secret: string): Promise<boolean> {
+  const sig = req.headers.get("tally-signature");
   if (!sig) return false;
-  const [tPart, v1Part] = sig.split(',');
-  const timestamp = tPart?.split('=')[1];
-  const v1 = v1Part?.split('=')[1];
+  const [tPart, v1Part] = sig.split(",");
+  const timestamp = tPart?.split("=")[1];
+  const v1 = v1Part?.split("=")[1];
   if (!timestamp || !v1) return false;
-  const body = await req.text();
   const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const data = enc.encode(`${timestamp}.${body}`);
-  const sigBuf = await crypto.subtle.sign('HMAC', key, data);
-  const hex = Array.from(new Uint8Array(sigBuf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+  const key = await crypto.subtle.importKey("raw", enc.encode(secret), {
+    name: "HMAC",
+    hash: "SHA-256",
+  }, false, ["sign"]);
+  const data = enc.encode(`${timestamp}.${raw}`);
+  const sigBuf = await crypto.subtle.sign("HMAC", key, data);
+  const hex = Array.from(new Uint8Array(sigBuf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
   return hex === v1;
 }
 
 async function sha(input: string) {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
-  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
-export async function onRequestPost({ request, env, ctx }: { request: Request; env: Env; ctx: ExecutionContext }) {
+function parseSubmissionForOrder(body: any) {
+  const formId = body.formId || body.form_id || "";
+  return parseSubmission(formId, body);
+}
+
+export async function onRequestPost({ request, env, waitUntil }: any) {
   const secret = env.TALLY_SIGNING_SECRET;
   const raw = await request.text();
+
   if (secret) {
-    const ok = await verifySignature(new Request(request.url, { headers: request.headers, body: raw, method: request.method }), secret);
-    if (!ok) return new Response('invalid signature', { status: 400 });
-  } else {
-    console.warn('TALLY_SIGNING_SECRET missing');
+    const ok = await verifySignature(raw, request, secret);
+    if (!ok) return new Response("bad signature", { status: 401 });
   }
-  const body = JSON.parse(raw || '{}');
-  const formId = body.formId || body.form_id || '';
-  const ctxObj = parseSubmission(formId, body);
-  const key = `order:${await sha(ctxObj.email + ':' + Date.now())}`;
-  await env.BRAIN.put(key, JSON.stringify({ ...ctxObj, receivedAt: Date.now() }));
+
+  const body = JSON.parse(raw || "{}");
+  const ctxObj = parseSubmissionForOrder(body);
+
+  const key = `order:${await sha(ctxObj.email || "")}`;
+  await env.BRAIN.put(key, JSON.stringify(ctxObj), { expirationTtl: 60 * 60 * 24 * 14 });
+
   try {
-    const mod: any = await import('./fulfill');
-    if (typeof mod.fulfill === 'function') ctx.waitUntil(mod.fulfill(ctxObj, env));
+    waitUntil((async () => {
+      const mod: any = await import("./fulfill");
+      if (typeof mod.fulfill === "function") await mod.fulfill(ctxObj, env);
+    })());
   } catch {}
+
   return new Response(JSON.stringify({ ok: true }), {
     status: 200,
-    headers: { 'content-type': 'application/json' },
+    headers: { "content-type": "application/json" },
   });
 }
