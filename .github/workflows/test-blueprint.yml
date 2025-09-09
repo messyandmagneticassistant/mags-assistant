@@ -1,0 +1,23 @@
+name: Test Blueprint
+
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        description: 'Name'
+        required: true
+        type: string
+      email:
+        description: 'Email'
+        required: true
+        type: string
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call blueprint
+        run: |
+          curl -sS -X POST ${{ vars.WORKER_URL }}/blueprint/create \
+            -H "content-type: application/json" \
+            -d '{"name":"${{ github.event.inputs.name }}","email":"${{ github.event.inputs.email }}","tier":"intro"}'

@@ -6,9 +6,12 @@ export async function onRequestGet({ request, env }: { request: Request; env: an
   if (!email) return json([]);
 
   try {
-    const key = `order:${await sha(email)}`;
-    const stored = await env.BRAIN.get(key);
-    return json(stored ? JSON.parse(stored) : []);
+    const prefix = `order:${await sha(email)}`;
+    const list = await env.BRAIN.list({ prefix });
+    const items = await Promise.all(
+      list.keys.map((k: any) => env.BRAIN.get(k.name).then((v: any) => (v ? JSON.parse(v) : null)))
+    );
+    return json(items.filter(Boolean));
   } catch {
     return json([]);
   }
@@ -20,10 +23,12 @@ export async function onRequestPost(ctx: any) {
   const ctxObj = { ...body, env: undefined, url: ctx.request.url }; // pass only needed bits
 
   try {
-    ctx.waitUntil((async () => {
-      const mod: any = await import("../orders/fulfill");
-      if (typeof mod.fulfill === "function") await mod.fulfill(ctxObj, ctx.env);
-    })());
+    ctx.waitUntil(
+      (async () => {
+        const mod: any = await import("../orders/fulfill.js");
+        if (typeof mod.fulfill === "function") await mod.fulfill(ctxObj, ctx.env);
+      })()
+    );
   } catch {}
   return new Response(JSON.stringify({ ok: true }), {
     status: 200,

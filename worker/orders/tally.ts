@@ -37,7 +37,8 @@ function parseSubmissionForOrder(body: any) {
   return parseSubmission(formId, body);
 }
 
-export async function onRequestPost({ request, env, waitUntil }: any) {
+export async function onRequestPost(ctx: any) {
+  const { request, env } = ctx;
   const secret = env.TALLY_SIGNING_SECRET;
   const raw = await request.text();
 
@@ -47,16 +48,14 @@ export async function onRequestPost({ request, env, waitUntil }: any) {
   }
 
   const body = JSON.parse(raw || "{}");
-  const ctxObj = parseSubmissionForOrder(body);
+  const ctxObj = { ...parseSubmissionForOrder(body), env };
 
   const key = `order:${await sha(ctxObj.email || "")}`;
   await env.BRAIN.put(key, JSON.stringify(ctxObj), { expirationTtl: 60 * 60 * 24 * 14 });
 
   try {
-    waitUntil((async () => {
-      const mod: any = await import("./fulfill");
-      if (typeof mod.fulfill === "function") await mod.fulfill(ctxObj, env);
-    })());
+    const mod: any = await import("../lib/fulfill.js");
+    if (typeof mod.fulfill === "function") ctx.waitUntil(mod.fulfill(ctxObj));
   } catch {}
 
   return new Response(JSON.stringify({ ok: true }), {
