@@ -17,6 +17,16 @@ export async function onRequestGet({ env }: { env: any }) {
       out[k.split(':')[1]] = {};
     }
   }
+  out.forms = {
+    "Blueprint Intro": env.TALLY_BLUEPRINT_INTRO_ID || "",
+    "Blueprint Full": env.TALLY_BLUEPRINT_FULL_ID || "",
+    "Family Bundle": env.TALLY_BLUEPRINT_FAMILY_ID || "",
+  };
+  out.products = {
+    intro: "prod_blueprint_intro",
+    full: "prod_blueprint_full",
+    family: "prod_blueprint_family",
+  };
   return json(out);
 }
 

@@ -1,5 +1,5 @@
 // worker/worker.ts — finalized unified router (KV-first, CORS, cron-safe)
-import { onRequestGet as health, diagConfig } from "./health";
+import { diagConfig } from "./health";
 
 type Env = {
   RESEND_API_KEY?: string;
@@ -87,7 +87,8 @@ export default {
 
     // Diagnostics
     if (url.pathname === "/health" && req.method === "GET") {
-      return (health as any)({ env });
+      const r = await tryRoute("/health", "./routes/health", null, req, env, ctx);
+      if (r && r.status !== 404) return r;
     }
     if (url.pathname === "/diag/config" && req.method === "GET") {
       return (diagConfig as any)({ env });
@@ -188,6 +189,12 @@ export default {
     // Legacy Apps Script proxy
     {
       const r = await tryRoute("/api/appscript", "./routes/appscript", null, req, env, ctx);
+      if (r && r.status !== 404) return r;
+    }
+
+    // Blueprint builder
+    {
+      const r = await tryRoute("/blueprint", "./routes/blueprint", null, req, env, ctx);
       if (r && r.status !== 404) return r;
     }
 
