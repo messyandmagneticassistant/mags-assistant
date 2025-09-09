@@ -12,33 +12,18 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-
-      - name: Enable Corepack & pnpm
+      - name: Install & Build
         run: |
-          corepack enable
-          corepack prepare pnpm@10.15.0 --activate
-          pnpm --version
-
-      # Install only the UI’s dependencies (your workspace excludes "ui")
-      - name: Install deps (ui)
-        run: pnpm --filter "./ui" install --no-frozen-lockfile
-
-      - name: Build UI
-        run: pnpm --filter "./ui" run build
-
+          pnpm -C ui install --no-frozen-lockfile
+          pnpm -C ui build
       - name: Deploy to Cloudflare Pages
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CF_ACCOUNT_ID:        ${{ secrets.CF_ACCOUNT_ID }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
         run: |
-          # uses wrangler.toml [pages] config and the built folder
-          npx wrangler pages deploy ui/dist --project-name assistant-ui --branch main
+          npx wrangler pages deploy ui/dist --project-name=mags-site

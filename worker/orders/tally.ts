@@ -1,4 +1,5 @@
 import { parseSubmission } from '../../src/forms/schema';
+import { fulfill } from '../../src/orders/fulfill';
 
 interface Env {
   TALLY_SIGNING_SECRET?: string;
@@ -41,8 +42,7 @@ export async function onRequestPost({ request, env, ctx }: { request: Request; e
   const key = `order:${await sha(ctxObj.email + ':' + Date.now())}`;
   await env.BRAIN.put(key, JSON.stringify({ ...ctxObj, receivedAt: Date.now() }));
   try {
-    const mod: any = await import('./fulfill');
-    if (typeof mod.fulfill === 'function') ctx.waitUntil(mod.fulfill(ctxObj));
+    ctx.waitUntil(fulfill(ctxObj));
   } catch {}
   return new Response(JSON.stringify({ ok: true }), {
     status: 200,

@@ -1,0 +1,50 @@
+name: Social Orchestrator
+
+on:
+  workflow_dispatch:
+    inputs:
+      override:
+        description: 'Optional JSON override'
+        required: false
+        default: ''
+  schedule:
+    - cron: '*/30 * * * *'
+
+concurrency:
+  group: social-orchestrator-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dryrun:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - id: pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+        continue-on-error: true
+      - run: npm i -g pnpm && echo "$(npm bin -g)" >> $GITHUB_PATH
+        if: steps.pnpm.outcome == 'failure'
+      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm run social:dryrun
+  orchestrate:
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - id: pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+        continue-on-error: true
+      - run: npm i -g pnpm && echo "$(npm bin -g)" >> $GITHUB_PATH
+        if: steps.pnpm.outcome == 'failure'
+      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm tsx src/social/orchestrate.ts '${{ github.event.inputs.override }}'

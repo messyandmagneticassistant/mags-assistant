@@ -2,65 +2,25 @@ name: Stripe Sync
 
 on:
   workflow_dispatch:
-  # (optional) run every 12h
-  # schedule:
-  #   - cron: "0 */12 * * *"
-
-env:
-  NODE_VERSION: '20'
-  PNPM_VERSION: '10.15.0'
-  NODE_OPTIONS: '--enable-source-maps'
-
-  # Stripe (set these in repo Secrets)
-  STRIPE_API_KEY: ${{ secrets.STRIPE_API_KEY }}
-  STRIPE_WEBHOOK_SEC: ${{ secrets.STRIPE_WEBHOOK_SEC }}
-
-  # Optional Telegram alerts
-  TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-  TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
 
 jobs:
   sync:
-    name: Run Stripe sync
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          # IMPORTANT: do NOT request pnpm cache here (it errors before pnpm exists)
-          # cache: 'pnpm'
-
-      # Either Corepack or pnpm/action-setup works. Corepack is simplest.
-      - name: Enable pnpm via Corepack
-        run: |
-          corepack enable
-          corepack prepare pnpm@${{ env.PNPM_VERSION }} --activate
-          pnpm --version
-
+          node-version: 20
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
       - name: Install deps
         run: pnpm install --no-frozen-lockfile
-
-      # If you intentionally want to skip when STRIPE_API_KEY is missing, keep this guard
-      - name: Run sync
-        if: ${{ env.STRIPE_API_KEY != '' }}
-        run: |
-          # adjust the script path if yours differs
-          pnpm tsx scripts/stripe-sync.ts
-
-      - name: Skip (missing STRIPE_API_KEY)
-        if: ${{ env.STRIPE_API_KEY == '' }}
-        run: echo "Skipping; STRIPE_API_KEY is not set."
-
-      - name: On failure, send Telegram alert
-        if: failure() && env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID
-        run: |
-          MSG="❌ Stripe Sync failed on \`${{ github.repository }}\` @ ${{ github.ref_name }} (run ${{ github.run_id }})"
-          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d chat_id="${TELEGRAM_CHAT_ID}" \
-            -d text="$MSG"
+      - name: Reconcile catalog
+        env:
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+        run: pnpm tsx src/commerce/sync.ts > stripe-summary.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stripe-summary
+          path: stripe-summary.json

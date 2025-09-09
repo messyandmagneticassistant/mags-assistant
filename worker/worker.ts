@@ -150,6 +150,18 @@ export default {
       if (r && r.status !== 404) return r;
     }
 
+    // Mail test endpoint
+    {
+      const r = await tryRoute("/mail", "./routes/mail", null, req, env, ctx);
+      if (r && r.status !== 404) return r;
+    }
+
+    // Orders downloads endpoint
+    {
+      const r = await tryRoute("/orders", "./routes/orders", null, req, env, ctx);
+      if (r && r.status !== 404) return r;
+    }
+
     // Admin config endpoints
     if (url.pathname === "/admin/config") {
       const r = await tryRoute("/admin/config", "./routes/config", null, req, env, ctx);
