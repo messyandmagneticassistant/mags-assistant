@@ -42,7 +42,7 @@ export async function onRequestPost({ request, env, ctx }: { request: Request; e
   await env.BRAIN.put(key, JSON.stringify({ ...ctxObj, receivedAt: Date.now() }));
   try {
     const mod: any = await import('./fulfill');
-    if (typeof mod.fulfill === 'function') ctx.waitUntil(mod.fulfill(ctxObj));
+    if (typeof mod.fulfill === 'function') ctx.waitUntil(mod.fulfill(ctxObj, env));
   } catch {}
   return new Response(JSON.stringify({ ok: true }), {
     status: 200,

@@ -27,5 +27,5 @@ crons = ["*/5 * * * *"]
 
 # === Cloudflare Pages (for the /ui app) ===
 [pages]
-project_name = "assistant-ui"
+project_name = "mags-site"
 build_output_dir = "ui/dist"
