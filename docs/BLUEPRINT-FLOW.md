@@ -1,5 +1,7 @@
 # Blueprint Flow
 
+High level pipeline: **Site → Tally → Stripe → Fulfillment → PDF**.
+
 1. Visitor selects an offering on the site and is sent to a Stripe checkout.
 2. After payment, Stripe redirects or triggers fulfillment to provide downloads.
 3. Intake forms are handled via Tally which posts submissions to the worker.
