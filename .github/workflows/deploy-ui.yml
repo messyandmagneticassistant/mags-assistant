@@ -2,7 +2,7 @@ name: Deploy UI
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
     paths:
       - "ui/**"
       - ".github/workflows/deploy-ui.yml"
@@ -12,28 +12,29 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: pnpm
 
-      - name: Enable Corepack & pnpm
+      - name: Enable PNPM via Corepack
         run: |
           corepack enable
           corepack prepare pnpm@10.15.0 --activate
           pnpm --version
 
       - name: Build UI
-        run: pnpm -C ui install --no-frozen-lockfile && pnpm -C ui build
+        run: |
+          pnpm -C ui install --no-frozen-lockfile
+          pnpm -C ui build
 
       - name: Deploy to Cloudflare Pages
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CF_ACCOUNT_ID:        ${{ secrets.CF_ACCOUNT_ID }}
+          CF_ACCOUNT_ID:       ${{ secrets.CF_ACCOUNT_ID }}
         run: |
           wrangler pages deploy ui/dist --project-name=mags-site
+

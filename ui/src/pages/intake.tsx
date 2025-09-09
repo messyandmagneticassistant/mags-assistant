@@ -1,22 +1,29 @@
-import React, { useEffect, useState } from 'react';
-import FormEmbed from '../components/FormEmbed';
+import { useEffect, useState } from "react";
+import { FormEmbed } from "../components/FormEmbed";
 
-type FormMap = Record<string, string>;
+type FormMap = Record<string, string>; // label -> formId
 
 export default function IntakePage() {
   const [forms, setForms] = useState<FormMap>({});
-  const [formId, setFormId] = useState<string | undefined>();
+  const [formId, setFormId] = useState<string | null>(null);
+
   useEffect(() => {
-    const product = new URLSearchParams(window.location.search).get('product');
-    fetch('/admin/config')
+    const product = new URLSearchParams(window.location.search).get("product") ?? "";
+
+    fetch("/admin/config")
       .then((r) => r.json())
       .then((cfg) => {
-        const map: FormMap = cfg.tally || cfg['blueprint:tally'] || {};
+        const map: FormMap = cfg?.forms || {};
         setForms(map);
+
+        // If product provided and exists in map, select it; otherwise pick first entry
+        const keys = Object.keys(map);
         if (product && map[product]) setFormId(map[product]);
+        else if (keys.length) setFormId(map[keys[0]]);
       })
       .catch(() => {});
   }, []);
+
   return (
     <div className="p-4 space-y-4">
       <div className="flex gap-2 flex-wrap">
@@ -24,13 +31,15 @@ export default function IntakePage() {
           <button
             key={label}
             onClick={() => setFormId(id)}
-            className={`px-2 py-1 border rounded ${formId === id ? 'bg-rose-200' : ''}`}
+            className="px-2 py-1 border rounded"
           >
             {label}
           </button>
         ))}
       </div>
-      <FormEmbed formId={formId} />
+
+      {formId ? <FormEmbed formId={formId} /> : <p>Loading…</p>}
     </div>
   );
 }
+
