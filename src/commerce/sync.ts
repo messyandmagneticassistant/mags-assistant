@@ -1,6 +1,16 @@
 import Stripe from 'stripe';
 import { catalog, ProductInfo, PriceInfo } from './products';
 
+/**
+ * Placeholder hook for Maggie's future market analysis. Given a price, return a
+ * suggested unit amount based on external signals (average market price,
+ * demand, etc). Returning `null` means no change suggested.
+ */
+export function marketAdjust(_price: PriceInfo): { suggested: number } | null {
+  // TODO: implement dynamic market-based pricing adjustments
+  return null;
+}
+
 export interface ReconcileSummary {
   created: string[];
   updated: string[];
@@ -46,6 +56,11 @@ export async function reconcile(): Promise<ReconcileSummary> {
       const spPrice = priceMap.get(price.lookup_key) || priceMap.get(price.id);
       if (!spPrice) {
         summary.missing.push(price.lookup_key);
+        continue;
+      }
+      const adj = marketAdjust(price);
+      if (adj && spPrice.unit_amount !== adj.suggested) {
+        summary.updated.push(price.lookup_key);
         continue;
       }
       if (spPrice.unit_amount !== price.unit_amount) summary.updated.push(price.lookup_key);
