@@ -38,6 +38,8 @@ export const ROUTES = [
   '/planner/today',
   '/compose',
   '/schedule',
+  '/admin/media/report',
+  '/admin/media/override',
 ];
 
 // GET /admin  (or used as your light diagnostics surface)
@@ -47,6 +49,19 @@ export async function onRequestGet({ request, env }: { request: Request; env: an
   // Super-light health probe if someone hits /health through this route file
   if (pathname === '/health') {
     return json({ ok: true, pong: true });
+  }
+
+  if (pathname === '/admin/media/report') {
+    const url = new URL(request.url);
+    const id = url.searchParams.get('id') || '';
+    if (!id) return json({ ok: false, error: 'missing-id' }, 400);
+    try {
+      const raw = await env.BRAIN.get(`media:safety:report:${id}`);
+      const report = raw ? JSON.parse(raw) : null;
+      return json({ ok: true, report });
+    } catch {
+      return json({ ok: false, error: 'kv-read' }, 500);
+    }
   }
 
   const now = new Date().toISOString();
@@ -104,58 +119,66 @@ export async function onRequestGet({ request, env }: { request: Request; env: an
 }
 
 // POST /admin/trigger  { "kind": "plan" | "trends" | "tick" | "ops" }
-export async function onRequestPost({ request }: { request: Request }) {
+export async function onRequestPost({ request, env }: { request: Request; env: any }) {
   const url = new URL(request.url);
-  if (url.pathname !== '/admin/trigger') {
-    return json({ ok: false, error: 'not-found' }, 404);
+
+  if (url.pathname === '/admin/trigger') {
+    const body = await request.json().catch(() => ({} as any));
+    switch (body.kind) {
+      case 'plan': {
+        try {
+          const mod: any = await import('../planner/index');
+          if (typeof mod.runScheduled === 'function') {
+            await mod.runScheduled(null as any, null as any);
+          }
+        } catch {}
+        break;
+      }
+      case 'trends': {
+        try {
+          const mod: any = await import('../tiktok/index');
+          if (typeof mod.refreshTrends === 'function') {
+            await mod.refreshTrends();
+          }
+        } catch {}
+        break;
+      }
+      case 'tick': {
+        try {
+          const mod: any = await import('../tiktok/index');
+          if (typeof mod.runNextJob === 'function') {
+            await mod.runNextJob();
+          }
+        } catch {}
+        break;
+      }
+      case 'ops': {
+        try {
+          const mod: any = await import('../ops/queue');
+          if (typeof mod.runScheduled === 'function') {
+            await mod.runScheduled(null as any, null as any);
+          }
+        } catch {}
+        break;
+      }
+      default:
+        return json({ ok: false, error: 'unknown kind' }, 400);
+    }
+    return json({ ok: true });
   }
 
-  const body = await request.json().catch(() => ({} as any));
-
-  switch (body.kind) {
-    case 'plan': {
-      try {
-        const mod: any = await import('../planner/index');
-        if (typeof mod.runScheduled === 'function') {
-          await mod.runScheduled(null as any, null as any);
-        }
-      } catch {}
-      break;
+  if (url.pathname === '/admin/media/override') {
+    const secret = request.headers.get('x-secret');
+    if (secret !== env.POST_THREAD_SECRET) {
+      return json({ ok: false, error: 'unauthorized' }, 401);
     }
-
-    case 'trends': {
-      try {
-        const mod: any = await import('../tiktok/index');
-        if (typeof mod.refreshTrends === 'function') {
-          await mod.refreshTrends();
-        }
-      } catch {}
-      break;
-    }
-
-    case 'tick': {
-      try {
-        const mod: any = await import('../tiktok/index');
-        if (typeof mod.runNextJob === 'function') {
-          await mod.runNextJob();
-        }
-      } catch {}
-      break;
-    }
-
-    case 'ops': {
-      try {
-        const mod: any = await import('../ops/queue');
-        if (typeof mod.runScheduled === 'function') {
-          await mod.runScheduled(null as any, null as any);
-        }
-      } catch {}
-      break;
-    }
-
-    default:
-      return json({ ok: false, error: 'unknown kind' }, 400);
+    const body = await request.json().catch(() => ({}));
+    const id = body.id;
+    if (!id) return json({ ok: false, error: 'missing-id' }, 400);
+    const report = { id, status: 'approved', reasons: ['manual-override'], at: Date.now() };
+    await env.BRAIN.put(`media:safety:report:${id}`, JSON.stringify(report));
+    return json({ ok: true, report });
   }
 
-  return json({ ok: true });
+  return json({ ok: false, error: 'not-found' }, 404);
 }
