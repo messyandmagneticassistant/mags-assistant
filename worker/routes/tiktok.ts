@@ -84,7 +84,8 @@ export async function onRequestPost({ request, env }: { request: Request; env: a
 
   if (pathname === '/tiktok/schedule') {
     const queue = (await read(env, 'tiktok:queue')) || [];
-    queue.push({ kind: 'schedule', ...body });
+    const when = body.whenISO ? new Date(body.whenISO) : new Date();
+    queue.push({ kind: 'schedule', ...body, when });
     await write(env, 'tiktok:queue', queue);
     return json({ ok: true });
   }

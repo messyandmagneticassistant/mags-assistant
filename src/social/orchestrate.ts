@@ -1,5 +1,4 @@
 import fs from 'fs';
-import path from 'path';
 import { schedule } from './scheduler';
 import { refreshTrends, nextOpportunities } from './trends';
 import { kvKeys, getJSON, setJSON } from '../lib/kv';
@@ -9,12 +8,23 @@ import { download } from '../lib/storage';
 import { applyCapcut } from '../lib/capcut';
 import { ensureSafe, classifyFrame, redactRegion } from '../lib/mediaSafety';
 
+const ext = (u: string) => {
+  try {
+    const p = new URL(u).pathname;
+    const e = p.split('.').pop();
+    return e ? `.${e}` : '';
+  } catch {
+    return '';
+  }
+};
+
 async function fetchDriveQueue(): Promise<string[]> {
   return [];
 }
 
 const QUEUE_DIR = process.env.QUEUE_DIR ?? 'tmp';
-const queuePath = path.join(process.cwd(), QUEUE_DIR, 'queue.json');
+const queueDir = `${process.cwd()}/${QUEUE_DIR}`;
+const queuePath = `${queueDir}/queue.json`;
 
 export async function runScheduled(env: any, opts: { dryrun?: boolean } = {}) {
   await ensureDefaults(env);
@@ -61,13 +71,13 @@ export async function runScheduled(env: any, opts: { dryrun?: boolean } = {}) {
     const edited = await applyCapcut(local);
     const variant = await pickVariant(edited);
     const caption = variant?.value || '';
-    const when = new Date(Date.now() + 5 * 60 * 1000);
+    const when = new Date(Date.now() + (variant?.bestDelayMs || 5 * 60 * 1000));
 
     if (live) {
-      await schedule({ fileUrl: edited, caption, when } as any);
+      await schedule({ fileUrl: edited, caption, whenISO: when.toISOString(), variant } as any);
       await setJSON(env, kvKeys.ledger, { last: new Date().toISOString() });
     } else {
-      planned.push({ opp, when, caption });
+      planned.push({ opp, whenISO: when.toISOString(), caption });
     }
 
     console.log(`[orchestrate] ${mode} scheduled`, opp.hashtag || opp.id, 'at', when.toISOString());
@@ -75,7 +85,7 @@ export async function runScheduled(env: any, opts: { dryrun?: boolean } = {}) {
 
   if (live) {
     await setJSON(env, kvKeys.draftQueue, drafts);
-    fs.mkdirSync(path.dirname(queuePath), { recursive: true });
+    fs.mkdirSync(queueDir, { recursive: true });
     fs.writeFileSync(queuePath, JSON.stringify(queue, null, 2));
   }
 
