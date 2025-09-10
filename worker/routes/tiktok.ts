@@ -82,19 +82,21 @@ export async function onRequestPost({ request, env }: { request: Request; env: a
     return json({ ok: true });
   }
 
-  if (pathname === '/tiktok/schedule') {
-    const queue = (await read(env, 'tiktok:queue')) || [];
-    queue.push({ kind: 'schedule', ...body });
-    await write(env, 'tiktok:queue', queue);
-    return json({ ok: true });
-  }
+    if (pathname === '/tiktok/schedule') {
+      const queue = (await read(env, 'tiktok:queue')) ?? [];
+      const whenISO: string = body.whenISO || new Date(Date.now() + 15 * 60 * 1000).toISOString();
+      queue.push({ kind: 'schedule', whenISO });
+      await write(env, 'tiktok:queue', queue);
+      return json({ ok: true });
+    }
 
-  if (pathname === '/tiktok/reschedule') {
-    const queue = (await read(env, 'tiktok:queue')) || [];
-    queue.push({ kind: 'reschedule', ...body });
-    await write(env, 'tiktok:queue', queue);
-    return json({ ok: true });
-  }
+    if (pathname === '/tiktok/reschedule') {
+      const queue = (await read(env, 'tiktok:queue')) ?? [];
+      const whenISO: string = body.whenISO || new Date(Date.now() + 30 * 60 * 1000).toISOString();
+      queue.push({ kind: 'reschedule', whenISO });
+      await write(env, 'tiktok:queue', queue);
+      return json({ ok: true });
+    }
 
   if (pathname === '/tiktok/capcut/apply-template') {
     return json({ status: 'requires-manual', template: body.templateRef, cuts: body.assets || [] });

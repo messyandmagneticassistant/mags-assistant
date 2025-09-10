@@ -17,3 +17,5 @@ export async function redactRegion(_file: string, _cls: any): Promise<void> {
 export async function ensureSafe(file: string): Promise<SafetyReport> {
   return { status: 'ok', file };
 }
+
+export { ensureDefaults } from '../social/defaults';

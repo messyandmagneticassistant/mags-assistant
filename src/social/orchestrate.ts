@@ -1,104 +1,107 @@
-import fs from 'fs';
-import path from 'path';
 import { schedule } from './scheduler';
-import { refreshTrends, nextOpportunities } from './trends';
-import { kvKeys, getJSON, setJSON } from '../lib/kv';
-import { ensureDefaults, pickVariant } from './abtest';
+import { ensureDefaults, classifyFrame, ensureSafe } from '../lib/mediaSafety';
 import { tgSend } from '../lib/telegram';
-import { download } from '../lib/storage';
+import { refreshTrends, nextOpportunities, pickVariant } from './abtest';
+import { kvKeys, getJSON, setJSON } from '../lib/kv';
 import { applyCapcut } from '../lib/capcut';
-import { ensureSafe, classifyFrame, redactRegion } from '../lib/mediaSafety';
+import type { Env } from '../../worker/worker';
 
-async function fetchDriveQueue(): Promise<string[]> {
-  return [];
-}
-
-const QUEUE_DIR = process.env.QUEUE_DIR ?? 'tmp';
-const queuePath = path.join(process.cwd(), QUEUE_DIR, 'queue.json');
-
-export async function runScheduled(env: any, opts: { dryrun?: boolean } = {}) {
-  await ensureDefaults(env);
-  const live = env.ENABLE_SOCIAL_POSTING === 'true' && !opts.dryrun;
-  const mode = live ? 'LIVE' : 'DRYRUN';
-
-  const last = await env.BRAIN.get('tiktok:trends:updatedAt');
-  if (!last || Date.now() - Number(last) > 60 * 60 * 1000) {
-    await refreshTrends(env);
+const ext = (u: string): string => {
+  try {
+    const p = new URL(u).pathname;
+    return p.length > 1 ? '.' + p.split('.').pop()! : '';
+  } catch {
+    return '';
   }
+};
+
+const QUEUE_DIR = process.env.QUEUE_DIR ?? '';
+const queuePath = `${QUEUE_DIR}/queue.json`;
+
+export async function runScheduled(env: Env) {
+  await ensureDefaults(env);
+  const live = env.ENABLE_SOCIAL_POSTS === 'true';
+  if (!env.BRAIN) throw new Error('BRAIN missing');
 
   const now = new Date();
-  const opportunities = await nextOpportunities(env, now, 'MAIN');
-  const boostRules = await getJSON(env, kvKeys.boostRules, {} as any);
-  const drafts = await getJSON(env, kvKeys.draftQueue, [] as any[]);
+  await refreshTrends(env);
+  const opportunities = await nextOpportunities(env);
+  const boostRules = (await getJSON(env, kvKeys.boostRules)) ?? [];
 
-  const queue: any[] = fs.existsSync(queuePath)
-    ? JSON.parse(fs.readFileSync(queuePath, 'utf8'))
-    : [];
-  const driveFiles = await fetchDriveQueue();
-  for (const f of driveFiles) queue.push({ file: f });
+  // On Workers, we won’t use fs; we store the queue in KV
+  let queue: any[] = [];
+  if (QUEUE_DIR) {
+    try {
+      // @ts-ignore – dev only
+      const fs = await import('node:fs');
+      if (!fs.existsSync(QUEUE_DIR)) fs.mkdirSync(QUEUE_DIR, { recursive: true });
+      if (fs.existsSync(queuePath)) queue = JSON.parse(fs.readFileSync(queuePath, 'utf8'));
+    } catch {}
+  } else {
+    queue = (await getJSON(env, kvKeys.draftQueue)) ?? [];
+  }
 
   const planned: any[] = [];
 
   for (const opp of opportunities) {
-    let asset = drafts.shift() || queue.shift();
+    // pick an asset (from drive drafts queue)
+    let asset = (queue.shift?.() ?? null) || null;
     if (!asset) continue;
-    let local = await download(asset.file || asset);
+    void ext(asset);
 
+    // Safety gate – must pass or be redacted
     try {
-      const cls = await classifyFrame(local);
-      if (!cls.safe) await redactRegion(local, cls);
+      const cls = await classifyFrame(asset);
+      if (!cls.safe) {
+        const report = await ensureSafe(asset);
+        if (report.status === 'rejected') {
+          await tgSend('❌ Rejected: ' + (report.reason || '') + '\n' + (report.link || ''));
+          continue;
+        }
+        if (report.status === 'fixed') {
+          asset = report.file || report.path || asset;
+        }
+      }
     } catch {}
 
-    const report = await ensureSafe(local);
-    if (report.status === 'rejected') {
-      await tgSend('❌ Rejected: ' + report.reason + '\n' + (report.link || ''));
-      continue;
-    }
-    if (report.status === 'fixed') {
-      local = report.file || report.path || local;
-    }
-
-    const edited = await applyCapcut(local);
-    const variant = await pickVariant(edited);
-    const caption = variant?.value || '';
-    const when = new Date(Date.now() + 5 * 60 * 1000);
+    const edited = await applyCapcut(asset);
+    const variant = await pickVariant(env, edited, boostRules);
+    const caption = variant?.value ?? '';
+    const when = new Date(Date.now() + 15 * 60 * 1000); // 15m default
+    const whenISO = when.toISOString();
 
     if (live) {
-      await schedule({ fileUrl: edited, caption, when } as any);
-      await setJSON(env, kvKeys.ledger, { last: new Date().toISOString() });
+      await schedule({ fileUrl: edited, caption, whenISO });
+      await setJSON(env, kvKeys.ledger, { last: whenISO });
     } else {
-      planned.push({ opp, when, caption });
+      planned.push({ opp, whenISO, caption });
     }
 
-    console.log(`[orchestrate] ${mode} scheduled`, opp.hashtag || opp.id, 'at', when.toISOString());
+    // persist queue (Workers: KV; dev: fs)
+    if (QUEUE_DIR) {
+      try {
+        // @ts-ignore – dev only
+        const fs = await import('node:fs');
+        if (!fs.existsSync(QUEUE_DIR)) fs.mkdirSync(QUEUE_DIR, { recursive: true });
+        fs.writeFileSync(queuePath, JSON.stringify(queue, null, 2));
+      } catch {}
+    } else {
+      await setJSON(env, kvKeys.draftQueue, queue);
+    }
   }
 
   if (live) {
-    await setJSON(env, kvKeys.draftQueue, drafts);
-    fs.mkdirSync(path.dirname(queuePath), { recursive: true });
-    fs.writeFileSync(queuePath, JSON.stringify(queue, null, 2));
+    await setJSON(env, kvKeys.lastRunAt, now.toISOString());
   }
 
-  const helpers = ['WILLOW', 'MAGGIE', 'MARS'];
-  for (const h of helpers) {
-    for (const rule of boostRules.helperActions || []) {
-      console.log(`[boost] ${h} will`, rule.actions.join(','), `at +${rule.atMin}m`);
-    }
-  }
-
-  try {
-    await tgSend(`[social] ${mode} planned ${planned.length} posts`);
-  } catch {}
-
-  return planned;
+  return { ok: true, planned };
 }
 
 if (import.meta.main) {
   const env: any = (globalThis as any).env || {
     BRAIN: { get: async () => null, put: async () => {} },
   };
-  const cliDry = process.argv.includes('--dryrun');
-  runScheduled(env, { dryrun: cliDry }).catch((err) => {
+  runScheduled(env).catch((err) => {
     console.error(err);
   });
 }
