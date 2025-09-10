@@ -15,11 +15,9 @@ function json(data: any, status = 200) {
 }
 
 export function onRequestOptions() {
-  // Preflight for both /admin and /admin/trigger
   return new Response(null, { status: 204, headers: CORS });
 }
 
-// Routes we expose from the admin surface (for quick reference in /admin status)
 export const ROUTES = [
   '/health',
   '/diag/config',
@@ -42,23 +40,29 @@ export const ROUTES = [
   '/schedule',
 ];
 
-// GET /admin  (or used as your light diagnostics surface)
-export async function onRequestGet({ request, env }: { request: Request; env: any }) {
-  const { pathname } = new URL(request.url);
+export async function onRequestGet({ request, env }: any) {
+  const { pathname, searchParams } = new URL(request.url);
 
-  // Super-light health probe if someone hits /health through this route file
-  if (pathname === '/health') {
-    return json({ ok: true, pong: true });
+  if (pathname === '/health') return json({ ok: true });
+
+  if (pathname === '/admin/media/report') {
+    const id = searchParams.get('id');
+    if (!id) return json({ ok: false, error: 'missing id' }, 400);
+    try {
+      const raw = await env.BRAIN.get(`media:report:${id}`);
+      const report = raw ? JSON.parse(raw) : null;
+      return json({ ok: true, report });
+    } catch {
+      return json({ ok: false }, 500);
+    }
   }
 
   if (pathname === '/admin/social-mode') {
-    const live = env.ENABLE_SOCIAL === 'true';
-    return json({ ok: true, mode: live ? 'LIVE' : 'DRYRUN' });
+    const live = env.ENABLE_SOCIAL_POSTING === 'true';
+    return json({ ok: true, mode: live ? 'live' : 'dryrun' });
   }
 
   const now = new Date().toISOString();
-
-  // Safe probes; each in try{} so a missing binding doesn’t 500
   let kvKeysSample: string[] = [];
   let trendsAgeMinutes: number | null = null;
   let queueSize: number | null = null;
@@ -85,7 +89,6 @@ export async function onRequestGet({ request, env }: { request: Request; env: an
     if (n) accountsCount = Number(n);
   } catch {}
 
-  // Optional stat you might populate elsewhere
   try {
     const n = await env.BRAIN.get('stats:posts:24h');
     if (n) posts24h = Number(n);
@@ -105,13 +108,11 @@ export async function onRequestGet({ request, env }: { request: Request; env: an
     queueSize,
     accountsCount,
     cronConfigured,
-    // Key name must be quoted to be valid JSON/JS
-    "24hPosts": posts24h ?? 0,
+    '24hPosts': posts24h ?? 0,
   });
 }
 
-// POST /admin/trigger  { "kind": "plan" | "trends" | "tick" | "ops" }
-export async function onRequestPost({ request, env }: { request: Request; env: any }) {
+export async function onRequestPost({ request, env }: any) {
   const url = new URL(request.url);
 
   if (url.pathname === '/admin/social/seed') {
@@ -128,56 +129,56 @@ export async function onRequestPost({ request, env }: { request: Request; env: a
     return json({ ok: false, error: 'seed-failed' }, 500);
   }
 
-  if (url.pathname !== '/admin/trigger') {
-    return json({ ok: false, error: 'not-found' }, 404);
-  }
-
-  const body = await request.json().catch(() => ({} as any));
-
-  switch (body.kind) {
-    case 'plan': {
-      try {
-        const mod: any = await import('../planner/index');
+  if (url.pathname === '/admin/trigger') {
+    const body = await request.json().catch(() => ({}));
+    switch (body.kind) {
+      case 'plan': {
+        const mod: any = await import('../../src/social/orchestrate');
         if (typeof mod.runScheduled === 'function') {
-          await mod.runScheduled(null as any, null as any);
+          await mod.runScheduled(env, { dryrun: true });
         }
-      } catch {}
-      break;
-    }
-
-    case 'trends': {
-      try {
-        const mod: any = await import('../tiktok/index');
+        return json({ ok: true });
+      }
+      case 'run': {
+        const mod: any = await import('../../src/social/orchestrate');
+        if (typeof mod.runScheduled === 'function') {
+          await mod.runScheduled(env, { dryrun: false });
+        }
+        return json({ ok: true });
+      }
+      case 'trends': {
+        const mod: any = await import('../../src/social/trends');
         if (typeof mod.refreshTrends === 'function') {
-          await mod.refreshTrends();
+          await mod.refreshTrends(env);
         }
-      } catch {}
-      break;
+        return json({ ok: true });
+      }
+      case 'tick': {
+        try {
+          const mod: any = await import('../tiktok/index');
+          if (typeof mod.runNextJob === 'function') {
+            await mod.runNextJob();
+          }
+        } catch {}
+        return json({ ok: true });
+      }
+      case 'ops': {
+        try {
+          const mod: any = await import('../ops/queue');
+          if (typeof mod.runScheduled === 'function') {
+            await mod.runScheduled(null as any, null as any);
+          }
+        } catch {}
+        return json({ ok: true });
+      }
+      default:
+        return json({ ok: false, error: 'unknown trigger' }, 400);
     }
-
-    case 'tick': {
-      try {
-        const mod: any = await import('../tiktok/index');
-        if (typeof mod.runNextJob === 'function') {
-          await mod.runNextJob();
-        }
-      } catch {}
-      break;
-    }
-
-    case 'ops': {
-      try {
-        const mod: any = await import('../ops/queue');
-        if (typeof mod.runScheduled === 'function') {
-          await mod.runScheduled(null as any, null as any);
-        }
-      } catch {}
-      break;
-    }
-
-    default:
-      return json({ ok: false, error: 'unknown kind' }, 400);
   }
 
-  return json({ ok: true });
+  if (url.pathname === '/admin/media/override') {
+    // media override handler not implemented
+  }
+
+  return json({ ok: false }, 404);
 }
