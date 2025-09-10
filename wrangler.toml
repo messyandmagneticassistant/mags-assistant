@@ -2,7 +2,7 @@
 
 name = "mags-assistant"
 main = "worker/worker.ts"
-compatibility_date = "2025-09-03"
+compatibility_date = "2024-11-01"
 compatibility_flags = ["nodejs_compat"]
 
 # ✅ GitHub Actions injects account_id from secrets; don't hardcode it.
