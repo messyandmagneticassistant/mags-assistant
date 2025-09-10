@@ -56,6 +56,15 @@ jobs:
             npx wrangler versions upload $CFG
           fi
 
+  brain-sync:
+    needs: deploy
+    runs-on: ubuntu-latest
+    if: ${{ secrets.FETCH_PASS != '' }}
+    steps:
+      - name: Sync Brain to KV
+        run: |
+          curl -sS -X POST "${{ secrets.WORKER_URL }}/brain/sync" \
+            -H "x-fetch-pass: ${{ secrets.FETCH_PASS }}"
   seed-stripe:
     needs: deploy
     if: ${{ github.event_name == 'workflow_dispatch' }}

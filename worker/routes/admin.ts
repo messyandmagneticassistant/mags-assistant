@@ -20,6 +20,8 @@ export function onRequestOptions() {
 
 export const ROUTES = [
   '/health',
+  '/brain/get',
+  '/brain/sync',
   '/diag/config',
   '/api/browser/session',
   '/admin/status',
@@ -44,6 +46,11 @@ export async function onRequestGet({ request, env }: any) {
   const { pathname, searchParams } = new URL(request.url);
 
   if (pathname === '/health') return json({ ok: true });
+  if (pathname === '/brain/get') {
+    const raw = await env.BRAIN.get('PostQ:thread-state');
+    return json({ ok: true, exists: !!raw, size: raw?.length ?? 0 });
+  }
+
 
   if (pathname === '/admin/media/report') {
     const id = searchParams.get('id');
@@ -114,6 +121,15 @@ export async function onRequestGet({ request, env }: any) {
 
 export async function onRequestPost({ request, env }: any) {
   const url = new URL(request.url);
+
+  if (url.pathname === '/brain/sync') {
+    if (request.headers.get('x-fetch-pass') !== process.env.FETCH_PASS) {
+      return json({ ok: false, error: 'auth' }, 401);
+    }
+    const file = await fetch(new URL('../../brain/.brain.md', import.meta.url)).then((r) => r.text());
+    await env.BRAIN.put('PostQ:thread-state', file);
+    return json({ ok: true });
+  }
 
   if (url.pathname === '/admin/social/seed') {
     if (request.headers.get('x-api-key') !== env.POST_THREAD_SECRET) {

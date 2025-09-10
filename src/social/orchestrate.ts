@@ -1,22 +1,11 @@
 import fs from 'fs';
 import { schedule } from './scheduler';
-import { refreshTrends, nextOpportunities } from './trends';
-import { kvKeys, getJSON, setJSON } from '../lib/kv';
-import { ensureDefaults, pickVariant } from './abtest';
+import { refreshTrends, nextOpportunities, pickVariant } from './trends';
+import { kvKeys, getJSON, setJSON } from '../kv';
 import { tgSend } from '../lib/telegram';
 import { download } from '../lib/storage';
 import { applyCapcut } from '../lib/capcut';
 import { ensureSafe, classifyFrame, redactRegion } from '../lib/mediaSafety';
-
-export const ext = (u: string) => {
-  try {
-    const p = new URL(u).pathname;
-    const i = p.lastIndexOf('.');
-    return i >= 0 ? p.slice(i) : '';
-  } catch {
-    return '';
-  }
-};
 
 async function fetchDriveQueue(): Promise<string[]> {
   return [];
@@ -26,7 +15,6 @@ const QUEUE_DIR = process.env.QUEUE_DIR ?? 'tmp';
 const queuePath = `${QUEUE_DIR}/queue.json`;
 
 export async function runScheduled(env: any, opts: { dryrun?: boolean } = {}) {
-  await ensureDefaults(env);
   const live = env.ENABLE_SOCIAL_POSTING === 'true' && !opts.dryrun;
   const mode = live ? 'LIVE' : 'DRYRUN';
 
@@ -70,16 +58,17 @@ export async function runScheduled(env: any, opts: { dryrun?: boolean } = {}) {
     const edited = await applyCapcut(local);
     const variant = await pickVariant(edited);
     const caption = variant?.value || '';
-    const when = new Date(Date.now() + (variant?.bestDelayMs ?? 2 * 60 * 1000));
+    const when = new Date(Date.now() + 5 * 60 * 1000);
+    const whenISO = when.toISOString();
 
     if (live) {
-      await schedule({ fileUrl: edited, caption, whenISO: when.toISOString(), variant, ext: ext(edited) });
+      await schedule({ fileUrl: edited, caption, whenISO });
       await setJSON(env, kvKeys.ledger, { last: new Date().toISOString() });
     } else {
-      planned.push({ opp, whenISO: when.toISOString(), caption });
+      planned.push({ opp, whenISO, caption, fileUrl: edited });
     }
 
-    console.log(`[orchestrate] ${mode} scheduled`, opp.hashtag || opp.id, 'at', when.toISOString());
+    console.log(`[orchestrate] ${mode} scheduled`, opp.hashtag || opp.id, 'at', whenISO);
   }
 
   if (live) {

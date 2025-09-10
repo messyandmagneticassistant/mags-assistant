@@ -83,17 +83,17 @@ export async function onRequestPost({ request, env }: { request: Request; env: a
   }
 
   if (pathname === '/tiktok/schedule') {
-    const queue = (await read(env, 'tiktok:queue')) || [];
-    const runAt = body.whenISO ? new Date(body.whenISO).getTime() : Date.now();
-    queue.push({ kind: 'schedule', ...body, runAt });
+    const queue = (await read(env, 'tiktok:queue')) ?? [];
+    const whenISO = body.whenISO ?? new Date(Date.now() + 5 * 60 * 1000).toISOString();
+    queue.push({ kind: 'schedule', whenISO, meta: body.meta ?? {} });
     await write(env, 'tiktok:queue', queue);
     return json({ ok: true });
   }
 
   if (pathname === '/tiktok/reschedule') {
-    const queue = (await read(env, 'tiktok:queue')) || [];
-    const runAt = body.whenISO ? new Date(body.whenISO).getTime() : undefined;
-    queue.push({ kind: 'reschedule', ...body, runAt });
+    const queue = (await read(env, 'tiktok:queue')) ?? [];
+    const whenISO = body.whenISO ?? new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    queue.push({ kind: 'reschedule', whenISO, id: body.id });
     await write(env, 'tiktok:queue', queue);
     return json({ ok: true });
   }
