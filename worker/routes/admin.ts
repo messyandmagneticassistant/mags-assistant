@@ -135,14 +135,14 @@ export async function onRequestPost({ request, env }: any) {
       case 'plan': {
         const mod: any = await import('../../src/social/orchestrate');
         if (typeof mod.runScheduled === 'function') {
-          await mod.runScheduled(env, { dryrun: true });
+          await mod.runScheduled(env, { dryrun: true, whenISO: body.whenISO });
         }
         return json({ ok: true });
       }
       case 'run': {
         const mod: any = await import('../../src/social/orchestrate');
         if (typeof mod.runScheduled === 'function') {
-          await mod.runScheduled(env, { dryrun: false });
+          await mod.runScheduled(env, { dryrun: false, whenISO: body.whenISO });
         }
         return json({ ok: true });
       }
