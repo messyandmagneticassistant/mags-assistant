@@ -12,6 +12,15 @@ function json(data: any, status = 200) {
 }
 
 async function read(env: any, key: string) {
+  if (env.QUEUE_DIR) {
+    try {
+      const fs = await import('node:fs/promises');
+      const txt = await fs.readFile(`${env.QUEUE_DIR}/${key}.json`, 'utf8');
+      return JSON.parse(txt);
+    } catch {
+      return null;
+    }
+  }
   try {
     const val = await env.POSTQ.get(key);
     return val ? JSON.parse(val) : null;
@@ -21,6 +30,12 @@ async function read(env: any, key: string) {
 }
 
 async function write(env: any, key: string, val: any) {
+  if (env.QUEUE_DIR) {
+    const fs = await import('node:fs/promises');
+    await fs.mkdir(env.QUEUE_DIR, { recursive: true });
+    await fs.writeFile(`${env.QUEUE_DIR}/${key}.json`, JSON.stringify(val));
+    return;
+  }
   await env.POSTQ.put(key, JSON.stringify(val));
 }
 
@@ -86,7 +101,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: a
     const queue = (await read(env, 'tiktok:queue')) || [];
     const whenISO: string = String(body.whenISO || '');
     if (!whenISO) return json({ ok: false, error: 'whenISO required' }, 400);
-    queue.push({ kind: 'schedule', whenISO, payload: body.payload || {} });
+    queue.push({ kind: 'schedule', whenISO });
     await write(env, 'tiktok:queue', queue);
     return json({ ok: true });
   }
@@ -95,7 +110,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: a
     const queue = (await read(env, 'tiktok:queue')) || [];
     const whenISO: string = String(body.whenISO || '');
     if (!whenISO) return json({ ok: false, error: 'whenISO required' }, 400);
-    queue.push({ kind: 'reschedule', whenISO, payload: body.payload || {} });
+    queue.push({ kind: 'reschedule', whenISO });
     await write(env, 'tiktok:queue', queue);
     return json({ ok: true });
   }
