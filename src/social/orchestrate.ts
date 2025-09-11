@@ -1,102 +1,61 @@
-import fs from 'fs';
 import { schedule } from './scheduler';
-import { refreshTrends, nextOpportunities, pickVariant } from './trends';
-import { kvKeys, getJSON, setJSON } from '../kv';
-import { tgSend } from '../lib/telegram';
-import { download } from '../lib/storage';
-import { applyCapcut } from '../lib/capcut';
-import { ensureSafe, classifyFrame, redactRegion } from '../lib/mediaSafety';
+import {
+  ensureDefaults,
+  classifyFrame,
+  ensureSafe,
+  pickVariant,
+  kvKeys,
+  getJSON,
+  setJSON,
+} from './lib/utils';
+import { tgSend } from './lib/telegram';
+import { refreshTrends, nextOpportunities } from './trends';
+import { applyCapcut } from './lib/capcut';
+import type { Env } from '../worker/types';
 
-async function fetchDriveQueue(): Promise<string[]> {
-  return [];
-}
+export async function runScheduled(env: Env, opts: { dryrun?: boolean } = {}) {
+  await ensureDefaults(env);
+  const live = !!env.ENABLE_SOCIAL_POSTING && !opts.dryrun;
 
-const QUEUE_DIR = process.env.QUEUE_DIR ?? 'tmp';
-const queuePath = `${QUEUE_DIR}/queue.json`;
-
-export async function runScheduled(env: any, opts: { dryrun?: boolean } = {}) {
-  const live = env.ENABLE_SOCIAL_POSTING === 'true' && !opts.dryrun;
-  const mode = live ? 'LIVE' : 'DRYRUN';
-
-  const last = await env.BRAIN.get('tiktok:trends:updatedAt');
-  if (!last || Date.now() - Number(last) > 60 * 60 * 1000) {
-    await refreshTrends(env);
-  }
-
-  const now = new Date();
-  const opportunities = await nextOpportunities(env, now, 'MAIN');
-  const boostRules = await getJSON(env, kvKeys.boostRules, {} as any);
-  const drafts = await getJSON(env, kvKeys.draftQueue, [] as any[]);
-
-  const queue: any[] = fs.existsSync(queuePath)
-    ? JSON.parse(fs.readFileSync(queuePath, 'utf8'))
-    : [];
-  const driveFiles = await fetchDriveQueue();
-  for (const f of driveFiles) queue.push({ file: f });
-
+  const queue: any[] = await getJSON(env, kvKeys.draftQueue, [] as any[]);
   const planned: any[] = [];
 
+  const now = new Date();
+  const profile = 'MESSY_MAIN';
+  await refreshTrends(env);
+  const opportunities = await nextOpportunities(env, now.getTime(), profile);
+
   for (const opp of opportunities) {
-    let asset = drafts.shift() || queue.shift();
-    if (!asset) continue;
-    let local = await download(asset.file || asset);
+    let local = queue.shift();
+    if (!local) continue;
 
     try {
-      const cls = await classifyFrame(local);
-      if (!cls.safe) await redactRegion(local, cls);
+      await classifyFrame(local);
     } catch {}
 
-    const report = await ensureSafe(local);
+    const report = await ensureSafe(env, local);
     if (report.status === 'rejected') {
-      await tgSend('❌ Rejected: ' + report.reason + '\n' + (report.link || ''));
+      await tgSend(`❌ Rejected: ${report.reason}`);
       continue;
     }
     if (report.status === 'fixed') {
-      local = report.file || report.path || local;
+      local = report.file || report.artifactPath || local;
     }
 
     const edited = await applyCapcut(local);
-    const variant = await pickVariant(edited);
-    const caption = variant?.value || '';
+    const variant = await pickVariant(env, 'caption');
+    const caption = variant?.value ?? '';
+
     const when = new Date(Date.now() + 5 * 60 * 1000);
     const whenISO = when.toISOString();
-
     if (live) {
       await schedule({ fileUrl: edited, caption, whenISO });
-      await setJSON(env, kvKeys.ledger, { last: new Date().toISOString() });
+      await setJSON(env, kvKeys.lastScheduled, { whenISO, caption, edited });
     } else {
-      planned.push({ opp, whenISO, caption, fileUrl: edited });
-    }
-
-    console.log(`[orchestrate] ${mode} scheduled`, opp.hashtag || opp.id, 'at', whenISO);
-  }
-
-  if (live) {
-    await setJSON(env, kvKeys.draftQueue, drafts);
-    fs.mkdirSync(QUEUE_DIR, { recursive: true });
-    fs.writeFileSync(queuePath, JSON.stringify(queue, null, 2));
-  }
-
-  const helpers = ['WILLOW', 'MAGGIE', 'MARS'];
-  for (const h of helpers) {
-    for (const rule of boostRules.helperActions || []) {
-      console.log(`[boost] ${h} will`, rule.actions.join(','), `at +${rule.atMin}m`);
+      planned.push({ opp, whenISO, caption, file: edited });
     }
   }
 
-  try {
-    await tgSend(`[social] ${mode} planned ${planned.length} posts`);
-  } catch {}
-
+  await setJSON(env, kvKeys.draftQueue, queue);
   return planned;
-}
-
-if (import.meta.main) {
-  const env: any = (globalThis as any).env || {
-    BRAIN: { get: async () => null, put: async () => {} },
-  };
-  const cliDry = process.argv.includes('--dryrun');
-  runScheduled(env, { dryrun: cliDry }).catch((err) => {
-    console.error(err);
-  });
 }
