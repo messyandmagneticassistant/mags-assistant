@@ -49,6 +49,7 @@
     "sync:push": "git add -A && git commit -m \"update\" || echo \"(no changes)\" && git push origin main",
     "save-deploy": "npm run sync:pull && npm run deploy",
     "pull-deploy": "git pull origin main && npm run deploy",
+    "setup:merge-driver": "node scripts/setup-merge-driver.js",
 
     "cf:whoami": "wrangler whoami",
     "cf:deploy": "wrangler deploy -c wrangler.toml --minify && wrangler deploy -c mags-runner/wrangler.toml --minify",
