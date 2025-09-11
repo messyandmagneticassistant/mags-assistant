@@ -1,88 +1,34 @@
-# .github/workflows/deploy.yml
 name: Deploy Worker
-
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   pull_request:
-    branches: [main]
   workflow_dispatch:
-
-concurrency:
-  group: deploy-worker
-  cancel-in-progress: true
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: '20'
 
-      - name: Enable Corepack & pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@10.15.0 --activate
-          pnpm --version
+      - name: Install Wrangler
+        run: npm i -g wrangler
 
-      # Install all workspace deps (includes worker + shared)
-      - name: Install deps
-        run: pnpm install --no-frozen-lockfile
-
-      - name: Show Wrangler version
-        run: npx wrangler --version
-
-      - name: Publish (main) or upload version (PR/branches)
+      - name: Publish
+        if: github.event_name != 'pull_request'
         env:
-          # keep both names to satisfy wrangler/env differences
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-        run: |
-          # Use the wrangler.toml at repo root (main: worker/worker.ts)
-          CFG="--config wrangler.toml"
+        run: wrangler deploy
 
-          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
-            echo "→ Deploying to production…"
-            npx wrangler deploy $CFG
-          else
-            echo "→ Non-main branch: uploading a preview version…"
-            npx wrangler versions upload $CFG
-          fi
-
-  brain-sync:
-    needs: deploy
-    runs-on: ubuntu-latest
-    if: ${{ secrets.FETCH_PASS != '' }}
-    steps:
-      - name: Sync Brain to KV
-        run: |
-          curl -sS -X POST "${{ secrets.WORKER_URL }}/brain/sync" \
-            -H "x-fetch-pass: ${{ secrets.FETCH_PASS }}"
-  seed-stripe:
-    needs: deploy
-    if: ${{ github.event_name == 'workflow_dispatch' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-      - name: Enable Corepack & pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@10.15.0 --activate
-          pnpm --version
-      - name: Install deps
-        run: pnpm install --no-frozen-lockfile
-      - name: Seed Stripe
+      - name: Preview (PRs)
+        if: github.event_name == 'pull_request'
         env:
-          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
-        run: pnpm seed:stripe
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: wrangler deploy --dry-run

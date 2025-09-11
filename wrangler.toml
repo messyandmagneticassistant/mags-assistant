@@ -3,6 +3,7 @@
 name = "mags-assistant"
 main = "worker/worker.ts"
 compatibility_date = "2024-11-01"
+# Enable Node.js builtins
 compatibility_flags = ["nodejs_compat"]
 
 # ✅ GitHub Actions injects account_id from secrets; don't hardcode it.
