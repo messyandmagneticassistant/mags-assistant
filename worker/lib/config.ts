@@ -1,35 +1,14 @@
-import type { ExecutionContext } from "workerd";
-
 type AnyObj = Record<string, any>;
 
-const DEFAULT_KV_KEY = "thread-state";
-
 /**
- * Load configuration with this precedence:
- *   1) KV (POSTQ) → key from SECRET_BLOB "PostQ:<key>" or default "thread-state"
- *   2) env (CF Worker vars / CI-injected / .env)
- * KV wins so no renames/moves are required.
+ * Load configuration from KV first, falling back to env values.
+ * Secrets are stored in BRAIN under the key from SECRET_BLOB
+ * (defaulting to "thread-state").
  */
 export async function loadConfig(env: AnyObj): Promise<AnyObj> {
-  let kvKey = DEFAULT_KV_KEY;
-
-  if (typeof env.SECRET_BLOB === "string") {
-    const [ns, key] = env.SECRET_BLOB.split(":");
-    if ((ns || "").toLowerCase() === "postq" && key) kvKey = key;
-  }
-
-  let kvData: AnyObj = {};
-  try {
-    if (env.POSTQ && typeof env.POSTQ.get === "function") {
-      const raw = await env.POSTQ.get(kvKey);
-      if (raw) kvData = JSON.parse(raw);
-    }
-  } catch {
-    // ignore; fallback to env
-  }
-
-  // Merge: KV overrides env
-  return { ...env, ...kvData };
+  const raw = await env.BRAIN.get(env.SECRET_BLOB || "thread-state", "text");
+  const secrets = raw ? JSON.parse(raw) : {};
+  return { ...env, ...secrets };
 }
 
 /** Presence map without leaking values */

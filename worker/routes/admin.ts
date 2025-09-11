@@ -52,7 +52,8 @@ export async function onRequestGet({ request, env }: any) {
 
   if (pathname === '/health') return json({ ok: true });
   if (pathname === '/brain/get') {
-    const raw = await env.BRAIN.get('PostQ:thread-state');
+    const key = env.BRAIN_DOC_KEY || 'PostQ:thread-state';
+    const raw = await env.BRAIN.get(key);
     return json({ ok: true, exists: !!raw, size: raw?.length ?? 0 });
   }
 
@@ -86,7 +87,7 @@ export async function onRequestGet({ request, env }: any) {
   let posts24h: number | null = null;
 
   try {
-    const list = await env.BRAIN.list({ prefix: 'thread-state' });
+    const list = await env.BRAIN.list({ prefix: env.SECRET_BLOB || 'thread-state' });
     kvKeysSample = (list.keys ?? []).slice(0, 5).map((k: any) => k.name);
   } catch {}
 
@@ -136,7 +137,8 @@ export async function onRequestPost({ request, env }: any) {
       return json({ ok: false, error: 'auth' }, 401);
     }
     const file = await fetch(new URL('../../brain/.brain.md', import.meta.url)).then((r) => r.text());
-    await env.BRAIN.put('PostQ:thread-state', file);
+    const key = env.BRAIN_DOC_KEY || 'PostQ:thread-state';
+    await env.BRAIN.put(key, file);
     return json({ ok: true });
   }
 

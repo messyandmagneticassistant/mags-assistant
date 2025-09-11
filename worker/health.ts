@@ -8,9 +8,17 @@ export const onRequestGet = async ({ env }: any) => {
 
 /**
  * /diag/config — true/false presence check for the EXACT keys already in use.
- * Reads KV (POSTQ:thread-state) first, then env as fallback. No renames.
+ * Shows which KV keys are queried and whether the read succeeded.
  */
 export const diagConfig = async ({ env }: any) => {
+  const blobKey = env.SECRET_BLOB || "thread-state";
+  const brainKey = env.BRAIN_DOC_KEY || "PostQ:thread-state";
+
+  let kvReadOk = false;
+  try {
+    kvReadOk = !!(await env.BRAIN.get(blobKey));
+  } catch {}
+
   const cfg = await loadConfig(env);
 
   const keys = [
@@ -54,9 +62,9 @@ export const diagConfig = async ({ env }: any) => {
   ];
 
   const present = presence(cfg, keys);
-  const using = cfg.SECRET_BLOB || "PostQ:thread-state";
 
-  return new Response(JSON.stringify({ present, kvFirst: true, kvKey: using }), {
-    headers: { "content-type": "application/json" },
-  });
+  return new Response(
+    JSON.stringify({ present, blobKey, brainKey, kvReadOk }),
+    { headers: { "content-type": "application/json" } }
+  );
 };
