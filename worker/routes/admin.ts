@@ -40,6 +40,11 @@ export const ROUTES = [
   '/planner/today',
   '/compose',
   '/schedule',
+  '/fundraising/status',
+  '/fundraising/outreach',
+  '/fundraising/followup',
+  '/fundraising/submit',
+  '/fundraising/onepager',
 ];
 
 export async function onRequestGet({ request, env }: any) {
@@ -67,6 +72,10 @@ export async function onRequestGet({ request, env }: any) {
   if (pathname === '/admin/social-mode') {
     const live = env.ENABLE_SOCIAL_POSTING === 'true';
     return json({ ok: true, mode: live ? 'live' : 'dryrun' });
+  }
+
+  if (pathname === '/fundraising/status') {
+    return json({ ok: true, sheetRows: 0, lastOutreach: null, lastReport: null });
   }
 
   const now = new Date().toISOString();
@@ -192,6 +201,61 @@ export async function onRequestPost({ request, env }: any) {
       default:
         return json({ ok: false, error: 'unknown trigger' }, 400);
     }
+  }
+
+  const needsKey = (req: Request) => {
+    const key = req.headers.get('x-api-key');
+    return key === env.POST_THREAD_SECRET || key === env.CRON_SECRET;
+  };
+
+  if (url.pathname === '/fundraising/outreach') {
+    if (!needsKey(request)) return json({ ok: false, error: 'unauthorized' }, 401);
+    const body = await request.json().catch(() => ({}));
+    const contacts = Array.isArray(body.contacts) ? body.contacts : [];
+    const mod: any = await import('../../src/fundraising');
+    for (const c of contacts) {
+      const html = (await import('../../src/fundraising/email')).renderTemplate('outreach', {
+        name: c.name,
+        org: c.org,
+        land: env.LAND_ADDRESS || '',
+        landTown: (env.LAND_ADDRESS || '').split(',')[0] || '',
+        donateRecurring: env.STRIPE_LINK_RECURRING || '',
+        donateOnce: env.STRIPE_LINK_ONE_TIME || '',
+        notionPage: env.NOTION_DONOR_PAGE_ID || '',
+        sender: env.MAGGIE_SENDER_NAME || '',
+        senderEmail: env.MAGGIE_SENDER_EMAIL || '',
+        tags: env.LAND_PITCH_TAGS || '',
+      });
+      await mod.sendEmail({ to: c.email, subject: 'outreach', html });
+      await mod.addContact(c);
+    }
+    return json({ ok: true, sent: contacts.length });
+  }
+
+  if (url.pathname === '/fundraising/followup') {
+    if (!needsKey(request)) return json({ ok: false, error: 'unauthorized' }, 401);
+    return json({ ok: true });
+  }
+
+  if (url.pathname === '/fundraising/submit') {
+    if (!needsKey(request)) return json({ ok: false, error: 'unauthorized' }, 401);
+    const body = await request.json().catch(() => ({}));
+    const mod: any = await import('../../src/fundraising');
+    if (Array.isArray(body.files)) {
+      for (const f of body.files) {
+        await mod.saveFile(f);
+      }
+    }
+    await mod.logSubmission({ org: body.org, program: body.program, url: body.url, submittedAt: new Date().toISOString(), status: body.status || 'submitted', notes: body.notes });
+    await mod.updateNotionSummary({ recent: body.org });
+    return json({ ok: true });
+  }
+
+  if (url.pathname === '/fundraising/onepager') {
+    if (!needsKey(request)) return json({ ok: false, error: 'unauthorized' }, 401);
+    const mod: any = await import('../../src/fundraising');
+    const link = await mod.createOnePager({ data: {} });
+    return json({ ok: true, link });
   }
 
   if (url.pathname === '/admin/media/override') {

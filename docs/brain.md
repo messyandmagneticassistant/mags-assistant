@@ -2,6 +2,21 @@
 
 This document describes the intake pipeline, worker integration, and sync helpers.
 
+## Fundraising Secrets
+
+The `SECRETS_BLOB` now also carries keys used by the fundraising module:
+
+- `DONOR_SHEET_ID`
+- `DONOR_FOLDER_ID`
+- `NOTION_DONOR_PAGE_ID`
+- `STRIPE_LINK_ONE_TIME`
+- `STRIPE_LINK_RECURRING`
+- `LAND_TARGET_USD`
+- `LAND_ADDRESS`
+- `LAND_PITCH_TAGS`
+- `MAGGIE_SENDER_NAME`
+- `MAGGIE_SENDER_EMAIL`
+
 ## Apps Script
 
 The `MM Intake` Google Apps Script handles webhook payloads from Tally forms and writes
