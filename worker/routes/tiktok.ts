@@ -4,6 +4,9 @@ const CORS = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-api-key',
 };
 
+const QUEUE_DIR = process.env.QUEUE_DIR ?? '';
+const queuePath = `${QUEUE_DIR}/queue.json`;
+
 function json(data: any, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -12,6 +15,16 @@ function json(data: any, status = 200) {
 }
 
 async function read(env: any, key: string) {
+  if (key === 'tiktok:queue' && QUEUE_DIR) {
+    try {
+      const fs = await import('node:fs');
+      if (!fs.existsSync(QUEUE_DIR)) fs.mkdirSync(QUEUE_DIR, { recursive: true });
+      if (fs.existsSync(queuePath)) return JSON.parse(fs.readFileSync(queuePath, 'utf8'));
+      return null;
+    } catch {
+      return null;
+    }
+  }
   try {
     const val = await env.POSTQ.get(key);
     return val ? JSON.parse(val) : null;
@@ -21,6 +34,14 @@ async function read(env: any, key: string) {
 }
 
 async function write(env: any, key: string, val: any) {
+  if (key === 'tiktok:queue' && QUEUE_DIR) {
+    try {
+      const fs = await import('node:fs');
+      if (!fs.existsSync(QUEUE_DIR)) fs.mkdirSync(QUEUE_DIR, { recursive: true });
+      fs.writeFileSync(queuePath, JSON.stringify(val, null, 2));
+      return;
+    } catch {}
+  }
   await env.POSTQ.put(key, JSON.stringify(val));
 }
 
@@ -83,15 +104,17 @@ export async function onRequestPost({ request, env }: { request: Request; env: a
   }
 
   if (pathname === '/tiktok/schedule') {
-    const queue = (await read(env, 'tiktok:queue')) || [];
-    queue.push({ kind: 'schedule', ...body });
+    const queue = (await read(env, 'tiktok:queue')) ?? [];
+    const whenISO = String(body.whenISO || new Date(Date.now() + 15 * 60 * 1000).toISOString());
+    queue.push({ kind: 'schedule', whenISO });
     await write(env, 'tiktok:queue', queue);
     return json({ ok: true });
   }
 
   if (pathname === '/tiktok/reschedule') {
-    const queue = (await read(env, 'tiktok:queue')) || [];
-    queue.push({ kind: 'reschedule', ...body });
+    const queue = (await read(env, 'tiktok:queue')) ?? [];
+    const whenISO = String(body.whenISO || new Date(Date.now() + 30 * 60 * 1000).toISOString());
+    queue.push({ kind: 'reschedule', whenISO });
     await write(env, 'tiktok:queue', queue);
     return json({ ok: true });
   }

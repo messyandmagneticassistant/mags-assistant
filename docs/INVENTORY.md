@@ -50,7 +50,7 @@
 ## Implemented vs Missing
 - [x] Health & config diagnostics
 - [x] Browserless session route
-- [ ] Admin surface (`/admin/status`, `/admin/trigger`)
+- [ ] Admin surface (`/admin/status`, `/admin/triggers`)
 - [ ] TikTok multiprofile endpoints
 - [ ] Trend miner & planner
 - [ ] Raw media compose/schedule pipeline

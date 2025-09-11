@@ -25,7 +25,7 @@ export const ROUTES = [
   '/admin/status',
   '/admin/social-mode',
   '/admin/social/seed',
-  '/admin/trigger',
+  '/admin/triggers',
   '/tiktok/accounts',
   '/tiktok/cookies',
   '/tiktok/check',
@@ -129,7 +129,7 @@ export async function onRequestPost({ request, env }: any) {
     return json({ ok: false, error: 'seed-failed' }, 500);
   }
 
-  if (url.pathname === '/admin/trigger') {
+  if (url.pathname === '/admin/triggers') {
     const body = await request.json().catch(() => ({}));
     switch (body.kind) {
       case 'plan': {
