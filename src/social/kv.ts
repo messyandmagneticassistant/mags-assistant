@@ -8,6 +8,7 @@ export const kvKeys = {
   boostRules: 'tiktok:boost:rules',
   draftQueue: 'tiktok:drafts',
   health: 'tiktok:health',
+  lastScheduled: 'tiktok:lastScheduled',
 };
 
 export async function getJSON<T>(env: any, key: string, fallback: T): Promise<T> {
