@@ -17,19 +17,34 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'pnpm'
+          node-version: 20
+          check-latest: false
 
-      - name: Enable Corepack
+      - name: Setup PNPM
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+          run_install: false
+
+      - name: Enable PNPM via Corepack
         run: |
           corepack enable
-          corepack prepare pnpm@9 --activate
+          corepack prepare pnpm@9.12.0 --activate
+
+      - name: Enable PNPM cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Corepack version (non-blocking)
+        run: corepack --version || true
 
       - name: Install deps
         run: pnpm install --frozen-lockfile
 
       - name: Build UI
-        run: pnpm -w build
+        run: pnpm -w --filter ui build
 
       - name: Deploy to Cloudflare Pages
         env:
