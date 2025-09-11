@@ -1,0 +1,17 @@
+name: KV smoke test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call diag/config
+        env:
+          WORKER_URL: ${{ secrets.WORKER_URL }}
+        run: |
+          set -e
+          resp=$(curl -fsS "$WORKER_URL/diag/config")
+          echo "$resp"
+          echo "$resp" | jq -e '.hasSecrets == true' > /dev/null

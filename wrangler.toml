@@ -11,6 +11,8 @@ compatibility_flags = ["nodejs_compat"]
 # === Worker env vars ===
 [vars]
 ENV = "prod"
+SECRET_BLOB = "thread-state"
+BRAIN_DOC_KEY = "PostQ:thread-state"
 
 # === KV ===
 [[kv_namespaces]]
