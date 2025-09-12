@@ -91,7 +91,7 @@ export default {
       if (r && r.status !== 404) return r;
     }
     if (url.pathname === "/diag/config" && req.method === "GET") {
-      return (diagConfig as any)({ env });
+      return diagConfig(env);
     }
     if (url.pathname === "/diag/email" && req.method === "GET") {
       const { getEmailConfig } = await import("../utils/email");
