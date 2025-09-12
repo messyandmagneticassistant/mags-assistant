@@ -2,22 +2,19 @@ import fs from 'fs';
 import path from 'path';
 
 async function main() {
-  const account = process.env.CF_ACCOUNT_ID;
-  const token = process.env.CF_API_TOKEN;
-  if (!account || !token) {
-    console.error('Missing CF_ACCOUNT_ID or CF_API_TOKEN');
+  const account = process.env.CLOUDFLARE_ACCOUNT_ID;
+  const token = process.env.CLOUDFLARE_API_TOKEN;
+  const namespaceId =
+    process.env.CF_KV_POSTQ_NAMESPACE_ID || process.env.CF_KV_NAMESPACE_ID;
+  if (!account || !token || !namespaceId) {
+    console.error(
+      'Missing CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, or CF_KV_NAMESPACE_ID'
+    );
     process.exit(1);
   }
 
   const brainPath = path.join(process.cwd(), 'docs', 'brain.md');
   const body = await fs.promises.readFile(brainPath, 'utf8');
-
-  const wrangler = await fs.promises.readFile('wrangler.toml', 'utf8');
-  const match = wrangler.match(/binding\s*=\s*"BRAIN"[\s\S]*?id\s*=\s*"([^"]+)"/);
-  if (!match) {
-    throw new Error('BRAIN kv namespace id not found in wrangler.toml');
-  }
-  const namespaceId = match[1];
 
   const url = `https://api.cloudflare.com/client/v4/accounts/${account}/storage/kv/namespaces/${namespaceId}/values/PostQ:thread-state`;
   const res = await fetch(url, {
