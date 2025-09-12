@@ -109,3 +109,6 @@ vite.config.ts.timestamp-*
 # --------------------
 .DS_Store
 Thumbs.db
+
+# Diagnostic artifacts
+diag-config.json
