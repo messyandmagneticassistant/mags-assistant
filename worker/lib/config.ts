@@ -2,26 +2,22 @@ import type { ExecutionContext } from "workerd";
 
 type AnyObj = Record<string, any>;
 
-const DEFAULT_KV_KEY = "thread-state";
+const DEFAULT_SECRET_BLOB = "thread-state";
+const DEFAULT_BRAIN_DOC_KEY = "PostQ:thread-state";
 
 /**
  * Load configuration with this precedence:
- *   1) KV (POSTQ) → key from SECRET_BLOB "PostQ:<key>" or default "thread-state"
+ *   1) KV (BRAIN) → key from SECRET_BLOB or default "thread-state"
  *   2) env (CF Worker vars / CI-injected / .env)
  * KV wins so no renames/moves are required.
  */
 export async function loadConfig(env: AnyObj): Promise<AnyObj> {
-  let kvKey = DEFAULT_KV_KEY;
-
-  if (typeof env.SECRET_BLOB === "string") {
-    const [ns, key] = env.SECRET_BLOB.split(":");
-    if ((ns || "").toLowerCase() === "postq" && key) kvKey = key;
-  }
+  const secretBlobKey = env.SECRET_BLOB || DEFAULT_SECRET_BLOB;
 
   let kvData: AnyObj = {};
   try {
-    if (env.POSTQ && typeof env.POSTQ.get === "function") {
-      const raw = await env.POSTQ.get(kvKey);
+    if (env.BRAIN && typeof env.BRAIN.get === "function") {
+      const raw = await env.BRAIN.get(secretBlobKey);
       if (raw) kvData = JSON.parse(raw);
     }
   } catch {
@@ -30,6 +26,25 @@ export async function loadConfig(env: AnyObj): Promise<AnyObj> {
 
   // Merge: KV overrides env
   return { ...env, ...kvData };
+}
+
+export async function getSecrets(env: AnyObj): Promise<AnyObj> {
+  const key = env.SECRET_BLOB || DEFAULT_SECRET_BLOB;
+  try {
+    const raw = await env.BRAIN.get(key);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export async function getBrainDoc(env: AnyObj): Promise<string> {
+  const key = env.BRAIN_DOC_KEY || DEFAULT_BRAIN_DOC_KEY;
+  try {
+    return (await env.BRAIN.get(key)) || "";
+  } catch {
+    return "";
+  }
 }
 
 /** Presence map without leaking values */
