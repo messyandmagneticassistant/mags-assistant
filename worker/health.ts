@@ -1,31 +1,20 @@
 /**
- * /diag/config — sanity check for config
- * Returns key names and basic presence flags
+ * /diag/config — basic env sanity check
+ * Returns key names and presence flags (no secret values)
  */
-export const diagConfig = async (env: Env) => {
-  const secretBlobKey = env.SECRET_BLOB;
-  const brainDocKey = env.BRAIN_DOC_KEY;
-
-  let kvReadOk = false;
-  try {
-    kvReadOk = !!(await env.BRAIN_DOC_KV.get(brainDocKey));
-  } catch {}
-
-  const cfg = await loadConfig(env);
-
-  const secrets = await getSecrets(env);
-  const brainDoc = await getBrainDoc(env);
-
-  const present = presence(cfg, secrets);
+export const diagConfig = (env: Record<string, any>) => {
+  const kvKey = env.BRAIN_DOC_KEY || "PostQ:thread-state";
 
   return new Response(
     JSON.stringify({
-      present,
-      secretBlobKey,
-      brainDocKey,
-      hasSecrets: Object.keys(secrets).length > 0,
-      brainDocBytes: brainDoc ? brainDoc.length : 0,
+      kvFirst: true,
+      kvKey,
+      present: {
+        SECRET_BLOB: !!env.SECRET_BLOB,
+        BRAIN_DOC_KEY: !!env.BRAIN_DOC_KEY,
+      },
     }),
     { headers: { "content-type": "application/json" } }
   );
 };
+

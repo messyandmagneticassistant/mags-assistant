@@ -17,7 +17,8 @@ BRAIN_DOC_KEY = "PostQ:thread-state"
 # === KV ===
 [[kv_namespaces]]
 binding = "BRAIN"
-id = "1b8cbbc4a2f8426194368cb39baded79"
+# prefer env-provided namespace id if available; otherwise use the one that already holds our keys
+id = "${CF_KV_POSTQ_NAMESPACE_ID:-${CF_KV_NAMESPACE_ID}}"
 
 # === Routes (Worker only) ===
 # UI is served by Cloudflare Pages; leave routes only for the Worker.
