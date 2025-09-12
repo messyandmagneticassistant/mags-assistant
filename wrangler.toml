@@ -4,37 +4,35 @@ name = "mags-assistant"
 main = "worker/worker.ts"
 compatibility_date = "2024-11-01"
 compatibility_flags = ["nodejs_compat"]
-workers_dev = false  # we deploy only to your custom domain via Routes
+workers_dev = false   # we deploy on a custom domain/route
 
-# NOTE: account_id is supplied by CI (GitHub Actions secrets); no hardcoding here.
+# NOTE: account_id is supplied by GitHub Actions via secrets (don’t hardcode)
 
-# === Worker env vars ===
+# === Worker env vars (KEY NAMES, not secret values) ===
 [vars]
 ENV = "prod"
-# These are KEY NAMES (not secrets). The actual secret values live in KV.
-SECRET_BLOB = "thread-state"
-BRAIN_DOC_KEY = "PostQ:thread-state"
+SECRET_BLOB = "thread-state"          # the raw secrets JSON key in KV
+BRAIN_DOC_KEY = "PostQ:thread-state"  # the human-readable brain doc key in KV
 
 # === KV binding ===
-# This namespace already contains `thread-state` and `PostQ:thread-state`.
+# Bind your Cloudflare KV as "BRAIN". The ID is taken from repo secrets:
+# - CF_KV_POSTQ_NAMESPACE_ID (preferred)
+# - CF_KV_NAMESPACE_ID (fallback)
+# This avoids hard-coding IDs in the repo.
 [[kv_namespaces]]
 binding = "BRAIN"
-id = "1b8cbbc4a2f8426194368cb39baded79"
-preview_id = "1b8cbbc4a2f8426194368cb39baded79"  # keeps local/dev consistent
+id = "${CF_KV_POSTQ_NAMESPACE_ID:-$CF_KV_NAMESPACE_ID}"
 
 # === Routes (Worker only) ===
-# UI is served by Cloudflare Pages; keep routes just for the Worker.
 [[routes]]
 pattern = "maggie.messyandmagnetic.com/*"
 zone_name = "messyandmagnetic.com"
 
-# === Cron ===
+# === Cron triggers ===
 [triggers]
 crons = ["*/5 * * * *"]
 
-# === (FYI) Cloudflare Pages ===
-# Wrangler won't deploy Pages from here; your Pages project is managed in the CF dashboard/CI.
-# Keeping these fields is harmless and documents the UI build output.
+# === Cloudflare Pages (UI app) ===
 [pages]
 project_name = "mags-site"
 build_output_dir = "ui/dist"
