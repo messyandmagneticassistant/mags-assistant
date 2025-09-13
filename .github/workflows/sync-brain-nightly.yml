@@ -1,0 +1,12 @@
+name: Nightly Brain Sync (Albuquerque ~9:30pm)
+
+on:
+  schedule:
+    - cron: '30 3 * * *'   # 03:30 UTC ≈ 9:30pm Albuquerque during DST
+  workflow_dispatch: {}
+
+jobs:
+  call-sync:
+    uses: ./.github/workflows/sync-brain.yml
+    secrets: inherit
+

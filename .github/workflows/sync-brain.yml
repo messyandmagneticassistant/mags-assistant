@@ -1,0 +1,45 @@
+name: Sync Brain to KV
+
+on:
+  workflow_dispatch: {}
+  workflow_call: {}   # allow other workflows to call this one
+
+jobs:
+  sync-brain:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Enable Corepack (pnpm)
+        run: |
+          corepack enable
+          pnpm -v || (npm i -g pnpm && pnpm -v)
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile=false
+
+      # ⬇️ keep your existing sync steps below (update KV, verify, etc.)
+      # Example placeholders – if these already exist in your current file, retain them as-is:
+      - name: Update Brain KV
+        run: pnpm tsx scripts/updateBrain.ts
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID:        ${{ secrets.CF_ACCOUNT_ID }}
+          CF_KV_POSTQ_NAMESPACE_ID: ${{ secrets.CF_KV_POSTQ_NAMESPACE_ID }}
+          THREAD_STATE_JSON:    ${{ secrets.THREAD_STATE_JSON }}
+
+      - name: Ping / verify
+        run: pnpm tsx scripts/brainPing.ts
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID:        ${{ secrets.CF_ACCOUNT_ID }}
+          CF_KV_POSTQ_NAMESPACE_ID: ${{ secrets.CF_KV_POSTQ_NAMESPACE_ID }}
+
