@@ -1,0 +1,47 @@
+name: Seed KV
+
+on:
+  workflow_dispatch:
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          check-latest: false
+
+      - name: Setup PNPM
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+          run_install: false
+
+      - name: Enable PNPM via Corepack
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.12.0 --activate
+
+      - name: Enable PNPM cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Corepack version (non-blocking)
+        run: corepack --version || true
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Seed KV
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_KV_POSTQ_NAMESPACE_ID: ${{ secrets.CF_KV_POSTQ_NAMESPACE_ID }}
+          THREAD_STATE_JSON: ${{ secrets.THREAD_STATE_JSON }}
+          BRAIN_DOC_MD: ${{ secrets.BRAIN_DOC_MD }}
+        run: pnpm run seed:kv
