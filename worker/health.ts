@@ -20,7 +20,7 @@ export const diagConfig = async (_req: Request, env: any) => {
     ok: true,
     notes: [],
     errors: [],
-    kv: { binding: false, read: false },
+    kv: { binding: false, read: false, namespaceHint: env?.BRAIN?.namespace },
     keys: {
       blobKey: env?.SECRET_BLOB || "thread-state",
       brainDocKey: env?.BRAIN_DOC_KEY || "PostQ:thread-state",
