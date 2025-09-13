@@ -21,8 +21,7 @@ BRAIN_DOC_KEY = "PostQ:thread-state"  # the human-readable brain doc key in KV
 # This avoids hard-coding IDs in the repo.
 [[kv_namespaces]]
 binding = "BRAIN"
-# prefer env-provided namespace id if available; otherwise use the one that already holds our keys
-id = "${CF_KV_POSTQ_NAMESPACE_ID:-${CF_KV_NAMESPACE_ID}}"
+id = "1b8cbbc4a2f8426194368cb39baded79"
 
 # === Routes (Worker only) ===
 [[routes]]

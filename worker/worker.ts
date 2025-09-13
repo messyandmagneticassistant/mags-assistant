@@ -1,12 +1,7 @@
 // worker/worker.ts — finalized unified router (KV-first, CORS, cron-safe)
-import { diagConfig } from "./health";
-
-type Env = {
-  RESEND_API_KEY?: string;
-  RESEND_FROM_EMAIL?: string;
-  RESEND_FROM_NAME?: string;
-  [key: string]: any;
-};
+import { handleHealth } from './health';
+import { handleDiagConfig } from './diag';
+import type { Env } from './lib/env';
 type Ctx = { env: Env; request: Request; ctx: ExecutionContext };
 
 // ---------------- CORS helpers ----------------
@@ -79,21 +74,21 @@ export default {
   // ---------------- HTTP entry ----------------
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
+    try {
+      if (url.pathname === '/' || url.pathname === '/health') {
+        return await handleHealth(env);
+      }
+      if (url.pathname === '/diag/config') {
+        return await handleDiagConfig(env);
+      }
 
-    // Preflight
-    if (isPreflight(req)) {
-      return new Response(null, { status: 204, headers: cors() });
-    }
+      // Preflight
+      if (isPreflight(req)) {
+        return new Response(null, { status: 204, headers: cors() });
+      }
 
-    // Diagnostics
-    if (url.pathname === "/health" && req.method === "GET") {
-      const r = await tryRoute("/health", "./routes/health", null, req, env, ctx);
-      if (r && r.status !== 404) return r;
-    }
-    if (url.pathname === "/diag/config" && req.method === "GET") {
-      return diagConfig(env);
-    }
-    if (url.pathname === "/diag/email" && req.method === "GET") {
+      // Diagnostics
+      if (url.pathname === "/diag/email" && req.method === "GET") {
       const { getEmailConfig } = await import("../utils/email");
       const { fromEmail, fromName, apiKey } = getEmailConfig(env);
       const domain = fromEmail.split("@")[1] || "";
@@ -114,150 +109,157 @@ export default {
       );
     }
 
-    if (url.pathname === "/diag/email/test" && req.method === "POST") {
-      const r = await tryRoute("/diag/email/test", "./routes/email", null, req, env, ctx);
-      if (r && r.status !== 404) return r;
-    }
+      if (url.pathname === "/diag/email/test" && req.method === "POST") {
+        const r = await tryRoute("/diag/email/test", "./routes/email", null, req, env, ctx);
+        if (r && r.status !== 404) return r;
+      }
 
-    // --- Admin special-casing to match admin.ts signatures ---
-    if (url.pathname === "/admin/status" && req.method === "GET") {
-      try {
-        const admin: any = await import("./routes/admin");
-        // admin.onRequestGet expects { env }
-        return await admin.onRequestGet({ env });
-      } catch {}
-    }
-    if (url.pathname === "/admin/trigger" && req.method === "POST") {
-      try {
-        const admin: any = await import("./routes/admin");
-        // admin.onRequestPost expects (request)
-        return await admin.onRequestPost(req);
-      } catch {}
-    }
-    // Fallback for any future /admin/* routes that use the generic pattern
-    {
-      const r = await tryRoute("/admin/", "./routes/admin", null, req, env, ctx);
-      if (r && r.status !== 404) return r;
-    }
+      // --- Admin special-casing to match admin.ts signatures ---
+      if (url.pathname === "/admin/status" && req.method === "GET") {
+        try {
+          const admin: any = await import("./routes/admin");
+          // admin.onRequestGet expects { env }
+          return await admin.onRequestGet({ env });
+        } catch {}
+      }
+      if (url.pathname === "/admin/trigger" && req.method === "POST") {
+        try {
+          const admin: any = await import("./routes/admin");
+          // admin.onRequestPost expects (request)
+          return await admin.onRequestPost(req);
+        } catch {}
+      }
+      // Fallback for any future /admin/* routes that use the generic pattern
+      {
+        const r = await tryRoute("/admin/", "./routes/admin", null, req, env, ctx);
+        if (r && r.status !== 404) return r;
+      }
 
-    // Orders: Stripe / Tally webhooks
-    if (url.pathname === "/webhooks/stripe") {
-      const r = await tryRoute("/webhooks/stripe", "./orders/stripe", null, req, env, ctx);
-      if (r && r.status !== 404) return r;
-    }
-    if (url.pathname === "/webhooks/tally") {
-      const r = await tryRoute("/webhooks/tally", "./orders/tally", null, req, env, ctx);
-      if (r && r.status !== 404) return r;
-    }
+      // Orders: Stripe / Tally webhooks
+      if (url.pathname === "/webhooks/stripe") {
+        const r = await tryRoute("/webhooks/stripe", "./orders/stripe", null, req, env, ctx);
+        if (r && r.status !== 404) return r;
+      }
+      if (url.pathname === "/webhooks/tally") {
+        const r = await tryRoute("/webhooks/tally", "./orders/tally", null, req, env, ctx);
+        if (r && r.status !== 404) return r;
+      }
 
-    // Orders links
-    {
-      const r = await tryRoute("/orders", "./routes/orders", null, req, env, ctx);
-      if (r && r.status !== 404) return r;
-    }
+      // Orders links
+      {
+        const r = await tryRoute("/orders", "./routes/orders", null, req, env, ctx);
+        if (r && r.status !== 404) return r;
+      }
 
-    // Donor endpoints
-    {
-      const r = await tryRoute("/donors", "./routes/donors", null, req, env, ctx);
-      if (r && r.status !== 404) return r;
-    }
+      // Donor endpoints
+      {
+        const r = await tryRoute("/donors", "./routes/donors", null, req, env, ctx);
+        if (r && r.status !== 404) return r;
+      }
 
-    // Admin config endpoints
-    if (url.pathname === "/admin/config") {
-      const r = await tryRoute("/admin/config", "./routes/config", null, req, env, ctx);
-      if (r && r.status !== 404) return r;
-    }
+      // Admin config endpoints
+      if (url.pathname === "/admin/config") {
+        const r = await tryRoute("/admin/config", "./routes/config", null, req, env, ctx);
+        if (r && r.status !== 404) return r;
+      }
 
-    // Offerings (products catalog)
-    if (url.pathname === "/api/offerings") {
-      const r = await tryRoute("/api/offerings", "./routes/offerings", null, req, env, ctx);
-      if (r && r.status !== 404) return r;
-    }
+      // Offerings (products catalog)
+      if (url.pathname === "/api/offerings") {
+        const r = await tryRoute("/api/offerings", "./routes/offerings", null, req, env, ctx);
+        if (r && r.status !== 404) return r;
+      }
 
-    // Minimal Telegram webhook
-    if (url.pathname === "/telegram-webhook") {
-      const r = await tryRoute("/telegram-webhook", "./routes/telegram", null, req, env, ctx);
-      if (r && r.status !== 404) return r;
-    }
+      // Minimal Telegram webhook
+      if (url.pathname === "/telegram-webhook") {
+        const r = await tryRoute("/telegram-webhook", "./routes/telegram", null, req, env, ctx);
+        if (r && r.status !== 404) return r;
+      }
 
-    // AI endpoints
-    {
-      const r = await tryRoute("/ai/", "./routes/ai", null, req, env, ctx);
-      if (r && r.status !== 404) return r;
-    }
+      // AI endpoints
+      {
+        const r = await tryRoute("/ai/", "./routes/ai", null, req, env, ctx);
+        if (r && r.status !== 404) return r;
+      }
 
-    // Legacy Apps Script proxy
-    {
-      const r = await tryRoute("/api/appscript", "./routes/appscript", null, req, env, ctx);
-      if (r && r.status !== 404) return r;
-    }
+      // Legacy Apps Script proxy
+      {
+        const r = await tryRoute("/api/appscript", "./routes/appscript", null, req, env, ctx);
+        if (r && r.status !== 404) return r;
+      }
 
-    // Blueprint builder
-    {
-      const r = await tryRoute("/blueprint", "./routes/blueprint", null, req, env, ctx);
-      if (r && r.status !== 404) return r;
-    }
+      // Blueprint builder
+      {
+        const r = await tryRoute("/blueprint", "./routes/blueprint", null, req, env, ctx);
+        if (r && r.status !== 404) return r;
+      }
 
-    // Planner / Compose / Schedule
-    {
-      const r = await tryRoute("/planner", "./routes/planner", null, req, env, ctx);
-      if (r && r.status !== 404) return r;
-    }
-    {
-      const r = await tryRoute("/compose", "./routes/planner", null, req, env, ctx);
-      if (r && r.status !== 404) return r;
-    }
-    {
-      const r = await tryRoute("/schedule", "./routes/planner", null, req, env, ctx);
-      if (r && r.status !== 404) return r;
-    }
+      // Planner / Compose / Schedule
+      {
+        const r = await tryRoute("/planner", "./routes/planner", null, req, env, ctx);
+        if (r && r.status !== 404) return r;
+      }
+      {
+        const r = await tryRoute("/compose", "./routes/planner", null, req, env, ctx);
+        if (r && r.status !== 404) return r;
+      }
+      {
+        const r = await tryRoute("/schedule", "./routes/planner", null, req, env, ctx);
+        if (r && r.status !== 404) return r;
+      }
 
-    // TikTok (uploader/engagement/schedule)
-    {
-      const r = await tryRoute("/tiktok/", "./routes/tiktok", null, req, env, ctx);
-      if (r && r.status !== 404) return r;
-    }
+      // TikTok (uploader/engagement/schedule)
+      {
+        const r = await tryRoute("/tiktok/", "./routes/tiktok", null, req, env, ctx);
+        if (r && r.status !== 404) return r;
+      }
 
-    // Task queue
-    {
-      const r = await tryRoute("/tasks/", "./routes/tasks", null, req, env, ctx);
-      if (r && r.status !== 404) return r;
-    }
+      // Task queue
+      {
+        const r = await tryRoute("/tasks/", "./routes/tasks", null, req, env, ctx);
+        if (r && r.status !== 404) return r;
+      }
 
-    // Cron routes
-    {
-      const r = await tryRoute("/cron/", "./routes/cron", null, req, env, ctx);
-      if (r && r.status !== 404) return r;
-    }
+      // Cron routes
+      {
+        const r = await tryRoute("/cron/", "./routes/cron", null, req, env, ctx);
+        if (r && r.status !== 404) return r;
+      }
 
-    // Browserless session
-    {
-      const r = await tryRoute("/api/browser", "./routes/browser", null, req, env, ctx);
-      if (r && r.status !== 404) return r;
-    }
+      // Browserless session
+      {
+        const r = await tryRoute("/api/browser", "./routes/browser", null, req, env, ctx);
+        if (r && r.status !== 404) return r;
+      }
 
-    // Readiness
-    if (url.pathname === "/ready") {
-      try {
-        const r: any = await import("./routes/ready");
-        if (typeof r.onRequestGet === "function") {
-          return await r.onRequestGet({ request: req, env, ctx });
-        }
-        if (typeof r.handle === "function") {
-          return await r.handle(req, env, ctx);
-        }
-      } catch {}
-      return new Response("ready route not installed", {
-        status: 404,
-        headers: cors({ "content-type": "text/plain; charset=utf-8" }),
+      // Readiness
+      if (url.pathname === "/ready") {
+        try {
+          const r: any = await import("./routes/ready");
+          if (typeof r.onRequestGet === "function") {
+            return await r.onRequestGet({ request: req, env, ctx });
+          }
+          if (typeof r.handle === "function") {
+            return await r.handle(req, env, ctx);
+          }
+        } catch {}
+        return new Response("ready route not installed", {
+          status: 404,
+          headers: cors({ "content-type": "text/plain; charset=utf-8" }),
+        });
+      }
+
+      // Default not-found
+      return new Response(
+        JSON.stringify({ ok: false, error: "not-found", path: url.pathname }),
+        { status: 404, headers: { "content-type": "application/json" } },
+      );
+    } catch (err: any) {
+      console.error("[worker] top-level crash:", err?.stack || err);
+      return new Response(JSON.stringify({ ok: false, error: "unhandled" }), {
+        status: 500,
+        headers: { "content-type": "application/json" },
       });
     }
-
-    // Default success ping
-    return new Response("mags ok", {
-      status: 200,
-      headers: { ...cors(), "content-type": "text/plain; charset=utf-8" },
-    });
   },
 
   // ------------- Cron (Cloudflare scheduled triggers) -------------
