@@ -1,0 +1,56 @@
+name: Gmail scan + summarize
+
+on:
+  schedule: [{ cron: "*/30 * * * *" }]
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile=false
+
+      - name: Scan Gmail via GAS
+        id: scan
+        env:
+          GAS_GMAIL_URL: ${{ secrets.GAS_GMAIL_URL }}
+          GAS_SHARED_SECRET: ${{ secrets.GAS_SHARED_SECRET }}
+        run: |
+          node -e '
+            const https = require("https");
+            const payload = JSON.stringify({ action:"scan", secret:process.env.GAS_SHARED_SECRET, sinceDays:7, max:20 });
+            const url = new URL(process.env.GAS_GMAIL_URL);
+            const opts = { method:"POST", headers:{ "content-type":"application/json" } };
+            const req = https.request(url, opts, res => {
+              let data=""; res.on("data", d=>data+=d); res.on("end", ()=> {
+                if (res.statusCode >= 300) { console.error(res.statusCode, data); process.exit(0); }
+                console.log(data);
+              });
+            });
+            req.on("error", e=>{ console.error(e); process.exit(0); });
+            req.write(payload); req.end();
+          ' > scan.json || true
+
+      - name: Summarize & notify
+        if: always()
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GAS_GMAIL_URL: ${{ secrets.GAS_GMAIL_URL }}
+          GAS_SHARED_SECRET: ${{ secrets.GAS_SHARED_SECRET }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          HQ_DATABASE_ID: ${{ secrets.HQ_DATABASE_ID }}
+        run: |
+          pnpm tsx scripts/gmail_scan.mjs scan.json
