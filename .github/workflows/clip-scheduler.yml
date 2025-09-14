@@ -1,0 +1,39 @@
+name: Clip Scheduler
+
+on:
+  schedule:
+    - cron: '15 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile=false
+      - name: Run clip scheduler
+        run: pnpm tsx scripts/clip_scheduler.mjs
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          HQ_DATABASE_ID: ${{ secrets.HQ_DATABASE_ID }}
+          API_BASE: ${{ secrets.API_BASE }}
+          TIKTOK_COOKIE_MAIN: ${{ secrets.TIKTOK_COOKIE_MAIN }}
+          TIKTOK_COOKIE_WILLOW: ${{ secrets.TIKTOK_COOKIE_WILLOW }}
+          TIKTOK_COOKIE_FAIRYFARM: ${{ secrets.TIKTOK_COOKIE_FAIRYFARM }}
+      - name: Commit queue updates
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: ci/update-post-queue
+          commit-message: chore(ci): update scheduled/posted queue
+          title: chore(ci): update scheduled/posted queue
+          body: Automated update of scheduled/posted queue
