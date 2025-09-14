@@ -1,0 +1,58 @@
+name: Sync Brain to KV
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Runs 03:30 UTC daily (≈ 9:30 PM Albuquerque local during DST)
+    - cron: "30 3 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  sync-brain:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Enable Corepack (pnpm)
+        run: |
+          corepack enable
+          corepack prepare pnpm@latest --activate
+          pnpm --version
+          node -v
+
+      - name: Install deps
+        run: pnpm install --no-frozen-lockfile
+
+      # === Update KV with docs/brain.md ===
+      - name: Update Brain KV
+        env:
+          # Cloudflare / KV (use your existing secret names)
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_KV_POSTQ_NAMESPACE_ID: ${{ secrets.CF_KV_POSTQ_NAMESPACE_ID }}
+
+          # Keys your scripts expect
+          BRAIN_DOC_KEY: PostQ:thread-state
+          THREAD_STATE_JSON: ${{ secrets.THREAD_STATE_JSON }}
+        run: pnpm exec tsx scripts/updateBrain.ts
+
+      # === Verify parity / presence without exposing values ===
+      - name: Ping / verify
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_KV_POSTQ_NAMESPACE_ID: ${{ secrets.CF_KV_POSTQ_NAMESPACE_ID }}
+          BRAIN_DOC_KEY: PostQ:thread-state
+        run: pnpm exec tsx scripts/brainPing.ts
