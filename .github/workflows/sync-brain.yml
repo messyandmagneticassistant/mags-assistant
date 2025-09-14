@@ -24,13 +24,13 @@ jobs:
           node-version: 20
           cache: 'pnpm'
 
-      - name: Enable Corepack (pnpm)
-        run: |
-          corepack enable
-          pnpm -v || (npm i -g pnpm && pnpm -v)
+      - name: Enable Corepack
+        run: corepack enable
+
+      - run: pnpm --version
 
       - name: Install deps
-        run: pnpm install --frozen-lockfile=false
+        run: pnpm install --no-frozen-lockfile
 
       # ⬇ keep or merge any existing sync steps you had before
       - name: Update Brain KV
