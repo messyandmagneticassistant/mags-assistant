@@ -1,43 +1,43 @@
-name: Drive Watch (Raw Clips)
+name: Drive Watch
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "*/10 * * * *"
   workflow_dispatch: {}
 
 permissions:
   contents: write
-  issues: write
+  pull-requests: write
 
 jobs:
   watch:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
-
-      - name: Install deps
+          cache: pnpm
+      - name: Setup pnpm
         run: |
-          npm -v || true
           corepack enable
-          npm i googleapis@131 node-fetch@2.6.9
-
+          pnpm -v || npm install -g pnpm
+      - run: pnpm install --frozen-lockfile=false
       - name: Run watcher
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GDRIVE_SA_JSON: ${{ secrets.GDRIVE_SA_JSON }}
+          GOOGLE_SA_JSON: ${{ secrets.GOOGLE_SA_JSON }}
           RAW_CLIPS_FOLDER_ID: ${{ secrets.RAW_CLIPS_FOLDER_ID }}
-          WORKER_URL: ${{ secrets.WORKER_URL }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          REPO_OWNER: ${{ github.repository_owner }}
-          REPO_NAME: ${{ github.event.repository.name }}
-        run: node scripts/drive_watch.mjs
-
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          HQ_DATABASE_ID: ${{ secrets.HQ_DATABASE_ID }}
+          GAS_INTAKE_URL: ${{ secrets.GAS_INTAKE_URL }}
+        run: pnpm tsx scripts/drive_watch.mjs
+      - name: Commit cache
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "chore(ci): update drive_seen cache"
+          title: "chore(ci): update drive_seen cache"
+          branch: "ci/drive-seen"
+          add-paths: data/drive_seen.json
