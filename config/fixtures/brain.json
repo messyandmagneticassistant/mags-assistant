@@ -1,0 +1,22 @@
+{
+  "tiktok": {
+    "profiles": {
+      "main": {
+        "handle": "@messyandmagnetic",
+        "session": "916eebbdbae18b0902637da11d854c82"
+      },
+      "willow": {
+        "handle": "@willowhazeltea",
+        "session": "4d35a2f6c75b7e33cac909b43f10cf20"
+      },
+      "maggie": {
+        "handle": "@maggieassistant",
+        "session": "e9f132fe543ba173322d591900d4d4bd"
+      },
+      "mars": {
+        "handle": "@messy.mars4",
+        "session": "dd2da1cddd2dc41ce5e3edcff09ba046"
+      }
+    }
+  }
+}
