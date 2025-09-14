@@ -1,0 +1,43 @@
+name: Stripe Audit
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "45 3 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Setup pnpm
+        run: |
+          corepack enable
+          pnpm -v || npm i -g pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile=false
+
+      - name: Run audit
+        run: pnpm tsx scripts/stripe_audit.mjs
+        env:
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          PROD_URL: ${{ secrets.PROD_URL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: stripe_audit
+          path: stripe_audit.json
