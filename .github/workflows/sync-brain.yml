@@ -1,50 +1,69 @@
 name: Sync Brain to KV
 
 on:
-  workflow_dispatch: {}
-  workflow_call: {}   # reusable by other workflows
-
-permissions:
-  contents: read
-
-concurrency:
-  group: sync-brain
-  cancel-in-progress: false
+  workflow_dispatch:
+  schedule:
+    # Nightly at 03:30 Albuquerque time (America/Denver)
+    - cron: "30 9 * * *"
 
 jobs:
   sync-brain:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'pnpm'
+          cache: pnpm
 
+      # Ensure pnpm exists and is on PATH
       - name: Enable Corepack
         run: corepack enable
 
-      - run: pnpm --version
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Check pnpm
+        run: pnpm --version
 
       - name: Install deps
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile=false
 
-      # ⬇ keep or merge any existing sync steps you had before
+      # Update KV with docs/brain.md
       - name: Update Brain KV
-        run: pnpm tsx scripts/updateBrain.ts
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CF_KV_POSTQ_NAMESPACE_ID: ${{ secrets.CF_KV_POSTQ_NAMESPACE_ID }}
-          THREAD_STATE_JSON: ${{ secrets.THREAD_STATE_JSON }}
+          # Optional passthroughs used by your scripts
+          BRAIN_DOC_KEY: PostQ:thread-state
+          SECRET_BLOB: thread-state
+        run: |
+          # Prefer pnpm exec, but fall back to npx if needed
+          if command -v pnpm >/dev/null 2>&1; then
+            pnpm exec tsx scripts/updateBrain.ts
+          else
+            npx tsx scripts/updateBrain.ts
+          fi
 
+      # Verify parity/ping
       - name: Ping / verify
-        run: pnpm tsx scripts/brainPing.ts
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CF_KV_POSTQ_NAMESPACE_ID: ${{ secrets.CF_KV_POSTQ_NAMESPACE_ID }}
-
+        run: |
+          if command -v pnpm >/dev/null 2>&1; then
+            pnpm exec tsx scripts/brainPing.ts
+          else
+            npx tsx scripts/brainPing.ts
+          fi
