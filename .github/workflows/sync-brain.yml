@@ -6,6 +6,10 @@ on:
     # 02:05 America/Denver ≈ 08:05 UTC (GitHub uses UTC)
     - cron: "5 8 * * *"
 
+permissions:
+  contents: write
+  actions: write
+
 jobs:
   sync:
     runs-on: ubuntu-latest
@@ -13,10 +17,8 @@ jobs:
 
     # Make all required credentials available
     env:
-      # --- GitHub auth: prefer GITHUB_PAT, then GH_PAT, then default token ---
-      GITHUB_PAT: ${{ secrets.GITHUB_PAT }}
+      # --- GitHub auth: GH_PAT only ---
       GH_PAT: ${{ secrets.GH_PAT }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_PAT || secrets.GH_PAT || secrets.GITHUB_TOKEN }}
 
       # --- Cloudflare / KV (names already present in repo secrets per screenshots) ---
       CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
@@ -32,7 +34,7 @@ jobs:
       - name: Checkout (with PAT)
         uses: actions/checkout@v4
         with:
-          token: ${{ env.GITHUB_TOKEN }}
+          token: ${{ env.GH_PAT }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
