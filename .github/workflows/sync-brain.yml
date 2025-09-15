@@ -3,67 +3,89 @@ name: Sync Brain to KV
 on:
   workflow_dispatch:
   schedule:
-    # Nightly at 03:30 Albuquerque time (America/Denver)
-    - cron: "30 9 * * *"
+    # 02:05 America/Denver ≈ 08:05 UTC (GitHub uses UTC)
+    - cron: "5 8 * * *"
 
 jobs:
-  sync-brain:
+  sync:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
+    timeout-minutes: 15
+
+    # Make all required credentials available
+    env:
+      # --- GitHub auth: prefer GITHUB_PAT, then GH_PAT, then default token ---
+      GITHUB_PAT: ${{ secrets.GITHUB_PAT }}
+      GH_PAT: ${{ secrets.GH_PAT }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_PAT || secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+
+      # --- Cloudflare / KV (names already present in repo secrets per screenshots) ---
+      CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+      CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
+      CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      CF_KV_POSTQ_NAMESPACE_ID: ${{ secrets.CF_KV_POSTQ_NAMESPACE_ID }}
+
+      # --- Worker KV keys to read/write ---
+      SECRET_BLOB: thread-state
+      BRAIN_DOC_KEY: PostQ:thread-state
 
     steps:
-      - name: Checkout
+      - name: Checkout (with PAT)
         uses: actions/checkout@v4
+        with:
+          token: ${{ env.GITHUB_TOKEN }}
 
-      - name: Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: pnpm
 
-      # Ensure pnpm exists and is on PATH
-      - name: Enable Corepack
-        run: corepack enable
+      # Reliable pnpm install (fixes “pnpm not found”)
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: false
 
-      - name: Install pnpm
-        run: npm install -g pnpm
+      - name: Show tool versions
+        run: |
+          node -v
+          pnpm --version || true
 
-      - name: Check pnpm
-        run: pnpm --version
+      # Only install if package.json exists (mono/support both)
+      - name: Install deps (if package.json)
+        run: |
+          if [ -f package.json ]; then
+            pnpm install --frozen-lockfile=false
+          else
+            echo "No package.json at repo root; skipping install."
+          fi
 
-      - name: Install deps
-        run: pnpm install --frozen-lockfile=false
-
-      # Update KV with docs/brain.md
+      # === Brain → KV upload ===
       - name: Update Brain KV
-        env:
-          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-          CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
-          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-          CF_KV_POSTQ_NAMESPACE_ID: ${{ secrets.CF_KV_POSTQ_NAMESPACE_ID }}
-          # Optional passthroughs used by your scripts
-          BRAIN_DOC_KEY: PostQ:thread-state
-          SECRET_BLOB: thread-state
         run: |
-          # Prefer pnpm exec, but fall back to npx if needed
-          if command -v pnpm >/dev/null 2>&1; then
-            pnpm exec tsx scripts/updateBrain.ts
-          else
+          if [ -f scripts/updateBrain.ts ]; then
             npx tsx scripts/updateBrain.ts
+          else
+            echo "scripts/updateBrain.ts not found"; exit 1
           fi
 
-      # Verify parity/ping
-      - name: Ping / verify
-        env:
-          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-          CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
-          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-          CF_KV_POSTQ_NAMESPACE_ID: ${{ secrets.CF_KV_POSTQ_NAMESPACE_ID }}
+      # === Verify parity / reachability ===
+      - name: Ping / verify Brain
         run: |
-          if command -v pnpm >/dev/null 2>&1; then
-            pnpm exec tsx scripts/brainPing.ts
-          else
+          if [ -f scripts/brainPing.ts ]; then
             npx tsx scripts/brainPing.ts
+          else
+            echo "scripts/brainPing.ts not found"; exit 1
           fi
+
+      # === Sanity check the live worker ===
+      - name: Sanity: /health
+        run: |
+          set -e
+          curl -sS -i https://maggie.messyandmagnetic.com/health | sed -n '1,20p'
+
+      - name: Sanity: /diag/config
+        run: |
+          set -e
+          curl -sS -i https://maggie.messyandmagnetic.com/diag/config | sed -n '1,80p'
