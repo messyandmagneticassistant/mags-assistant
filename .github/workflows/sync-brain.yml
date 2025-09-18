@@ -4,12 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       reason:
-        description: 'Optional note surfaced when dispatching via API/PAT.'
+        description: "Why are we running this?"
         required: false
-        default: ''
+        default: "manual"
   schedule:
-    # 02:05 America/Denver ≈ 08:05 UTC (GitHub uses UTC)
-    - cron: "5 8 * * *"
+    - cron: "30 3 * * *"   # 03:30 UTC (~9:30pm ABQ during DST)
 
 permissions:
   contents: write
@@ -18,9 +17,9 @@ permissions:
 # Manual dispatch via PAT (requires repo + workflow scopes on GH_PAT):
 # curl -sS -X POST \
 #   -H "Accept: application/vnd.github+json" \
-#   -H "Authorization: token ${{ secrets.GH_PAT }}" \
+#   -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
 #   "https://api.github.com/repos/${{ github.repository }}/actions/workflows/sync-brain.yml/dispatches" \
-#   -d '{"ref":"main"}'
+#   -d '{"ref":"main","inputs":{"reason":"manual"}}'
 
 jobs:
   sync:
@@ -30,7 +29,7 @@ jobs:
     # Make all required credentials available
     env:
       # --- GitHub auth: GH_PAT only ---
-      GH_PAT: ${{ secrets.GH_PAT }}
+      GH_TOKEN: ${{ secrets.GH_PAT }}
 
       # --- Cloudflare / KV (names already present in repo secrets per screenshots) ---
       CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
@@ -43,14 +42,21 @@ jobs:
       BRAIN_DOC_KEY: PostQ:thread-state
 
     steps:
-      - name: Show dispatch reason
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.reason != '' }}
-        run: echo "Dispatch reason: ${{ github.event.inputs.reason }}"
+      - name: Log dispatch reason
+        env:
+          DISPATCH_REASON: ${{ github.event.inputs.reason || '' }}
+          TRIGGER: ${{ github.event_name }}
+        run: |
+          if [ -n "$DISPATCH_REASON" ]; then
+            echo "Dispatch reason: $DISPATCH_REASON"
+          else
+            echo "Dispatch reason: (none provided; trigger=$TRIGGER)"
+          fi
 
       - name: Checkout (with PAT)
         uses: actions/checkout@v4
         with:
-          token: ${{ env.GH_PAT }}
+          token: ${{ env.GH_TOKEN }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -58,17 +64,11 @@ jobs:
           node-version: 20
           cache: pnpm
 
-      # Reliable pnpm install (fixes “pnpm not found”)
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-          run_install: false
-
-      - name: Show tool versions
+      - name: Setup Node + pnpm (corepack)
         run: |
-          node -v
-          pnpm --version || true
+          corepack enable
+          corepack prepare pnpm@latest --activate
+          node -v && pnpm -v
 
       # Only install if package.json exists (mono/support both)
       - name: Install deps (if package.json)
