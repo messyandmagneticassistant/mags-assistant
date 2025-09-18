@@ -1,4 +1,4 @@
-name: Sync Brain to KV
+name: Sync Brain (KV ⇄ repo)
 
 on:
   workflow_dispatch:
