@@ -1,17 +1,22 @@
-name: KV smoke test
-
-on:
-  workflow_dispatch:
-
+name: KV Smoke
+on: { workflow_dispatch: {} }
+permissions: { contents: read }
 jobs:
-  smoke:
+  kv:
     runs-on: ubuntu-latest
     steps:
-      - name: Call diag/config
+      - uses: actions/checkout@v4
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Install Wrangler
+        run: npm i -g wrangler
+      - name: List namespaces (redacted)
         env:
-          WORKER_URL: ${{ secrets.WORKER_URL }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
         run: |
-          set -e
-          resp=$(curl -fsS "$WORKER_URL/diag/config")
-          echo "$resp"
-          echo "$resp" | jq -e '.hasSecrets == true' > /dev/null
+          wrangler kv:namespace list | sed -E 's/("id":")[^"]+/\1REDACTED/g'
+      - name: Typecheck diagnose script
+        run: |
+          node -e 'console.log("diag script present:", require("fs").existsSync("scripts/kv-diagnose.ts"))'

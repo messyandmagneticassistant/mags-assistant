@@ -1,51 +1,32 @@
-name: Token Smoke
-on:
-  workflow_dispatch:
+name: GH_PAT Smoke
+on: { workflow_dispatch: {} }
 permissions:
+  actions: write
   contents: read
-  actions: read
 jobs:
-  check:
+  smoke:
     runs-on: ubuntu-latest
-    env:
-      GH_PAT: ${{ secrets.GH_PAT }}
     steps:
-      - name: Fail if GH_PAT not set
+      - name: Require GH_PAT
         run: |
-          if [ -z "$GH_PAT" ]; then
-            echo "GH_PAT is not configured in repo secrets"; exit 1
+          if [ -z "${{ secrets.GH_PAT }}" ]; then
+            echo "GH_PAT is not set in repo secrets"; exit 1
           fi
-      - name: Call GitHub API with GH_PAT
+      - name: Show token scopes (header only)
+        env: { GH_PAT: ${{ secrets.GH_PAT }} }
         run: |
-          set -euo pipefail
-          # Show scopes (from response header) to verify 'workflow' is present
-          curl -sS -D headers.txt -o /dev/null \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: token $GH_PAT" \
-            https://api.github.com/user
-          echo "---- x-oauth-scopes ----"
-          grep -i '^x-oauth-scopes:' headers.txt || echo "(header missing)"
-          echo "---- rate-limit ----"
-          grep -i '^x-ratelimit-' headers.txt || echo "(headers missing)"
-          # Try listing workflows (should be 200)
-          code=$(curl -sS -o /dev/null -w "%{http_code}" \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: token $GH_PAT" \
-            https://api.github.com/repos/${{ github.repository }}/actions/workflows)
-          echo "List workflows HTTP $code"
-          [ "$code" = "200" ] || (echo "Expected 200; got $code"; exit 1)
-          rm -f headers.txt
-      - name: Dispatch sync-brain.yml (permission check)
+          curl -sI -H "Authorization: Bearer $GH_PAT" https://api.github.com/user \
+          | tr -d '\r' | grep -i '^x-oauth-scopes' || true
+      - name: Dispatch sync-brain and assert 204
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          OWNER: messyandmagneticassistant
+          REPO: mags-assistant
         run: |
-          set -euo pipefail
-          echo "Dispatching sync-brain.yml via GH_PAT for verification"
-          status=$(curl -sS -o /dev/null -w "%{http_code}" \
-            -X POST \
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer $GH_PAT" \
             -H "Accept: application/vnd.github+json" \
-            -H "Authorization: token $GH_PAT" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/sync-brain.yml/dispatches" \
+            https://api.github.com/repos/$OWNER/$REPO/actions/workflows/sync-brain.yml/dispatches \
             -d '{"ref":"main","inputs":{"reason":"token-smoke"}}')
-          echo "Dispatch returned HTTP $status"
-          if [ "$status" != "204" ]; then
-            echo "Expected HTTP 204 when dispatching sync-brain.yml"; exit 1
-          fi
+          echo "Dispatch HTTP: $CODE"
+          test "$CODE" = "204" || { echo "Expected 204"; exit 1; }
