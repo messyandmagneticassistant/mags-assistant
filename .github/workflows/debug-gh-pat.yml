@@ -1,13 +1,13 @@
-name: GH_PAT Smoke
+name: GH_PAT Debug
 on:
   workflow_dispatch: {}
   repository_dispatch:
-    types: [kick-gh-pat-smoke]
+    types: [kick-gh-pat-debug]
 permissions:
-  actions: write
   contents: read
+  actions: write
 jobs:
-  smoke:
+  debug:
     runs-on: ubuntu-latest
     steps:
       - name: Check GH_PAT presence
@@ -17,12 +17,13 @@ jobs:
           else
             echo "GH_PAT is set"
           fi
-      - name: Show token scopes (header only)
+      - name: GET /user headers with GH_PAT (redacted)
         env: { GH_PAT: ${{ secrets.GH_PAT }} }
         run: |
+          set -e
           curl -sI -H "Authorization: Bearer $GH_PAT" https://api.github.com/user \
-          | tr -d '\r' | grep -i '^x-oauth-scopes' || true
-      - name: Dispatch sync-brain and assert 204
+          | tr -d '\r' | awk 'BEGIN{IGNORECASE=1}/^x-oauth-scopes|^status|^date/ {print}'
+      - name: Try workflow dispatch for token-smoke (expect 204)
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
           OWNER: messyandmagneticassistant
@@ -31,7 +32,7 @@ jobs:
           CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
             -H "Authorization: Bearer $GH_PAT" \
             -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/$OWNER/$REPO/actions/workflows/sync-brain.yml/dispatches \
-            -d '{"ref":"main","inputs":{"reason":"token-smoke"}}')
-          echo "Dispatch HTTP: $CODE"
-          test "$CODE" = "204" || { echo "Expected 204"; exit 1; }
+            https://api.github.com/repos/$OWNER/$REPO/actions/workflows/token-smoke.yml/dispatches \
+            -d '{"ref":"main"}')
+          echo "Dispatch /token-smoke.yml HTTP: $CODE"
+          test "$CODE" = "204" || exit 3
