@@ -28,6 +28,8 @@ jobs:
 
     # Make all required credentials available
     env:
+      GH_PAT: ${{ secrets.GH_PAT }}
+      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
       # --- GitHub auth: GH_PAT only ---
       GH_TOKEN: ${{ secrets.GH_PAT }}
 
@@ -42,6 +44,15 @@ jobs:
       BRAIN_DOC_KEY: PostQ:thread-state
 
     steps:
+      - name: Diagnostics
+        shell: bash
+        env:
+          GH_TOKEN: ${{ env.GH_PAT }}
+        run: |
+          echo "Actor: $GITHUB_ACTOR"
+          echo "Using PAT for repo: $GITHUB_REPOSITORY"
+          gh auth status || true
+
       - name: Log dispatch reason
         env:
           DISPATCH_REASON: ${{ github.event.inputs.reason || '' }}
@@ -56,7 +67,7 @@ jobs:
       - name: Checkout (with PAT)
         uses: actions/checkout@v4
         with:
-          token: ${{ env.GH_TOKEN }}
+          token: ${{ env.GH_PAT }}
 
       - name: Setup Node
         uses: actions/setup-node@v4

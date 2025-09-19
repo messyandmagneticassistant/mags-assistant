@@ -16,24 +16,33 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
+    env:
+      GH_PAT: ${{ secrets.GH_PAT }}
+      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
     steps:
+      - name: Diagnostics
+        shell: bash
+        env:
+          GH_TOKEN: ${{ env.GH_PAT }}
+        run: |
+          echo "Actor: $GITHUB_ACTOR"
+          echo "Using PAT for repo: $GITHUB_REPOSITORY"
+          gh auth status || true
+
       - name: Confirm GH_PAT presence
         run: |
-          if [ -z "${{ secrets.GH_PAT }}" ]; then
+          if [ -z "$GH_PAT" ]; then
             echo "GH_PAT is NOT set"; exit 2
           else
             echo "GH_PAT is set"
           fi
 
       - name: Print token scopes header (redacted)
-        env: { GH_PAT: ${{ secrets.GH_PAT }} }
         run: |
           curl -sI -H "Authorization: Bearer $GH_PAT" https://api.github.com/user \
           | tr -d '\r' | awk 'BEGIN{IGNORECASE=1}/^x-oauth-scopes|^date|^status/ {print}'
 
       - name: Dispatch GH_PAT Smoke (expect 204)
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
           CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
             -H "Authorization: Bearer $GH_PAT" \
@@ -44,8 +53,6 @@ jobs:
           test "$CODE" = "204" || { echo "Expected 204"; exit 3; }
 
       - name: Dispatch Sync Brain with reason post-smoke (expect 204)
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
           CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
             -H "Authorization: Bearer $GH_PAT" \
@@ -57,7 +64,6 @@ jobs:
 
       - name: Post summary to PR
         env:
-          GH_PAT: ${{ secrets.GH_PAT }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         if: ${{ github.event_name == 'pull_request' && env.PR_NUMBER != '' }}
         run: |
