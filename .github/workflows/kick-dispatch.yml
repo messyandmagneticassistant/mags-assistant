@@ -1,0 +1,72 @@
+name: Kick (Smoke + Sync Brain)
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Reason to pass to Sync Brain"
+        required: false
+        default: "kick-dispatch"
+  issue_comment:
+    types: [created]
+
+permissions:
+  actions: write
+  contents: read
+  issues: write
+
+jobs:
+  run:
+    # run if manually dispatched, or if someone comments "/orchestrate"
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/orchestrate'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require GH_PAT
+        run: |
+          if [ -z "${{ secrets.GH_PAT }}" ]; then
+            echo "GH_PAT is not set"; exit 2
+          fi
+          echo "GH_PAT is set"
+
+      - name: Show PAT scopes (header only)
+        env: { GH_PAT: ${{ secrets.GH_PAT }} }
+        run: |
+          curl -sI -H "Authorization: Bearer $GH_PAT" https://api.github.com/user \
+          | tr -d '\r' | awk 'BEGIN{IGNORECASE=1}/^x-oauth-scopes|^status/ {print}'
+
+      - name: Dispatch GH_PAT Smoke (expect 204)
+        env: { GH_PAT: ${{ secrets.GH_PAT }} }
+        run: |
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer $GH_PAT" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/actions/workflows/token-smoke.yml/dispatches \
+            -d '{"ref":"main"}')
+          echo "Smoke dispatch HTTP: $CODE"
+          test "$CODE" = "204" || { echo "Expected 204"; exit 3; }
+
+      - name: Dispatch Sync Brain (expect 204)
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          REASON: ${{ inputs.reason || 'kick-dispatch' }}
+        run: |
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer $GH_PAT" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/actions/workflows/sync-brain.yml/dispatches \
+            -d "{\"ref\":\"main\",\"inputs\":{\"reason\":\"$REASON\"}}")
+          echo "Sync dispatch HTTP: $CODE"
+          test "$CODE" = "204" || { echo "Expected 204"; exit 4; }
+
+      - name: Comment result (for issue-comment trigger)
+        if: github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          body="Kick finished. See Action logs for details."
+          curl -s -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/issues/$ISSUE/comments \
+            -d "$(jq -n --arg body \"$body\" '{body:$body}')" || true
