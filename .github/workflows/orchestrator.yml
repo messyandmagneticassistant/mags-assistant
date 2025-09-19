@@ -1,0 +1,80 @@
+name: Orchestrator (Smoke + Sync Brain)
+on:
+  # Runs automatically when a PR touches the ping file (no need for "Run" button)
+  pull_request:
+    paths:
+      - '.github/_orchestrator/**'
+  # Also allow manual runs & repo_dispatch if ever needed later
+  workflow_dispatch: {}
+  repository_dispatch:
+    types: [kick-orchestrator]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm GH_PAT presence
+        run: |
+          if [ -z "${{ secrets.GH_PAT }}" ]; then
+            echo "GH_PAT is NOT set"; exit 2
+          else
+            echo "GH_PAT is set"
+          fi
+
+      - name: Print token scopes header (redacted)
+        env: { GH_PAT: ${{ secrets.GH_PAT }} }
+        run: |
+          curl -sI -H "Authorization: Bearer $GH_PAT" https://api.github.com/user \
+          | tr -d '\r' | awk 'BEGIN{IGNORECASE=1}/^x-oauth-scopes|^date|^status/ {print}'
+
+      - name: Dispatch GH_PAT Smoke (expect 204)
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer $GH_PAT" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/actions/workflows/token-smoke.yml/dispatches \
+            -d '{"ref":"main"}')
+          echo "Smoke dispatch HTTP: $CODE"
+          test "$CODE" = "204" || { echo "Expected 204"; exit 3; }
+
+      - name: Dispatch Sync Brain with reason post-smoke (expect 204)
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer $GH_PAT" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/actions/workflows/sync-brain.yml/dispatches \
+            -d '{"ref":"main","inputs":{"reason":"post-smoke"}}')
+          echo "Sync dispatch HTTP: $CODE"
+          test "$CODE" = "204" || { echo "Expected 204"; exit 4; }
+
+      - name: Post summary to PR
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        if: ${{ github.event_name == 'pull_request' && env.PR_NUMBER != '' }}
+        run: |
+          SUMMARY=$(cat <<'TXT'
+**Orchestrator results**
+- GH_PAT header printed above (should include `workflow, repo`).
+- Smoke dispatch: OK (204 expected).
+- Sync Brain dispatch: OK (204 expected).
+
+If any step failed:
+- 401 → rotate GH_PAT with `repo, workflow`.
+- 403 → PAT user lacks repo permission.
+- 422 → wrong workflow path/branch.
+TXT
+)
+          curl -s -X POST \
+            -H "Authorization: Bearer $GH_PAT" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/issues/${PR_NUMBER}/comments \
+            -d "$(jq -n --arg body "$SUMMARY" '{body:$body}')"
