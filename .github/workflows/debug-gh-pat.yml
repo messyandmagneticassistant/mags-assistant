@@ -9,23 +9,33 @@ permissions:
 jobs:
   debug:
     runs-on: ubuntu-latest
+    env:
+      GH_PAT: ${{ secrets.GH_PAT }}
+      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
     steps:
+      - name: Diagnostics
+        shell: bash
+        env:
+          GH_TOKEN: ${{ env.GH_PAT }}
+        run: |
+          echo "Actor: $GITHUB_ACTOR"
+          echo "Using PAT for repo: $GITHUB_REPOSITORY"
+          gh auth status || true
+
       - name: Check GH_PAT presence
         run: |
-          if [ -z "${{ secrets.GH_PAT }}" ]; then
+          if [ -z "$GH_PAT" ]; then
             echo "GH_PAT is NOT set"; exit 2
           else
             echo "GH_PAT is set"
           fi
       - name: GET /user headers with GH_PAT (redacted)
-        env: { GH_PAT: ${{ secrets.GH_PAT }} }
         run: |
           set -e
           curl -sI -H "Authorization: Bearer $GH_PAT" https://api.github.com/user \
           | tr -d '\r' | awk 'BEGIN{IGNORECASE=1}/^x-oauth-scopes|^status|^date/ {print}'
       - name: Try workflow dispatch for token-smoke (expect 204)
         env:
-          GH_PAT: ${{ secrets.GH_PAT }}
           OWNER: messyandmagneticassistant
           REPO: mags-assistant
         run: |
