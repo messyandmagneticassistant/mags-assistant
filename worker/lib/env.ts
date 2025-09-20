@@ -1,5 +1,6 @@
 export type Env = {
   BRAIN: KVNamespace;
+  PostQ?: KVNamespace;
   SECRET_BLOB?: string;        // e.g., "thread-state"
   BRAIN_DOC_KEY?: string;      // e.g., "PostQ:thread-state"
   [k: string]: unknown;
