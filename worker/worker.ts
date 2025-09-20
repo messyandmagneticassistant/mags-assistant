@@ -78,8 +78,63 @@ export default {
       if (url.pathname === '/' || url.pathname === '/health') {
         return await handleHealth(env);
       }
-      if (url.pathname === '/diag/config') {
+      if (url.pathname === "/diag/config") {
         return await handleDiagConfig(env);
+      }
+
+      if (url.pathname === "/init-blob") {
+        if (req.method !== "GET" && req.method !== "POST") {
+          return new Response("Method Not Allowed", {
+            status: 405,
+            headers: cors({ "content-type": "text/plain; charset=utf-8" }),
+          });
+        }
+
+        const kv = (env as any).PostQ ?? env.BRAIN;
+        if (!kv || typeof kv.put !== "function") {
+          return new Response("KV binding not configured", {
+            status: 500,
+            headers: cors({ "content-type": "text/plain; charset=utf-8" }),
+          });
+        }
+
+        const blobKey = env.SECRET_BLOB || "thread-state";
+        const blob = {
+          version: "v1",
+          lastUpdated: new Date().toISOString(),
+          profile: {
+            name: "Maggie",
+            role: "Full-stack assistant",
+            subdomains: ["maggie.messyandmagnetic.com", "assistant.messyandmagnetic.com"],
+            kvNamespace: "PostQ",
+          },
+          services: {
+            gmail: true,
+            stripe: true,
+            tally: true,
+            notion: true,
+            tikTok: true,
+            n8n: true,
+            googleDrive: true,
+          },
+          automation: {
+            soulReadings: true,
+            farmStand: true,
+            postScheduler: true,
+            readingDelivery: true,
+            stripeAudit: true,
+            magnetMatch: true,
+          },
+          notes: "Blob initialized from /init-blob",
+          lastSynced: null,
+        };
+
+        await kv.put(blobKey, JSON.stringify(blob));
+
+        return new Response("✅ Maggie’s thread-state blob was initialized into PostQ", {
+          status: 200,
+          headers: cors({ "content-type": "text/plain; charset=utf-8" }),
+        });
       }
 
       // Preflight
