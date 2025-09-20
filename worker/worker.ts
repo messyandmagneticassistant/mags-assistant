@@ -84,28 +84,26 @@ export default {
 
       if (url.pathname === "/init-blob") {
         if (req.method !== "POST") {
-          return new Response("init-blob must be invoked with POST", {
+          return new Response("init-blob requires POST", {
             status: 405,
-            headers: cors({
-              "content-type": "text/plain; charset=utf-8",
-              "Allow": "POST",
-            }),
+            headers: cors({ "content-type": "text/plain", "Allow": "POST" }),
           });
         }
 
-        const kv = env.PostQ ?? env.BRAIN;
-        if (!kv || typeof kv.put !== "function") {
-          return new Response("PostQ KV binding is not available", {
+        const kv = (env as any).PostQ ?? (env as any).BRAIN;
+        if (!kv || typeof kv.put !== "function" || typeof kv.get !== "function") {
+          return new Response("KV binding missing (need PostQ or BRAIN)", {
             status: 500,
-            headers: cors({ "content-type": "text/plain; charset=utf-8" }),
+            headers: cors({ "content-type": "text/plain" }),
           });
         }
 
-        const existing = await kv.get("thread-state");
+        const blobKey = "thread-state";
+        const existing = await kv.get(blobKey);
         if (existing) {
-          return new Response("⚠️ Maggie's thread-state already exists in PostQ", {
+          return new Response("⚠️ Blob already exists", {
             status: 409,
-            headers: cors({ "content-type": "text/plain; charset=utf-8" }),
+            headers: cors({ "content-type": "text/plain" }),
           });
         }
 
@@ -115,12 +113,12 @@ export default {
           profile: {
             name: "Maggie",
             role: "Full-stack assistant",
-            subdomains: [
-              "maggie.messyandmagnetic.com",
-              "assistant.messyandmagnetic.com",
-            ],
-            kvNamespace: "PostQ",
           },
+          subdomains: [
+            "maggie.messyandmagnetic.com",
+            "assistant.messyandmagnetic.com"
+          ],
+          kvNamespace: "PostQ",
           services: {
             gmail: true,
             stripe: true,
@@ -138,17 +136,18 @@ export default {
             stripeAudit: true,
             magnetMatch: true,
           },
-          notes: "Blob initialized from /init-blob",
+          notes: "Blob initialized",
           lastSynced: null,
         };
 
-        await kv.put("thread-state", JSON.stringify(blob));
+        await kv.put(blobKey, JSON.stringify(blob));
+
         return new Response("✅ Maggie’s thread-state blob was initialized into PostQ", {
           status: 200,
-          headers: cors({ "content-type": "text/plain; charset=utf-8" }),
+          headers: cors({ "content-type": "text/plain" }),
         });
       }
-
+      
       // Preflight
       if (isPreflight(req)) {
         return new Response(null, { status: 204, headers: cors() });
