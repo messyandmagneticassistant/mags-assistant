@@ -81,10 +81,37 @@ jobs:
 
       - name: Seed KV via Worker
         run: |
-          curl -X POST "https://maggie.messyandmagnetic.com/init-blob" \
+          set -uo pipefail
+
+          TMP_BODY="$(mktemp)"
+          CODE=0
+          STATUS=$(curl --fail-with-body -sS \
+            -o "$TMP_BODY" \
+            -w "%{http_code}" \
+            -X POST "https://maggie.messyandmagnetic.com/init-blob" \
             -H "Authorization: Bearer ${{ secrets.POST_THREAD_SECRET }}" \
             -H "Content-Type: application/json" \
-            --data-binary @config/thread-state.json
+            --data-binary @config/thread-state.json) || CODE=$?
+
+          if [[ "$CODE" == "22" ]]; then
+            if [[ "$STATUS" == "409" ]]; then
+              echo "Blob already exists, continuing…"
+            else
+              echo "Seed KV request failed with HTTP $STATUS"
+              cat "$TMP_BODY"
+              rm -f "$TMP_BODY"
+              exit "$CODE"
+            fi
+          elif [[ "$CODE" != "0" ]]; then
+            echo "Seed KV request failed with curl exit code $CODE"
+            cat "$TMP_BODY"
+            rm -f "$TMP_BODY"
+            exit "$CODE"
+          else
+            cat "$TMP_BODY"
+          fi
+
+          rm -f "$TMP_BODY"
 
       - name: Smoke test KV
         run: |
