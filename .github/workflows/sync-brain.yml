@@ -30,9 +30,10 @@ jobs:
     timeout-minutes: 15
 
     env:
-      GH_PAT: ${{ secrets.GH_PAT }}
-      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-      GH_TOKEN: ${{ secrets.GH_PAT }}
+      EFFECTIVE_GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+      GH_PAT: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+      GITHUB_PAT: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
 
       CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
       CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
@@ -49,7 +50,7 @@ jobs:
       - name: Diagnostics
         shell: bash
         env:
-          GH_TOKEN: ${{ env.GH_PAT }}
+          GH_TOKEN: ${{ env.EFFECTIVE_GITHUB_TOKEN }}
         run: |
           echo "Actor: $GITHUB_ACTOR"
           echo "Using PAT for repo: $GITHUB_REPOSITORY"
@@ -69,7 +70,7 @@ jobs:
       - name: Checkout (with PAT)
         uses: actions/checkout@v4
         with:
-          token: ${{ env.GH_PAT }}
+          token: ${{ env.EFFECTIVE_GITHUB_TOKEN || github.token }}
 
       - name: Seed KV via Worker
         run: |
@@ -118,9 +119,19 @@ jobs:
 
       - name: Setup Node + pnpm (corepack)
         run: |
-          corepack enable
-          corepack prepare pnpm@latest --activate
-          node -v && pnpm -v
+          set -euo pipefail
+          if command -v corepack >/dev/null 2>&1; then
+            corepack enable
+            corepack prepare pnpm@latest --activate || true
+          fi
+
+          if ! command -v pnpm >/dev/null 2>&1; then
+            echo "pnpm missing after corepack prepare; installing via npm fallback..."
+            npm install -g pnpm@latest
+          fi
+
+          node -v
+          pnpm -v
 
       - name: Install deps (if package.json)
         run: |

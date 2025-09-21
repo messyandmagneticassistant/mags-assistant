@@ -2,6 +2,7 @@
 import { handleHealth } from './health';
 import { handleDiagConfig } from './diag';
 import type { Env } from './lib/env';
+import { syncThreadStateFromGitHub } from './lib/threadStateSync';
 type Ctx = { env: Env; request: Request; ctx: ExecutionContext };
 
 // ---------------- CORS helpers ----------------
@@ -335,6 +336,12 @@ export default {
       const warmUrl = env?.APPS_SCRIPT_EXEC || env?.APPS_SCRIPT_WEBAPP_URL;
       if (warmUrl) ctx.waitUntil(fetch(warmUrl).then(() => {}));
     } catch {}
+
+    try {
+      ctx.waitUntil(syncThreadStateFromGitHub(env));
+    } catch (err) {
+      console.error('[worker.cron] failed to enqueue thread-state sync:', err);
+    }
 
     // Let optional modules hook scheduled if present
     try {

@@ -2,6 +2,7 @@
 
 import { tgSend } from '../lib/telegram';
 import { runMaggie } from './index';
+import { buildMaggieStatusMessage } from './status';
 
 export async function dispatch(message: string, options: { source: string }) {
   const text = message.trim().toLowerCase();
@@ -12,6 +13,7 @@ export async function dispatch(message: string, options: { source: string }) {
 
 Commands you can try:
   /status — Show system status
+  /maggie-status — Detailed task + queue summary
   /run — Force Maggie to run now
   /help — Show this menu
     `.trim();
@@ -19,8 +21,9 @@ Commands you can try:
     return 'Sent help menu.';
   }
 
-  if (text === '/status') {
-    await tgSend('📊 Maggie is online and watching TikTok + folders.');
+  if (text === '/status' || text === '/maggie-status') {
+    const statusMessage = await buildMaggieStatusMessage();
+    await tgSend(statusMessage);
     return 'Reported status.';
   }
 
