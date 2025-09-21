@@ -1,92 +1,43 @@
-name: Run All
+name: Run All (PAT Debug + Sync Brain + Report)
 
 on:
   workflow_dispatch:
-    inputs:
-      reason:
-        description: 'Optional note for this run'
-        required: false
-        default: ''
 
 permissions:
   contents: read
+  actions: write
   issues: write
   pull-requests: write
 
 jobs:
   gh_pat_debug:
-    name: GH_PAT Debug
     uses: ./.github/workflows/debug-gh-pat.yml
     secrets: inherit
 
-  worker_kv:
-    name: Seed and verify Worker KV
-    needs: gh_pat_debug
-    runs-on: ubuntu-latest
-    outputs:
-      social_seed: ${{ steps.seed.outputs.summary }}
-      worker_status: ${{ steps.status.outputs.summary }}
-      brain_check: ${{ steps.brain.outputs.summary }}
-    steps:
-      - name: Seed social defaults via Worker
-        id: seed
-        env:
-          API_KEY: ${{ secrets.POST_THREAD_SECRET }}
-        run: |
-          set -euo pipefail
-          RESP=$(curl --fail-with-body -sS -X POST \
-            -H "x-api-key: $API_KEY" \
-            -H "content-type: application/json" \
-            https://maggie.messyandmagnetic.com/admin/social/seed)
-          echo "Seed response (sanitized):"
-          echo "$RESP" | jq '{ok, configKeys: (.config // {} | keys)}'
-          SUMMARY=$(echo "$RESP" | jq -c '{ok, configKeys: (.config // {} | keys)}')
-          echo "summary=$SUMMARY" >> "$GITHUB_OUTPUT"
-
-      - name: Worker status snapshot
-        id: status
-        run: |
-          set -euo pipefail
-          RESP=$(curl --fail-with-body -sS https://maggie.messyandmagnetic.com/admin/status)
-          echo "Worker status snapshot:"
-          echo "$RESP" | jq '{ok, routesCount, kvKeysSample: (.kvKeysSample // []), queueSize, accountsCount, posts24h: .["24hPosts"]}'
-          SUMMARY=$(echo "$RESP" | jq -c '{ok, routesCount, kvSample: (.kvKeysSample // []), queueSize, accountsCount, posts24h: .["24hPosts"]}')
-          echo "summary=$SUMMARY" >> "$GITHUB_OUTPUT"
-
-      - name: Brain KV snapshot
-        id: brain
-        run: |
-          set -euo pipefail
-          RESP=$(curl --fail-with-body -sS https://maggie.messyandmagnetic.com/brain/get)
-          echo "Brain KV snapshot:"
-          echo "$RESP" | jq '{ok, exists, size}'
-          SUMMARY=$(echo "$RESP" | jq -c '{ok, exists, size}')
-          echo "summary=$SUMMARY" >> "$GITHUB_OUTPUT"
-
   sync_brain:
-    name: Sync Brain
-    needs: worker_kv
+    needs: gh_pat_debug
     uses: ./.github/workflows/sync-brain.yml
     secrets: inherit
-    with:
-      reason: "${{ inputs.reason != '' && format('Run All: {0}', inputs.reason) || format('Run All triggered by {0}', github.actor) }}"
 
-  summarize:
-    name: Run summary
-    needs: [gh_pat_debug, worker_kv, sync_brain]
-    if: always()
+  report:
+    needs: [gh_pat_debug, sync_brain]
     runs-on: ubuntu-latest
     steps:
-      - name: Build summary
-        id: build
+      - name: Fetch diag config
         env:
-          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          POST_THREAD_SECRET: ${{ secrets.POST_THREAD_SECRET }}
+        run: |
+          set -euo pipefail
+          curl --fail -sS \
+            -H "Authorization: Bearer ${POST_THREAD_SECRET}" \
+            https://maggie.messyandmagnetic.com/diag/config \
+            -o diag-config.json
+
+      - name: Build summary
+        id: summary
+        env:
           GH_PAT_RESULT: ${{ needs.gh_pat_debug.result }}
-          SEED_JSON: ${{ needs.worker_kv.outputs.social_seed }}
-          STATUS_JSON: ${{ needs.worker_kv.outputs.worker_status }}
-          BRAIN_JSON: ${{ needs.worker_kv.outputs.brain_check }}
           SYNC_RESULT: ${{ needs.sync_brain.result }}
-          RUN_REASON: ${{ inputs.reason }}
         run: |
           set -euo pipefail
           python <<'PY'
@@ -94,51 +45,39 @@ import json
 import os
 from pathlib import Path
 
-def load(name: str) -> dict:
-    raw = os.environ.get(name, '')
-    if not raw:
-        return {}
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        return {}
+keys = []
+try:
+    data = json.loads(Path("diag-config.json").read_text())
+    def collect(prefix, value):
+        if isinstance(value, dict):
+            for k, v in value.items():
+                collect(prefix + [str(k)], v)
+        elif isinstance(value, list):
+            for idx, v in enumerate(value[:10]):
+                collect(prefix + [str(idx)], v)
+        else:
+            keys.append(".".join(prefix))
+    if isinstance(data, (dict, list)):
+        collect([], data)
+except Exception:
+    pass
 
-seed = load('SEED_JSON')
-status = load('STATUS_JSON')
-brain = load('BRAIN_JSON')
-lines = []
-reason = os.environ.get('RUN_REASON', '').strip()
-if reason:
-    lines.append(f"- Reason: {reason}")
-lines.append(f"- GH_PAT Debug: {os.environ.get('GH_PAT_RESULT', 'unknown')}")
-if seed:
-    keys = seed.get('configKeys') or []
-    keys_display = ', '.join(keys) if keys else 'none'
-    lines.append(f"- Worker social seed: ok={seed.get('ok')}, keys={keys_display}")
-else:
-    lines.append('- Worker social seed: no data')
-if status:
-    sample = status.get('kvSample') or []
-    sample_display = ', '.join(sample[:3]) if sample else 'none'
-    lines.append(f"- Worker status: ok={status.get('ok')}, routes={status.get('routesCount')}, sample={sample_display}")
-else:
-    lines.append('- Worker status: no data')
-if brain:
-    lines.append(f"- Brain KV: ok={brain.get('ok')}, exists={brain.get('exists')}, size={brain.get('size')}")
-else:
-    lines.append('- Brain KV: no data')
-lines.append(f"- Sync Brain workflow: {os.environ.get('SYNC_RESULT', 'unknown')}")
-links = [
-    f"- [Actions run]({os.environ['RUN_URL']})",
-    "- [Worker status](https://maggie.messyandmagnetic.com/admin/status)",
-    "- [Brain snapshot](https://maggie.messyandmagnetic.com/brain/get)",
+lines = [
+    "### Run All Summary",
+    f"- GH token debug: {os.environ.get('GH_PAT_RESULT', 'unknown')}",
+    f"- Sync brain: {os.environ.get('SYNC_RESULT', 'unknown')}",
 ]
-summary = '### Run All Summary\n' + '\n'.join(lines) + '\n\nLinks:\n' + '\n'.join(links)
-Path('summary.md').write_text(summary)
+
+if keys:
+    lines.append(f"- diag/config sample keys: {', '.join(keys[:10])}")
+else:
+    lines.append("- diag/config retrieved (no JSON keys detected)")
+
+summary = "\n".join(lines)
+Path("summary.md").write_text(summary)
 print(summary)
 PY
           SUMMARY=$(cat summary.md)
-          echo "$SUMMARY"
           echo "$SUMMARY" >> "$GITHUB_STEP_SUMMARY"
           {
             echo 'body<<EOF'
@@ -149,25 +88,21 @@ PY
       - name: Detect PR for this commit
         id: pr
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.sha }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          RESP=$(curl -sS \
-            -H "Authorization: Bearer $GITHUB_TOKEN" \
-            -H "Accept: application/vnd.github.groot-preview+json" \
-            https://api.github.com/repos/$REPO/commits/$SHA/pulls)
-          NUMBER=$(echo "$RESP" | jq -r '.[0].number // empty')
-          if [ -n "$NUMBER" ]; then
-            echo "Found PR #$NUMBER for $SHA"
-            echo "number=$NUMBER" >> "$GITHUB_OUTPUT"
+          PR_NUMBER=$(gh api repos/${REPO}/commits/${SHA}/pulls --jq '.[0].number // empty')
+          if [ -n "$PR_NUMBER" ]; then
+            echo "Found PR #$PR_NUMBER for $SHA"
+            echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
           else
             echo "No PR found for $SHA"
           fi
 
       - name: Comment on PR
-        if: ${{ steps.pr.outputs.number && steps.build.outputs.body != '' }}
+        if: ${{ steps.pr.outputs.number && steps.summary.outputs.body != '' }}
         env:
           PR_NUMBER: ${{ steps.pr.outputs.number }}
           TOKEN: ${{ github.token }}
@@ -177,20 +112,21 @@ PY
           python <<'PY'
 import json
 import os
-import urllib.request
 from pathlib import Path
 
 body = Path('summary.md').read_text()
-req = urllib.request.Request(
+req_body = json.dumps({'body': body}).encode()
+from urllib import request
+req = request.Request(
     f"https://api.github.com/repos/{os.environ['REPO']}/issues/{os.environ['PR_NUMBER']}/comments",
-    data=json.dumps({'body': body}).encode(),
-    method='POST',
+    data=req_body,
     headers={
         'Authorization': f"Bearer {os.environ['TOKEN']}",
         'Accept': 'application/vnd.github+json',
         'Content-Type': 'application/json',
     },
+    method='POST',
 )
-with urllib.request.urlopen(req) as resp:
+with request.urlopen(req) as resp:
     print(f"Comment posted to PR #{os.environ['PR_NUMBER']} (status {resp.status})")
 PY
