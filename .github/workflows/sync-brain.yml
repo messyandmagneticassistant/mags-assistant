@@ -24,26 +24,16 @@ permissions:
   contents: write
   actions: write
 
-# Manual dispatch via PAT (requires repo + workflow scopes on GH_PAT):
-# curl -sS -X POST \
-#   -H "Accept: application/vnd.github+json" \
-#   -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
-#   "https://api.github.com/repos/${{ github.repository }}/actions/workflows/sync-brain.yml/dispatches" \
-#   -d '{"ref":"main","inputs":{"reason":"manual"}}'
-
 jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
-    # Make all required credentials available
     env:
       GH_PAT: ${{ secrets.GH_PAT }}
       GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-      # --- GitHub auth: GH_PAT only ---
       GH_TOKEN: ${{ secrets.GH_PAT }}
 
-      # --- Cloudflare / KV (names already present in repo secrets per screenshots) ---
       CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
       CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
       CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
@@ -52,7 +42,6 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN || secrets.API_TOKEN }}
       ACCOUNT_ID: ${{ secrets.ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
 
-      # --- Worker KV keys to read/write ---
       SECRET_BLOB: thread-state
       BRAIN_DOC_KEY: PostQ:thread-state
 
@@ -133,7 +122,6 @@ jobs:
           corepack prepare pnpm@latest --activate
           node -v && pnpm -v
 
-      # Only install if package.json exists (mono/support both)
       - name: Install deps (if package.json)
         run: |
           if [ -f package.json ]; then
@@ -142,7 +130,6 @@ jobs:
             echo "No package.json at repo root; skipping install."
           fi
 
-      # === Brain → KV upload ===
       - name: Update Brain KV
         run: |
           if [ -f scripts/updateBrain.ts ]; then
@@ -151,7 +138,6 @@ jobs:
             echo "scripts/updateBrain.ts not found"; exit 1
           fi
 
-      # === Verify parity / reachability ===
       - name: Ping / verify Brain
         run: |
           if [ -f scripts/brainPing.ts ]; then
@@ -160,13 +146,10 @@ jobs:
             echo "scripts/brainPing.ts not found"; exit 1
           fi
 
-      # === Sanity check the live worker ===
       - name: Sanity: /health
         run: |
-          set -e
           curl -sS -i https://maggie.messyandmagnetic.com/health | sed -n '1,20p'
 
       - name: Sanity: /diag/config
         run: |
-          set -e
           curl -sS -i https://maggie.messyandmagnetic.com/diag/config | sed -n '1,80p'
