@@ -1,41 +1,23 @@
-import fs from 'fs';
+import { putConfig } from '../lib/kv';
+import fs from 'fs/promises';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
-async function main() {
-  const account = process.env.CLOUDFLARE_ACCOUNT_ID;
-  const token = process.env.CLOUDFLARE_API_TOKEN;
-  const namespaceId =
-    process.env.CF_KV_POSTQ_NAMESPACE_ID || process.env.CF_KV_NAMESPACE_ID;
-  if (!account || !token || !namespaceId) {
-    console.error(
-      'Missing CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, or CF_KV_NAMESPACE_ID'
-    );
-    process.exit(1);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+async function updateBrain() {
+  const filePath = path.join(__dirname, '../config/kv-state.json');
+
+  try {
+    const json = await fs.readFile(filePath, 'utf-8');
+    const data = JSON.parse(json);
+
+    const result = await putConfig('thread-state', data);
+    console.log('✅ Synced to Cloudflare KV:', result);
+  } catch (err) {
+    console.error('❌ Failed to update Maggie brain:', err);
   }
-
-  const brainPath = path.join(process.cwd(), 'docs', 'brain.md');
-  const body = await fs.promises.readFile(brainPath, 'utf8');
-
-  const url = `https://api.cloudflare.com/client/v4/accounts/${account}/storage/kv/namespaces/${namespaceId}/values/PostQ:thread-state`;
-  const res = await fetch(url, {
-    method: 'PUT',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'text/plain',
-    },
-    body,
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    console.error('Failed to update brain:', res.status, text);
-    process.exit(1);
-  }
-
-  console.log('Brain updated');
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+updateBrain();

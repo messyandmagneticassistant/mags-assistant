@@ -1,15 +1,32 @@
-import { getConfig } from '../utils/config';
+import axios from 'axios';
+
+const CLOUDFLARE_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
+const ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
+const NAMESPACE_ID = process.env.KV_NAMESPACE_ID;
+
+export async function putConfig(key: string, value: any) {
+  const url = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/storage/kv/namespaces/${NAMESPACE_ID}/values/${key}`;
+
+  const res = await axios.put(url, JSON.stringify(value), {
+    headers: {
+      Authorization: `Bearer ${CLOUDFLARE_API_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  return res.data;
+}
 
 export async function saveToKV(key: string, value: any) {
   let base = process.env.WORKER_URL;
   let auth = process.env.WORKER_KEY;
 
-  // Fallback to config lookup if env vars missing
   if (!base || !auth) {
     try {
+      const { getConfig } = await import('../utils/config');
       const cfg = await getConfig('cloudflare');
-      base ||= cfg.worker_url || cfg.workerUrl;
-      auth ||= cfg.worker_key || cfg.workerKey;
+      base ||= (cfg as any).worker_url || (cfg as any).workerUrl;
+      auth ||= (cfg as any).worker_key || (cfg as any).workerKey;
     } catch {
       // ignore and rely on env vars
     }
