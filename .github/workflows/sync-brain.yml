@@ -48,6 +48,9 @@ jobs:
       CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
       CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
       CF_KV_POSTQ_NAMESPACE_ID: ${{ secrets.CF_KV_POSTQ_NAMESPACE_ID }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID || secrets.ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN || secrets.API_TOKEN }}
+      ACCOUNT_ID: ${{ secrets.ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
 
       # --- Worker KV keys to read/write ---
       SECRET_BLOB: thread-state
@@ -91,7 +94,7 @@ jobs:
             -X POST "https://maggie.messyandmagnetic.com/init-blob" \
             -H "Authorization: Bearer ${{ secrets.POST_THREAD_SECRET }}" \
             -H "Content-Type: application/json" \
-            --data-binary @config/thread-state.json) || CODE=$?
+            --data-binary @config/kv-state.json) || CODE=$?
 
           if [[ "$CODE" == "22" ]]; then
             if [[ "$STATUS" == "409" ]]; then
