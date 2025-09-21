@@ -4,6 +4,17 @@ import { promises as fs } from 'fs';
 import type { Task } from '../lib/task.js';
 import { readTasks } from '../lib/task.js';
 
+interface BrainSyncLog {
+  status?: string;
+  attemptedAt?: string;
+  key?: string;
+  bytes?: number;
+  source?: string;
+  trigger?: string;
+  error?: string;
+  skipReason?: string;
+}
+
 function formatRelativeTime(iso: string): string {
   const ts = Date.parse(iso);
   if (Number.isNaN(ts)) return iso;
@@ -59,6 +70,20 @@ async function loadQueueSummary() {
   }
 }
 
+async function loadBrainSyncLog(): Promise<BrainSyncLog | null> {
+  const logPath = path.resolve('brain-status.log');
+  try {
+    const raw = await fs.readFile(logPath, 'utf8');
+    const data = JSON.parse(raw) as BrainSyncLog;
+    return data;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+      console.warn('[maggie-status] Unable to read brain-status.log:', err);
+    }
+    return null;
+  }
+}
+
 export async function buildMaggieStatusMessage(): Promise<string> {
   const loops = [
     '📂 Raw footage watcher',
@@ -79,6 +104,7 @@ export async function buildMaggieStatusMessage(): Promise<string> {
 
   const recent = extractRecentTasks(tasks);
   const queue = await loadQueueSummary();
+  const brainLog = await loadBrainSyncLog();
 
   const parts: string[] = [];
   parts.push(`<b>Active loops</b>\n${loops.map((loop) => `• ${loop}`).join('\n')}`);
@@ -106,6 +132,36 @@ export async function buildMaggieStatusMessage(): Promise<string> {
       lines.push(`Last worker tick: ${formatRelativeTime(queue.lastRunAt)}`);
     }
     parts.push(`<b>Ops queue</b>\n${lines.join('\n')}`);
+  }
+
+  if (brainLog) {
+    const status = (brainLog.status ?? 'unknown').toLowerCase();
+    let statusLabel = 'ℹ️ Prepared';
+    if (status === 'success') statusLabel = '✅ Success';
+    else if (status === 'failed') statusLabel = '❌ Failed';
+    const lines = [statusLabel];
+    if (brainLog.attemptedAt) {
+      lines.push(`Last sync: ${formatRelativeTime(brainLog.attemptedAt)}`);
+    }
+    if (brainLog.key) {
+      const sizeInfo = typeof brainLog.bytes === 'number' && Number.isFinite(brainLog.bytes)
+        ? `${brainLog.key} (${brainLog.bytes} bytes)`
+        : brainLog.key;
+      lines.push(`Key: ${sizeInfo}`);
+    }
+    if (brainLog.trigger || brainLog.source) {
+      const triggerText = [brainLog.source, brainLog.trigger].filter(Boolean).join(' • ');
+      if (triggerText) lines.push(triggerText);
+    }
+    if (brainLog.skipReason) {
+      lines.push(brainLog.skipReason);
+    }
+    if (brainLog.error) {
+      lines.push(`Error: ${brainLog.error}`);
+    }
+    parts.push(`<b>Brain sync</b>\n${lines.join('\n')}`);
+  } else {
+    parts.push('<b>Brain sync</b>\nNo brain sync log recorded yet.');
   }
 
   parts.push(`<i>Updated ${new Date().toLocaleString('en-US', { timeZone: 'UTC' })} UTC</i>`);
