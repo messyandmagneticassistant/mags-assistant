@@ -9,6 +9,12 @@ on:
         default: "manual"
   schedule:
     - cron: "30 3 * * *"   # 03:30 UTC (~9:30pm ABQ during DST)
+  workflow_call:
+    inputs:
+      reason:
+        required: false
+        type: string
+        default: "manual"
 
 permissions:
   contents: write
@@ -55,7 +61,7 @@ jobs:
 
       - name: Log dispatch reason
         env:
-          DISPATCH_REASON: ${{ github.event.inputs.reason || '' }}
+          DISPATCH_REASON: ${{ inputs.reason || github.event.inputs.reason || '' }}
           TRIGGER: ${{ github.event_name }}
         run: |
           if [ -n "$DISPATCH_REASON" ]; then

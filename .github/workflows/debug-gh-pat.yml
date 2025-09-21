@@ -3,6 +3,10 @@ on:
   workflow_dispatch: {}
   repository_dispatch:
     types: [kick-gh-pat-debug]
+  workflow_call:
+    secrets:
+      GH_PAT:
+        required: true
 permissions:
   contents: read
   actions: write
