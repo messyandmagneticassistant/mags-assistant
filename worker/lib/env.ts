@@ -3,6 +3,13 @@ export type Env = {
   PostQ?: KVNamespace;
   SECRET_BLOB?: string;        // e.g., "thread-state"
   BRAIN_DOC_KEY?: string;      // e.g., "PostQ:thread-state"
+  THREAD_STATE_BRANCH?: string;
+  THREAD_STATE_REPO?: string;
+  THREAD_STATE_PATH?: string;
+  GITHUB_REPOSITORY?: string;
+  GITHUB_TOKEN?: string;
+  GITHUB_PAT?: string;
+  GITHUB_REF_NAME?: string;
   [k: string]: unknown;
 };
 
