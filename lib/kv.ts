@@ -2,6 +2,13 @@ type GetConfigFn = ((scope: string) => Promise<any>) | undefined;
 
 let resolvedGetConfig: GetConfigFn | null = null;
 
+function normalizeString(value: unknown): string | undefined {
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value;
+  }
+  return undefined;
+}
+
 async function loadGetConfig(): Promise<GetConfigFn> {
   if (resolvedGetConfig !== null) {
     return resolvedGetConfig;
@@ -74,20 +81,62 @@ export async function putConfig(
   value: unknown,
   options: PutConfigOptions = {}
 ) {
-  const accountId =
+  let accountId =
     options.accountId ||
     process.env.CLOUDFLARE_ACCOUNT_ID ||
     process.env.CF_ACCOUNT_ID ||
     process.env.ACCOUNT_ID;
-  const apiToken =
+  let apiToken =
     options.apiToken ||
     process.env.CLOUDFLARE_API_TOKEN ||
     process.env.CF_API_TOKEN ||
     process.env.API_TOKEN;
-  const namespaceId =
+  let namespaceId =
     options.namespaceId ||
     process.env.CF_KV_POSTQ_NAMESPACE_ID ||
     process.env.CF_KV_NAMESPACE_ID;
+
+  if (!accountId || !apiToken || !namespaceId) {
+    try {
+      const getConfig = await loadGetConfig();
+      if (getConfig) {
+        const cloudflareConfig = ((await getConfig('cloudflare')) ?? {}) as Record<
+          string,
+          unknown
+        >;
+        accountId ||=
+          normalizeString(cloudflareConfig.accountId) ||
+          normalizeString(cloudflareConfig.cloudflareAccountId) ||
+          normalizeString(cloudflareConfig.accountID);
+        apiToken ||=
+          normalizeString(cloudflareConfig.apiToken) ||
+          normalizeString(cloudflareConfig.cloudflareApiToken) ||
+          normalizeString(cloudflareConfig.apiKey);
+        namespaceId ||=
+          normalizeString(cloudflareConfig.namespaceId) ||
+          normalizeString(cloudflareConfig.kvNamespaceId) ||
+          normalizeString(cloudflareConfig.cloudflareKvNamespaceId) ||
+          normalizeString(cloudflareConfig.namespaceID);
+
+        if (!namespaceId) {
+          const kv = cloudflareConfig.kv as Record<string, unknown> | undefined;
+          if (kv) {
+            namespaceId =
+              normalizeString(kv.namespaceId) ||
+              normalizeString(kv.id) ||
+              normalizeString(kv.namespaceID) ||
+              namespaceId;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to resolve Cloudflare credentials via getConfig', err);
+    }
+  }
+
+  accountId = normalizeString(accountId);
+  apiToken = normalizeString(apiToken);
+  namespaceId = normalizeString(namespaceId);
 
   if (!accountId || !apiToken || !namespaceId) {
     throw new Error(
