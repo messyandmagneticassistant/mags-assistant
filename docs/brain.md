@@ -4,12 +4,12 @@ This document describes the intake pipeline, worker integration, and sync helper
 
 ## KV Snapshot (PostQ/thread-state)
 
-The source of truth for Maggie's operational profile now lives in [`config/kv-state.json`](../config/kv-state.json). The JSON blob currently stored in Cloudflare KV (namespace **PostQ**, key **thread-state**) resolves to:
+The source of truth for Maggie's operational profile now lives in [`config/kv-state.json`](../config/kv-state.json). The JSON blob currently stored in Cloudflare KV (namespace **PostQ**, key **PostQ:thread-state**) resolves to:
 
 ```json
 {
   "version": "v1",
-  "lastUpdated": "2025-09-20T19:33:46.418Z",
+  "lastUpdated": "auto",
   "profile": {
     "name": "Maggie",
     "role": "Full-stack assistant",
