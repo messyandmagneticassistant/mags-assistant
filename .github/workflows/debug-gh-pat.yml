@@ -3,6 +3,7 @@ on:
   workflow_dispatch: {}
   repository_dispatch:
     types: [kick-gh-pat-debug]
+  workflow_call:
 permissions:
   contents: read
   actions: write
@@ -10,29 +11,26 @@ jobs:
   debug:
     runs-on: ubuntu-latest
     env:
-      GH_PAT: ${{ secrets.GH_PAT }}
-      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - name: Diagnostics
-        shell: bash
-        env:
-          GH_TOKEN: ${{ env.GH_PAT }}
         run: |
           echo "Actor: $GITHUB_ACTOR"
-          echo "Using PAT for repo: $GITHUB_REPOSITORY"
+          echo "Using GitHub token for repo: $GITHUB_REPOSITORY"
           gh auth status || true
 
-      - name: Check GH_PAT presence
+      - name: Check GitHub token presence
         run: |
-          if [ -z "$GH_PAT" ]; then
-            echo "GH_PAT is NOT set"; exit 2
+          if [ -z "$GITHUB_TOKEN" ]; then
+            echo "GITHUB_TOKEN is NOT set"; exit 2
           else
-            echo "GH_PAT is set"
+            echo "GITHUB_TOKEN is set"
           fi
-      - name: GET /user headers with GH_PAT (redacted)
+      - name: GET /user headers with GITHUB_TOKEN (redacted)
         run: |
           set -e
-          curl -sI -H "Authorization: Bearer $GH_PAT" https://api.github.com/user \
+          curl -sI -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/user \
           | tr -d '\r' | awk 'BEGIN{IGNORECASE=1}/^x-oauth-scopes|^status|^date/ {print}'
       - name: Try workflow dispatch for token-smoke (expect 204)
         env:
@@ -40,7 +38,7 @@ jobs:
           REPO: mags-assistant
         run: |
           CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
-            -H "Authorization: Bearer $GH_PAT" \
+            -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/$OWNER/$REPO/actions/workflows/token-smoke.yml/dispatches \
             -d '{"ref":"main"}')

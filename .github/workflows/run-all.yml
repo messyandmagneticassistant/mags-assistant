@@ -1,0 +1,51 @@
+name: Run All (PAT Debug + Sync Brain + Report)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  pat_debug:
+    name: GH_PAT Debug
+    uses: ./.github/workflows/debug-gh-pat.yml
+
+  sync_brain:
+    name: Sync Brain
+    needs: pat_debug
+    uses: ./.github/workflows/sync-brain.yml
+    secrets:
+      POST_THREAD_SECRET: ${{ secrets.POST_THREAD_SECRET }}
+
+  report:
+    name: Report
+    needs: sync_brain
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch Worker config
+        id: cfg
+        run: |
+          set -e
+          curl -sS "https://maggie.messyandmagnetic.com/diag/config" \
+            -H "Authorization: Bearer ${{ secrets.POST_THREAD_SECRET }}" \
+            -o cfg.json
+          echo "cfg=$(cat cfg.json | tr -d '\n' | sed 's/"/\\"/g')" >> $GITHUB_OUTPUT
+
+      - name: Pretty print summary
+        run: |
+          echo "=== Maggie Worker /diag/config ==="
+          cat cfg.json | jq '.profile, .subdomains, .kvNamespace, .kvKey, .notes // empty'
+
+      - name: (Optional) Comment on PR
+        if: ${{ github.event.pull_request.number != '' }}
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          body="✅ Run All finished.
+
+          • PAT Debug ✅
+          • Sync Brain ✅
+          • Worker: \`https://maggie.messyandmagnetic.com/diag/config\`
+          • Subdomains: \`$(jq -r '.subdomains | join(", ")' cfg.json)\`
+          • KV: \`$(jq -r '.kvNamespace')\` / \`$(jq -r '.kvKey')\`"
+
+          gh pr comment "$PR_NUMBER" -b "$body"
