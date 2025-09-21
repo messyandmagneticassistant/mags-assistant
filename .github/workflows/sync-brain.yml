@@ -13,124 +13,31 @@ on:
   pull_request:
   schedule:
     - cron: "30 3 * * *"   # 03:30 UTC (~9:30pm ABQ during DST)
+  workflow_call:
+    secrets:
+      POST_THREAD_SECRET:
+        required: true
 
 permissions:
-  contents: write
-  actions: write
-
-# Manual dispatch via PAT (requires repo + workflow scopes on GH_PAT):
-# curl -sS -X POST \
-#   -H "Accept: application/vnd.github+json" \
-#   -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
-#   "https://api.github.com/repos/${{ github.repository }}/actions/workflows/sync-brain.yml/dispatches" \
-#   -d '{"ref":"main","inputs":{"reason":"manual"}}'
+  contents: read
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
-    # Make all required credentials available
-    env:
-      GH_PAT: ${{ secrets.GH_PAT }}
-      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-      # --- GitHub auth: GH_PAT only ---
-      GH_TOKEN: ${{ secrets.GH_PAT }}
-
-      # --- Cloudflare / KV (names already present in repo secrets per screenshots) ---
-      CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-      CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
-      CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-      CF_KV_POSTQ_NAMESPACE_ID: ${{ secrets.CF_KV_POSTQ_NAMESPACE_ID }}
-
-      # --- Worker KV keys to read/write ---
-      SECRET_BLOB: thread-state
-      BRAIN_DOC_KEY: PostQ:thread-state
-
     steps:
-      - name: Diagnostics
-        shell: bash
-        env:
-          GH_TOKEN: ${{ env.GH_PAT }}
-        run: |
-          echo "Actor: $GITHUB_ACTOR"
-          echo "Using PAT for repo: $GITHUB_REPOSITORY"
-          gh auth status || true
-
-      - name: Log dispatch reason
-        env:
-          DISPATCH_REASON: ${{ github.event.inputs.reason || '' }}
-          TRIGGER: ${{ github.event_name }}
-        run: |
-          if [ -n "$DISPATCH_REASON" ]; then
-            echo "Dispatch reason: $DISPATCH_REASON"
-          else
-            echo "Dispatch reason: (none provided; trigger=$TRIGGER)"
-          fi
-
-      - name: Checkout (with PAT)
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          token: ${{ env.GH_PAT }}
 
-      - name: Seed KV via Worker
+      - name: Seed KV
         run: |
-          curl -X POST "https://maggie.messyandmagnetic.com/init-blob" \
+          curl -X POST https://maggie.messyandmagnetic.com/init-blob \
             -H "Authorization: Bearer ${{ secrets.POST_THREAD_SECRET }}" \
             -H "Content-Type: application/json" \
             --data-binary @config/thread-state.json
 
-      - name: Smoke test KV
+      - name: Smoke Test
         run: |
-          curl -s "https://maggie.messyandmagnetic.com/diag/config" \
+          curl -sS https://maggie.messyandmagnetic.com/diag/config \
             -H "Authorization: Bearer ${{ secrets.POST_THREAD_SECRET }}"
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-
-      - name: Setup Node + pnpm (corepack)
-        run: |
-          corepack enable
-          corepack prepare pnpm@latest --activate
-          node -v && pnpm -v
-
-      # Only install if package.json exists (mono/support both)
-      - name: Install deps (if package.json)
-        run: |
-          if [ -f package.json ]; then
-            pnpm install --frozen-lockfile=false
-          else
-            echo "No package.json at repo root; skipping install."
-          fi
-
-      # === Brain → KV upload ===
-      - name: Update Brain KV
-        run: |
-          if [ -f scripts/updateBrain.ts ]; then
-            npx tsx scripts/updateBrain.ts
-          else
-            echo "scripts/updateBrain.ts not found"; exit 1
-          fi
-
-      # === Verify parity / reachability ===
-      - name: Ping / verify Brain
-        run: |
-          if [ -f scripts/brainPing.ts ]; then
-            npx tsx scripts/brainPing.ts
-          else
-            echo "scripts/brainPing.ts not found"; exit 1
-          fi
-
-      # === Sanity check the live worker ===
-      - name: Sanity: /health
-        run: |
-          set -e
-          curl -sS -i https://maggie.messyandmagnetic.com/health | sed -n '1,20p'
-
-      - name: Sanity: /diag/config
-        run: |
-          set -e
-          curl -sS -i https://maggie.messyandmagnetic.com/diag/config | sed -n '1,80p'
