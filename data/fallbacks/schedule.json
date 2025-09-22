@@ -1,0 +1,31 @@
+{
+  "title": "Soul-aligned Posting Rhythm",
+  "generatedAt": "2024-12-01T12:00:00Z",
+  "timezone": "America/Los_Angeles",
+  "days": [
+    {
+      "day": "Monday",
+      "focus": "Energy forecast + soul tip",
+      "slots": ["08:30", "14:00", "19:00"],
+      "notes": "Lead with intention and invite engagement questions."
+    },
+    {
+      "day": "Wednesday",
+      "focus": "Behind-the-scenes + product spotlight",
+      "slots": ["09:15", "16:30"],
+      "notes": "Show the messy magic process and tie to offers."
+    },
+    {
+      "day": "Friday",
+      "focus": "Community share + call-to-action",
+      "slots": ["11:00", "18:45"],
+      "notes": "Amplify testimonials and remind of booking links."
+    },
+    {
+      "day": "Sunday",
+      "focus": "Reset ritual + blueprint teaser",
+      "slots": ["10:00"],
+      "notes": "Prime audience for the week and mention upcoming launches."
+    }
+  ]
+}
