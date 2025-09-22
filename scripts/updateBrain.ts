@@ -2,6 +2,8 @@ import { promises as fs } from 'fs';
 import path from 'path';
 
 import { putConfig } from '../lib/kv';
+import { logBrainSyncToSheet, logErrorToSheet } from '../lib/maggieLogs';
+import { updateBrainStatus } from '../lib/statusStore';
 import { loadBrainConfig } from '../maggie.config';
 
 interface BrainState extends Record<string, unknown> {
@@ -56,7 +58,7 @@ async function run() {
   } catch (err) {
     console.error(`Failed to read or parse ${kvPath}.`);
     console.error(err);
-    await writeLog({
+    const entry: BrainSyncLog = {
       status: 'failed',
       attemptedAt: new Date().toISOString(),
       key: KV_KEY,
@@ -64,7 +66,34 @@ async function run() {
       source: 'update-brain',
       trigger: process.env.GITHUB_EVENT_NAME,
       error: `read-error: ${(err as Error)?.message ?? String(err)}`,
-    });
+    };
+    await Promise.all([
+      writeLog(entry),
+      logBrainSyncToSheet({
+        kvKey: KV_KEY,
+        status: 'fail',
+        trigger: entry.trigger,
+        source: entry.source,
+        timestamp: entry.attemptedAt,
+        error: entry.error,
+      }),
+      updateBrainStatus({
+        lastAttemptAt: entry.attemptedAt,
+        lastFailureAt: entry.attemptedAt,
+        status: 'fail',
+        trigger: entry.trigger,
+        source: entry.source,
+        kvKey: KV_KEY,
+        sizeBytes: 0,
+        error: entry.error,
+      }),
+      logErrorToSheet({
+        module: 'BrainSync',
+        error: entry.error,
+        recovery: 'read config failed',
+        timestamp: entry.attemptedAt,
+      }),
+    ]);
     process.exit(1);
     return;
   }
@@ -165,7 +194,40 @@ async function run() {
     skipReason,
   };
 
-  await writeLog(logEntry);
+  const sheetStatus = status === 'failed' ? 'fail' : status === 'prepared' ? 'success' : status;
+  const syncStatus =
+    status === 'failed' ? 'fail' : status === 'prepared' ? 'pending' : 'success';
+
+  await Promise.all([
+    writeLog(logEntry),
+    logBrainSyncToSheet({
+      kvKey: KV_KEY,
+      status: sheetStatus,
+      trigger,
+      source,
+      timestamp,
+      error: errorMessage ?? skipReason,
+    }),
+    updateBrainStatus({
+      lastAttemptAt: timestamp,
+      lastSuccessAt: syncStatus === 'success' ? timestamp : undefined,
+      lastFailureAt: syncStatus === 'fail' ? timestamp : undefined,
+      status: syncStatus,
+      trigger,
+      source,
+      kvKey: KV_KEY,
+      sizeBytes: bytes,
+      error: errorMessage,
+    }),
+    status === 'failed'
+      ? logErrorToSheet({
+          module: 'BrainSync',
+          error: errorMessage || 'Brain sync failed',
+          recovery: skipReason,
+          timestamp,
+        })
+      : Promise.resolve(),
+  ]);
 
   if (status === 'failed') {
     process.exit(1);
@@ -184,7 +246,33 @@ run().catch((err) => {
     trigger: process.env.GITHUB_EVENT_NAME,
     error: err instanceof Error ? err.message : String(err),
   };
-  writeLog(fallback).finally(() => {
+  Promise.all([
+    writeLog(fallback),
+    logBrainSyncToSheet({
+      kvKey: KV_KEY,
+      status: 'fail',
+      trigger: fallback.trigger,
+      source: fallback.source,
+      timestamp: fallback.attemptedAt,
+      error: fallback.error,
+    }),
+    updateBrainStatus({
+      lastAttemptAt: fallback.attemptedAt,
+      lastFailureAt: fallback.attemptedAt,
+      status: 'fail',
+      trigger: fallback.trigger,
+      source: fallback.source,
+      kvKey: KV_KEY,
+      sizeBytes: 0,
+      error: fallback.error,
+    }),
+    logErrorToSheet({
+      module: 'BrainSync',
+      error: fallback.error,
+      recovery: 'unhandled',
+      timestamp: fallback.attemptedAt,
+    }),
+  ]).finally(() => {
     process.exit(1);
   });
 });

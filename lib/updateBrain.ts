@@ -1,5 +1,7 @@
 import { getConfig } from '../utils/config';
 import { logBrain } from './logBrain.ts';
+import { logBrainSyncToSheet, logErrorToSheet } from './maggieLogs.ts';
+import { updateBrainStatus } from './statusStore.ts';
 
 export interface BrainUpdate {
   /**
@@ -49,11 +51,18 @@ export async function updateBrain(update: BrainUpdate, context = 'system') {
   const brain = await getConfig('brain');
   const next = { ...brain, ...rest, message };
   const payload = { ...rest, message, updatedBy };
+  const attemptAt = new Date().toISOString();
+  const kvKey = 'PostQ:thread-state';
+  let status: 'success' | 'fail' | 'pending' = 'success';
+  let errorMessage: string | undefined;
+  const recoverySteps: string[] = [];
+  const sizeBytes = Buffer.from(JSON.stringify(next)).length;
+  let result: unknown;
 
   // Try primary worker endpoint
-  if (base && key) {
-    const url = `${base.replace(/\/?$/, '')}/config?scope=brain`;
-    try {
+  try {
+    if (base && key) {
+      const url = `${base.replace(/\/?$/, '')}/config?scope=brain`;
       const res = await fetch(url, {
         method: 'POST',
         headers: {
@@ -62,10 +71,24 @@ export async function updateBrain(update: BrainUpdate, context = 'system') {
         },
         body: JSON.stringify(next),
       });
-      if (!res.ok) throw new Error(`Failed to update brain: ${res.status}`);
-      return await res.json();
-    } catch (err) {
-      console.warn('Primary brain sync failed, attempting fallback:', err);
+      if (!res.ok) {
+        throw new Error(`Failed to update brain: ${res.status}`);
+      }
+      result = await res.json();
+      status = 'success';
+      return result;
+    }
+
+    throw new Error('Missing WORKER_URL or WORKER_KEY');
+  } catch (err) {
+    status = 'fail';
+    if (err instanceof Error) {
+      errorMessage = err.message;
+    } else {
+      errorMessage = String(err);
+    }
+    console.warn('Primary brain sync failed, attempting fallback:', err);
+    if (base) {
       try {
         const webhook = `${base.replace(/\/?$/, '')}/webhook/brain-update`;
         await fetch(webhook, {
@@ -73,16 +96,52 @@ export async function updateBrain(update: BrainUpdate, context = 'system') {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
+        recoverySteps.push('webhook');
+        status = 'pending';
       } catch (e) {
         console.warn('Fallback webhook failed:', e);
-        try {
-          const { runMaggieWorkflow } = await import('../runMaggie.ts');
-          await runMaggieWorkflow();
-        } catch (inner) {
-          console.warn('runMaggie fallback failed:', inner);
-        }
       }
     }
+    try {
+      const { runMaggieWorkflow } = await import('../runMaggie.ts');
+      await runMaggieWorkflow();
+      recoverySteps.push('runMaggieWorkflow');
+      status = status === 'fail' ? 'pending' : status;
+    } catch (inner) {
+      console.warn('runMaggie fallback failed:', inner);
+    }
+    throw err;
+  } finally {
+    const sheetStatus = status === 'fail' ? 'fail' : status === 'pending' ? 'prepared' : 'success';
+    await Promise.all([
+      logBrainSyncToSheet({
+        kvKey,
+        status: sheetStatus,
+        trigger: update.trigger,
+        source: context,
+        timestamp: attemptAt,
+        error: errorMessage,
+      }),
+      updateBrainStatus({
+        lastAttemptAt: attemptAt,
+        lastSuccessAt: status === 'success' ? attemptAt : undefined,
+        lastFailureAt: status === 'fail' ? attemptAt : undefined,
+        status,
+        trigger: update.trigger,
+        source: context,
+        kvKey,
+        sizeBytes,
+        error: errorMessage,
+      }),
+      status === 'fail'
+        ? logErrorToSheet({
+            module: 'BrainSync',
+            error: errorMessage || 'brain update failed',
+            recovery: recoverySteps.join(' → ') || undefined,
+            timestamp: attemptAt,
+          })
+        : Promise.resolve(),
+    ]);
   }
 }
 

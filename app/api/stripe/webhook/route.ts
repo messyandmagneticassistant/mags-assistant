@@ -4,6 +4,9 @@ import { Client } from '@notionhq/client';
 import fs from 'fs/promises';
 import { getConfig } from '../../../utils/config';
 import { ensureTelegramWebhook } from './telegramFallback';
+import { logErrorToSheet } from '../../../../lib/maggieLogs';
+import { updateWebhookStatus } from '../../../../lib/statusStore';
+import { tgSend } from '../../../../lib/telegram';
 
 export const runtime = 'nodejs';
 
@@ -61,6 +64,7 @@ async function upsertDonor(
 }
 
 export async function POST(req: NextRequest) {
+  const startedAt = new Date().toISOString();
   const stripeCfg = await getConfig('stripe');
   const notionCfg = await getConfig('notion');
   const missing = [] as string[];
@@ -75,26 +79,76 @@ export async function POST(req: NextRequest) {
   const notionToken = notionCfg.token as string;
   const payload = await req.text();
   const sig = req.headers.get('stripe-signature') || '';
-  let event: Stripe.Event;
+  const stripe = new Stripe(stripeKey, { apiVersion: '2023-10-16' });
+  let event: Stripe.Event | null = null;
+  const recoverySteps: string[] = [];
+
   try {
-    const stripe = new Stripe(stripeKey, { apiVersion: '2023-10-16' });
     event = stripe.webhooks.constructEvent(payload, sig, secret);
-  } catch (e: any) {
-    return new NextResponse('invalid signature', { status: 400 });
+  } catch (err) {
+    try {
+      const parsed = JSON.parse(payload || '{}');
+      if (parsed?.id) {
+        event = await stripe.events.retrieve(parsed.id);
+        recoverySteps.push('construct-failed');
+        recoverySteps.push('retrieved-event');
+      }
+    } catch {}
+    if (!event) {
+      const errorMessage = err instanceof Error ? err.message : 'invalid signature';
+      await Promise.all([
+        logErrorToSheet({
+          module: 'StripeWebhook',
+          error: errorMessage,
+          recovery: 'constructEvent',
+          timestamp: startedAt,
+        }),
+        updateWebhookStatus('stripe', {
+          lastFailureAt: startedAt,
+          error: errorMessage,
+        }),
+        tgSend(`⚠️ Stripe webhook signature failed at ${startedAt}: ${errorMessage}`).catch(() => undefined),
+      ]);
+      return new NextResponse('invalid signature', { status: 400 });
+    }
   }
-  const notion = new Client({ auth: notionToken });
-  const dbId = await getDonorDbId(notion, notionCfg);
-  const obj: any = event.data.object;
-  if (event.type === 'checkout.session.completed' || event.type === 'payment_intent.succeeded') {
-    const amount = (obj.amount_total || obj.amount_received || obj.amount || 0) / 100;
-    const currency = (obj.currency || 'usd') as string;
-    const name = obj.customer_details?.name || obj.shipping?.name || '';
-    const email = obj.customer_details?.email || obj.receipt_email || '';
-    const stripeId = obj.id || obj.payment_intent || '';
-    const message = obj.metadata?.message || obj.metadata?.note;
-    const date = (obj.created || Math.floor(Date.now() / 1000)) * 1000;
-    await upsertDonor(notion, dbId, { name, email, amount, currency, stripeId, message, date });
-    await ensureTelegramWebhook({ id: stripeId, email });
+
+  try {
+    const notion = new Client({ auth: notionToken });
+    const dbId = await getDonorDbId(notion, notionCfg);
+    const obj: any = event.data.object;
+    if (event.type === 'checkout.session.completed' || event.type === 'payment_intent.succeeded') {
+      const amount = (obj.amount_total || obj.amount_received || obj.amount || 0) / 100;
+      const currency = (obj.currency || 'usd') as string;
+      const name = obj.customer_details?.name || obj.shipping?.name || '';
+      const email = obj.customer_details?.email || obj.receipt_email || '';
+      const stripeId = obj.id || obj.payment_intent || '';
+      const message = obj.metadata?.message || obj.metadata?.note;
+      const date = (obj.created || Math.floor(Date.now() / 1000)) * 1000;
+      await upsertDonor(notion, dbId, { name, email, amount, currency, stripeId, message, date });
+      await ensureTelegramWebhook({ id: stripeId, email });
+    }
+    await updateWebhookStatus('stripe', {
+      lastSuccessAt: new Date().toISOString(),
+      error: null,
+    });
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    recoverySteps.push('process-failed');
+    await Promise.all([
+      logErrorToSheet({
+        module: 'StripeWebhook',
+        error: errorMessage,
+        recovery: recoverySteps.join(' → ') || undefined,
+        timestamp: startedAt,
+      }),
+      updateWebhookStatus('stripe', {
+        lastFailureAt: startedAt,
+        error: errorMessage,
+      }),
+      tgSend(`⚠️ Stripe webhook error at ${startedAt}: ${errorMessage}`).catch(() => undefined),
+    ]);
+    return new NextResponse('internal error', { status: 500 });
   }
-  return NextResponse.json({ ok: true });
 }

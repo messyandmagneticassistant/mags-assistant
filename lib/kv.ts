@@ -31,56 +31,15 @@ async function loadGetConfig(): Promise<GetConfigFn> {
   return resolvedGetConfig;
 }
 
-export interface PutConfigOptions {
+interface ResolveOptions {
   accountId?: string;
   apiToken?: string;
   namespaceId?: string;
-  contentType?: string;
 }
 
-export async function saveToKV(key: string, value: any) {
-  let base = process.env.WORKER_URL;
-  let auth = process.env.WORKER_KEY;
-
-  // Fallback to config lookup if env vars missing
-  if (!base || !auth) {
-    try {
-      const getConfig = await loadGetConfig();
-      if (getConfig) {
-        const cfg = await getConfig('cloudflare');
-        base ||= cfg.worker_url || cfg.workerUrl;
-        auth ||= cfg.worker_key || cfg.workerKey;
-      }
-    } catch {
-      // ignore and rely on env vars
-    }
-  }
-
-  if (!base || !auth) {
-    throw new Error('Missing WORKER_URL or WORKER_KEY');
-  }
-
-  const url = `${base.replace(/\/?$/, '')}/kv/${encodeURIComponent(key)}`;
-  const body = typeof value === 'string' ? value : JSON.stringify(value);
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${auth}`,
-    },
-    body,
-  });
-  if (!res.ok) {
-    throw new Error(`Failed to write to KV: ${res.status}`);
-  }
-  return { ok: true };
-}
-
-export async function putConfig(
-  key: string,
-  value: unknown,
-  options: PutConfigOptions = {}
-) {
+async function resolveCredentials(
+  options: ResolveOptions = {}
+): Promise<{ accountId: string; apiToken: string; namespaceId: string }> {
   let accountId =
     options.accountId ||
     process.env.CLOUDFLARE_ACCOUNT_ID ||
@@ -140,10 +99,61 @@ export async function putConfig(
 
   if (!accountId || !apiToken || !namespaceId) {
     throw new Error(
-      'putConfig requires Cloudflare credentials (CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, CF_KV_POSTQ_NAMESPACE_ID)'
+      'Cloudflare credentials required (CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, CF_KV_POSTQ_NAMESPACE_ID)'
     );
   }
 
+  return { accountId, apiToken, namespaceId } as const;
+}
+
+export interface PutConfigOptions extends ResolveOptions {
+  contentType?: string;
+}
+
+export async function saveToKV(key: string, value: any) {
+  let base = process.env.WORKER_URL;
+  let auth = process.env.WORKER_KEY;
+
+  // Fallback to config lookup if env vars missing
+  if (!base || !auth) {
+    try {
+      const getConfig = await loadGetConfig();
+      if (getConfig) {
+        const cfg = await getConfig('cloudflare');
+        base ||= cfg.worker_url || cfg.workerUrl;
+        auth ||= cfg.worker_key || cfg.workerKey;
+      }
+    } catch {
+      // ignore and rely on env vars
+    }
+  }
+
+  if (!base || !auth) {
+    throw new Error('Missing WORKER_URL or WORKER_KEY');
+  }
+
+  const url = `${base.replace(/\/?$/, '')}/kv/${encodeURIComponent(key)}`;
+  const body = typeof value === 'string' ? value : JSON.stringify(value);
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${auth}`,
+    },
+    body,
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to write to KV: ${res.status}`);
+  }
+  return { ok: true };
+}
+
+export async function putConfig(
+  key: string,
+  value: unknown,
+  options: PutConfigOptions = {}
+) {
+  const { accountId, apiToken, namespaceId } = await resolveCredentials(options);
   const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/storage/kv/namespaces/${namespaceId}/values/${encodeURIComponent(
     key
   )}`;
@@ -166,5 +176,38 @@ export async function putConfig(
   }
 
   return { ok: true } as const;
+}
+
+export interface GetConfigOptions extends ResolveOptions {
+  type?: 'text' | 'json';
+}
+
+export async function getConfigValue<T = unknown>(
+  key: string,
+  options: GetConfigOptions = {}
+): Promise<T | string> {
+  const { accountId, apiToken, namespaceId } = await resolveCredentials(options);
+  const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/storage/kv/namespaces/${namespaceId}/values/${encodeURIComponent(
+    key
+  )}`;
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${apiToken}`,
+    },
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(
+      `Failed to fetch config for ${key}: ${res.status}${text ? ` ${text}` : ''}`
+    );
+  }
+
+  const text = await res.text();
+  if (options.type === 'json') {
+    return text ? (JSON.parse(text) as T) : ({} as T);
+  }
+  return text;
 }
 export default saveToKV;

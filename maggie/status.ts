@@ -3,6 +3,10 @@ import { promises as fs } from 'fs';
 
 import type { Task } from '../lib/task.js';
 import { readTasks } from '../lib/task.js';
+import { getStatus } from '../lib/statusStore.ts';
+import { getConfigValue } from '../lib/kv';
+
+const LOCAL_TZ = process.env.MAGGIE_LOCAL_TZ || process.env.TZ || 'America/Los_Angeles';
 
 interface BrainSyncLog {
   status?: string;
@@ -13,6 +17,43 @@ interface BrainSyncLog {
   trigger?: string;
   error?: string;
   skipReason?: string;
+}
+
+function formatAbsolute(timestamp?: string | null): string {
+  if (!timestamp) return 'unknown';
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return timestamp;
+  const utc = date.toISOString();
+  const local = date.toLocaleString('en-US', {
+    timeZone: LOCAL_TZ,
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+  return `${utc} (local: ${local} ${LOCAL_TZ})`;
+}
+
+async function fetchBrainKvSummary() {
+  const key = 'PostQ:thread-state';
+  try {
+    const raw = await getConfigValue<string>(key);
+    const bytes = typeof raw === 'string' ? Buffer.byteLength(raw) : 0;
+    let lastSynced: string | undefined;
+    try {
+      const state = (await getConfigValue<any>('thread-state', {
+        type: 'json',
+      })) as Record<string, unknown>;
+      const syncValue = state?.lastSynced;
+      if (typeof syncValue === 'string') lastSynced = syncValue;
+    } catch (err) {
+      console.warn('[maggie-status] Unable to load thread-state metadata:', err);
+    }
+    return { key, bytes, lastSynced };
+  } catch (err) {
+    return {
+      key,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 function formatRelativeTime(iso: string): string {
@@ -105,6 +146,10 @@ export async function buildMaggieStatusMessage(): Promise<string> {
   const recent = extractRecentTasks(tasks);
   const queue = await loadQueueSummary();
   const brainLog = await loadBrainSyncLog();
+  const [kvSummary, statusSnapshot] = await Promise.all([
+    fetchBrainKvSummary(),
+    getStatus().catch(() => ({})),
+  ]);
 
   const parts: string[] = [];
   parts.push(`<b>Active loops</b>\n${loops.map((loop) => `• ${loop}`).join('\n')}`);
@@ -134,35 +179,68 @@ export async function buildMaggieStatusMessage(): Promise<string> {
     parts.push(`<b>Ops queue</b>\n${lines.join('\n')}`);
   }
 
-  if (brainLog) {
-    const status = (brainLog.status ?? 'unknown').toLowerCase();
-    let statusLabel = 'ℹ️ Prepared';
-    if (status === 'success') statusLabel = '✅ Success';
-    else if (status === 'failed') statusLabel = '❌ Failed';
-    const lines = [statusLabel];
-    if (brainLog.attemptedAt) {
-      lines.push(`Last sync: ${formatRelativeTime(brainLog.attemptedAt)}`);
-    }
-    if (brainLog.key) {
-      const sizeInfo = typeof brainLog.bytes === 'number' && Number.isFinite(brainLog.bytes)
-        ? `${brainLog.key} (${brainLog.bytes} bytes)`
-        : brainLog.key;
-      lines.push(`Key: ${sizeInfo}`);
-    }
-    if (brainLog.trigger || brainLog.source) {
-      const triggerText = [brainLog.source, brainLog.trigger].filter(Boolean).join(' • ');
-      if (triggerText) lines.push(triggerText);
-    }
-    if (brainLog.skipReason) {
-      lines.push(brainLog.skipReason);
-    }
-    if (brainLog.error) {
-      lines.push(`Error: ${brainLog.error}`);
-    }
-    parts.push(`<b>Brain sync</b>\n${lines.join('\n')}`);
-  } else {
-    parts.push('<b>Brain sync</b>\nNo brain sync log recorded yet.');
+  const brainStatus = (statusSnapshot as any)?.brainSync ?? {};
+  const brainLines: string[] = [];
+  const kvKey = kvSummary.key || brainLog?.key || 'PostQ:thread-state';
+  const lastSuccessful = brainStatus.lastSuccessAt || kvSummary.lastSynced || brainLog?.attemptedAt;
+  brainLines.push(`🧠 KV key: ${kvKey}`);
+  brainLines.push(`✅ Last sync: ${formatAbsolute(lastSuccessful)}`);
+  if (typeof kvSummary.bytes === 'number') {
+    brainLines.push(`📦 Size: ${kvSummary.bytes} bytes`);
+  } else if (brainLog?.bytes) {
+    brainLines.push(`📦 Size: ${brainLog.bytes} bytes (last recorded)`);
   }
+  if (brainStatus.status === 'pending' || brainLog?.status === 'prepared') {
+    brainLines.push('ℹ️ Awaiting confirmation from fallback writer.');
+  }
+  const errorText = brainStatus.error || brainLog?.error;
+  brainLines.push(errorText ? `⚠️ Last error: ${errorText}` : '⚠️ No recorded sync errors.');
+  if (kvSummary.error) {
+    brainLines.push(`Cloudflare fetch error: ${kvSummary.error}`);
+  }
+  parts.push(`<b>Brain health</b>\n${brainLines.join('\n')}`);
+
+  const puppeteerStatus = (statusSnapshot as any)?.puppeteer as {
+    status?: string;
+    lastRunAt?: string;
+    error?: string | null;
+    fallbackModel?: string | null;
+  } | null;
+  const puppeteerLines: string[] = [];
+  if (puppeteerStatus) {
+    const icon = puppeteerStatus.status === 'success' ? '✅' : puppeteerStatus.status === 'fail' ? '⚠️' : 'ℹ️';
+    const runTime = formatAbsolute(puppeteerStatus.lastRunAt ?? null);
+    let details = `${icon} Last run: ${runTime}`;
+    if (puppeteerStatus.fallbackModel) {
+      details += ` • fallback: ${puppeteerStatus.fallbackModel}`;
+    }
+    if (puppeteerStatus.error) {
+      details += ` • ${puppeteerStatus.error}`;
+    }
+    puppeteerLines.push(details);
+  } else {
+    puppeteerLines.push('No Puppeteer/browserless runs recorded yet.');
+  }
+
+  const stripeStatus = (statusSnapshot as any)?.webhooks?.stripe as {
+    lastSuccessAt?: string;
+    error?: string | null;
+    lastFailureAt?: string;
+  } | null;
+  const stripeLines: string[] = [];
+  if (stripeStatus) {
+    stripeLines.push(`📊 Last success: ${formatAbsolute(stripeStatus.lastSuccessAt ?? null)}`);
+    if (stripeStatus.lastFailureAt) {
+      stripeLines.push(`Last failure: ${formatAbsolute(stripeStatus.lastFailureAt)}`);
+    }
+    if (stripeStatus.error) {
+      stripeLines.push(`Latest error: ${stripeStatus.error}`);
+    }
+  } else {
+    stripeLines.push('No Stripe webhook activity recorded yet.');
+  }
+
+  parts.push(`<b>Automation health</b>\n${puppeteerLines.join('\n')}\n${stripeLines.join('\n')}`);
 
   parts.push(`<i>Updated ${new Date().toLocaleString('en-US', { timeZone: 'UTC' })} UTC</i>`);
 
