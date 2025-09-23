@@ -2,17 +2,28 @@
 
 import { dispatch } from '../maggie/intent-router';
 import { reportStatus } from '../lib/reportStatus';
+import { sendTelegramMessage } from '../../lib/telegram.ts';
+import { routeTelegramCommand } from './router';
 
-export async function handleTelegramCommand(text: string) {
+export interface TelegramHandleOptions {
+  chatId?: string;
+  reply?: (message: string) => Promise<void>;
+}
+
+export async function handleTelegramCommand(text: string, options: TelegramHandleOptions = {}) {
   const trimmed = text.trim();
+  const normalized = trimmed.toLowerCase();
+  const chatId = options.chatId;
+  const reply = options.reply || ((message: string) => sendTelegramMessage(message, chatId));
 
-  // Optionally, add your own commands here
-  if (trimmed.toLowerCase() === '/start') {
-    await reportStatus('👋 Hello! Maggie is online and listening.');
+  if (normalized === '/start') {
+    await reply('👋 Maggie is online and listening.');
     return;
   }
 
-  // Handle as if it’s a normal command for dispatch
+  const handled = await routeTelegramCommand({ text: trimmed, chatId, reply });
+  if (handled) return;
+
   await reportStatus(`📩 Command received: <code>${trimmed}</code>`);
   await dispatch(trimmed, { source: 'telegram' });
 }

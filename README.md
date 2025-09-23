@@ -9,6 +9,14 @@ She saves a short proof preview (before/after side-by-side) in content/preview/ 
 - [Inventory](docs/INVENTORY.md)
 - [Quickstart](docs/QUICKSTART.md)
 
+## Mobile control
+
+Use the private Telegram bot to run Maggie without opening GitHub:
+
+- `/start-sync` seeds Cloudflare KV with the latest brain payload, verifies `/diag/config`, and logs the run to Google Sheets.
+- `/maggie-status` reports the most recent brain sync, worker `/health`, recent task log entries, and any errors from the past 24 hours.
+- `/maggie-help` lists all supported chat commands.
+
 ### Pellet Cleaner
 Run `pnpm run clean:pellets` to nuke local node_modules and .pnpm-store, prune old packages, and reinstall fresh.
 Useful if installs are failing or local deps look corrupted.

@@ -4,6 +4,7 @@ import { updateNotionOrder } from '../../../../lib/notionSync';
 import { calculatePrice, PriceParams } from '../../../../lib/fulfillment';
 import { exec as cpExec } from 'node:child_process';
 import { promisify } from 'node:util';
+import { routeTelegramCommand } from '../../../../src/telegram/router.ts';
 
 const exec = promisify(cpExec);
 
@@ -65,6 +66,19 @@ export async function POST(req: NextRequest) {
     }
 
     if (text.startsWith('/')) {
+      try {
+        const routed = await routeTelegramCommand({
+          text,
+          chatId,
+          reply: (message) => sendTelegram(message, cfg),
+        });
+        if (routed) {
+          return NextResponse.json({ ok: true });
+        }
+      } catch (err) {
+        console.error('[telegram:webhook] Router error', err);
+      }
+
       const [cmd, ...args] = text.split(' ');
       const base = process.env.API_BASE ?? '';
       switch (cmd) {
