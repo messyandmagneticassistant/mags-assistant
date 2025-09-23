@@ -1,4 +1,6 @@
+import type { KVNamespace } from "@cloudflare/workers-types";
 import { parseSubmission } from "../../src/forms/schema";
+import { enqueueFulfillmentJob } from "../../src/queue";
 
 interface Env {
   TALLY_SIGNING_SECRET?: string;
@@ -25,13 +27,6 @@ async function verifySignature(raw: string, req: Request, secret: string): Promi
   return hex === v1;
 }
 
-async function sha(input: string) {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
-  return Array.from(new Uint8Array(buf))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
 function parseSubmissionForOrder(body: any) {
   const formId = body.formId || body.form_id || "";
   return parseSubmission(formId, body);
@@ -48,15 +43,17 @@ export async function onRequestPost(ctx: any) {
   }
 
   const body = JSON.parse(raw || "{}");
-  const ctxObj = { ...parseSubmissionForOrder(body), env };
+  const parsed = parseSubmissionForOrder(body);
+  const ctxObj = { ...parsed, env };
 
-  const key = `order:${await sha(ctxObj.email || "")}`;
-  await env.BRAIN.put(key, JSON.stringify(ctxObj), { expirationTtl: 60 * 60 * 24 * 14 });
-
-  try {
-    const mod: any = await import("../lib/fulfill.js");
-    if (typeof mod.fulfill === "function") ctx.waitUntil(mod.fulfill(ctxObj));
-  } catch {}
+  await enqueueFulfillmentJob(
+    {
+      source: "tally",
+      payload: body,
+      metadata: { formId: parsed.productId || body.formId },
+    },
+    env
+  );
 
   return new Response(JSON.stringify({ ok: true }), {
     status: 200,

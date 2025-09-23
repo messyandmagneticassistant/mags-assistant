@@ -1,5 +1,11 @@
+import { getLastOrderSummary } from "../../src/queue";
+
 export async function onRequestGet({ request, env }: { request: Request; env: any }) {
   const url = new URL(request.url);
+  if (url.pathname === "/ops/recent-order") {
+    const summary = await getLastOrderSummary(env);
+    return json({ ok: true, summary });
+  }
   if (url.pathname !== "/orders/list") return json({ ok: false }, 404);
 
   const email = url.searchParams.get("email")?.trim();

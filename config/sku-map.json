@@ -1,0 +1,8 @@
+{
+  "price_mini": { "tier": "mini", "addOns": [] },
+  "price_lite": { "tier": "lite", "addOns": [] },
+  "price_full": { "tier": "full", "addOns": [] },
+  "price_schedule_addon": { "addOns": ["schedule"] },
+  "price_magnet_addon": { "addOns": ["magnet"] },
+  "price_bundle_full": { "tier": "full", "addOns": ["schedule", "magnet"] }
+}
