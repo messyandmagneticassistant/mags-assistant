@@ -1,0 +1,47 @@
+[
+  {
+    "slug": "sunrise-anchor",
+    "name": "Sunrise Anchor",
+    "fileId": "1A2B3Csunrise",
+    "tags": ["morning", "calm", "breath"],
+    "tone": "soft",
+    "ageRanges": ["adult", "teen"],
+    "folderUrl": "https://drive.google.com/drive/folders/1A2B3Csunrise"
+  },
+  {
+    "slug": "midday-spark",
+    "name": "Midday Spark",
+    "fileId": "1A2B3Cspark",
+    "tags": ["midday", "creative", "focus"],
+    "tone": "bright",
+    "ageRanges": ["adult"],
+    "folderUrl": "https://drive.google.com/drive/folders/1A2B3Cspark"
+  },
+  {
+    "slug": "evening-soften",
+    "name": "Evening Soften",
+    "fileId": "1A2B3Csoften",
+    "tags": ["evening", "rest", "moon"],
+    "tone": "soft",
+    "ageRanges": ["adult", "child"],
+    "folderUrl": "https://drive.google.com/drive/folders/1A2B3Csoften"
+  },
+  {
+    "slug": "weekly-reset",
+    "name": "Weekly Reset",
+    "fileId": "1A2B3Creset",
+    "tags": ["weekly", "reset", "ritual"],
+    "tone": "earthy",
+    "ageRanges": ["adult", "teen"],
+    "folderUrl": "https://drive.google.com/drive/folders/1A2B3Creset"
+  },
+  {
+    "slug": "family-circle",
+    "name": "Family Circle",
+    "fileId": "1A2B3Cfamily",
+    "tags": ["family", "connection"],
+    "tone": "bright",
+    "ageRanges": ["child", "adult"],
+    "folderUrl": "https://drive.google.com/drive/folders/1A2B3Cfamily"
+  }
+]
