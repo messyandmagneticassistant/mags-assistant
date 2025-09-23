@@ -219,6 +219,19 @@ Example schedules (configure in Cloudflare Dashboard):
 0 8 * * 1 https://maggie-worker.messyandmagnetic.workers.dev/land/summary
 ```
 
+## Weekly Digest
+
+The Sunday digest pulls together weekly donor and deploy context and posts to Telegram.
+
+- Script: `scripts/weeklyDigest.ts`
+- Schedule: GitHub Action `.github/workflows/weekly-digest.yml` every Sunday at 02:00 UTC (Saturday evening ABQ)
+- Stripe sales summary requires `STRIPE_SECRET_KEY`
+- Notion donor activity checks `NOTION_DB_LOGS` or `NOTION_DB_ID` with either `NOTION_API_KEY` or `NOTION_TOKEN`
+- Donor page updates use `NOTION_DONOR_PAGE_ID` + token access
+- Telegram delivery expects `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`
+
+Run locally with `npx tsx scripts/weeklyDigest.ts` to preview the message that Actions will send.
+
 Example curl for /start:
 
 ```sh
