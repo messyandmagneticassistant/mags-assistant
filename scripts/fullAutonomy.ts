@@ -1,10 +1,25 @@
 import fs from 'node:fs/promises';
+import type { Dirent } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 
 import { getConfigValue, putConfig } from '../lib/kv';
 
 export const STATUS_KV_KEY = 'status:last';
+export const CONTROL_KV_KEY = 'autonomy:control';
+
+export interface AutonomyControl {
+  paused: boolean;
+  reason?: string;
+  pausedAt?: string | null;
+  resumeAt?: string | null;
+  updatedAt: string;
+  requestedBy?: string;
+}
+
+interface ControlOptions {
+  key?: string;
+}
 
 const DEFAULT_TASK = 'autonomy-loop';
 
@@ -90,6 +105,89 @@ export type PartialAutonomyStatus = Partial<Omit<AutonomyStatus, 'summary' | 'ch
   checks?: CheckInput[];
   summary?: Partial<AutonomySummary>;
 };
+
+function normalizeBoolean(value: unknown): boolean | undefined {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const trimmed = value.trim().toLowerCase();
+    if (!trimmed) return undefined;
+    if (['1', 'true', 'yes', 'on', 'enabled'].includes(trimmed)) return true;
+    if (['0', 'false', 'no', 'off', 'disabled'].includes(trimmed)) return false;
+  }
+  return undefined;
+}
+
+function coerceIsoDate(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
+function normalizeControl(input: Partial<AutonomyControl> | null | undefined): AutonomyControl | null {
+  if (!input) return null;
+  const paused = normalizeBoolean(input.paused) ?? false;
+  const now = new Date().toISOString();
+  return {
+    paused,
+    reason: typeof input.reason === 'string' && input.reason.trim().length ? input.reason.trim() : undefined,
+    pausedAt: coerceIsoDate(input.pausedAt) ?? (paused ? coerceIsoDate(input.updatedAt) : null),
+    resumeAt: coerceIsoDate(input.resumeAt),
+    updatedAt: coerceIsoDate(input.updatedAt) ?? now,
+    requestedBy:
+      typeof input.requestedBy === 'string' && input.requestedBy.trim().length
+        ? input.requestedBy.trim()
+        : undefined,
+  } satisfies AutonomyControl;
+}
+
+export async function loadAutonomyControl(key = CONTROL_KV_KEY): Promise<AutonomyControl | null> {
+  try {
+    const data = await getConfigValue<AutonomyControl>(key, { type: 'json' });
+    const normalized = normalizeControl(data);
+    if (normalized) {
+      return normalized;
+    }
+  } catch (err) {
+    console.warn(`[fullAutonomy] Failed to load control state from ${key}:`, err);
+  }
+
+  const pausedEnv =
+    normalizeBoolean(process.env.AUTONOMY_PAUSED) ?? normalizeBoolean(process.env.AUTONOMY_DISABLED);
+  if (pausedEnv === undefined) {
+    return null;
+  }
+
+  return {
+    paused: pausedEnv,
+    reason:
+      typeof process.env.AUTONOMY_PAUSE_REASON === 'string'
+        ? process.env.AUTONOMY_PAUSE_REASON.trim() || undefined
+        : undefined,
+    pausedAt: coerceIsoDate(process.env.AUTONOMY_PAUSED_AT) ?? null,
+    resumeAt: coerceIsoDate(process.env.AUTONOMY_RESUME_AT),
+    updatedAt: new Date().toISOString(),
+    requestedBy:
+      typeof process.env.AUTONOMY_REQUESTED_BY === 'string'
+        ? process.env.AUTONOMY_REQUESTED_BY.trim() || undefined
+        : undefined,
+  } satisfies AutonomyControl;
+}
+
+export async function saveAutonomyControl(
+  control: AutonomyControl,
+  options: ControlOptions = {},
+): Promise<void> {
+  const normalized = normalizeControl(control) ?? {
+    paused: false,
+    updatedAt: new Date().toISOString(),
+  };
+  await putConfig(options.key ?? CONTROL_KV_KEY, normalized, { contentType: 'application/json' });
+}
+
+export function isAutonomyPaused(control: AutonomyControl | null | undefined): boolean {
+  return !!(control && control.paused);
+}
 
 const CHECK_STATE_ALIASES: Record<string, AutonomyCheckState> = {
   ok: 'ok',
@@ -418,10 +516,26 @@ interface CliOptions {
   timestamp?: string;
   nextRun?: string;
   checks: CheckInput[];
+  orchestrate: boolean;
+  runChecks: string[];
+  controlKey?: string;
+  pause?: boolean;
+  resume?: boolean;
+  reason?: string;
+  resumeAt?: string;
+  requestedBy?: string;
+  allowWhenPaused?: boolean;
+  statusKey?: string;
 }
 
 function parseCliArgs(argv: string[]): CliOptions {
-  const options: CliOptions = { inputPaths: [], fromEnv: false, checks: [] };
+  const options: CliOptions = {
+    inputPaths: [],
+    fromEnv: false,
+    checks: [],
+    orchestrate: false,
+    runChecks: [],
+  };
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -473,6 +587,74 @@ function parseCliArgs(argv: string[]): CliOptions {
       options.checks.push(arg.slice('--check='.length));
       continue;
     }
+    if (arg === '--run-check') {
+      const value = argv[index + 1];
+      if (value) {
+        options.runChecks.push(value);
+        index += 1;
+      }
+      continue;
+    }
+    if (arg.startsWith('--run-check=')) {
+      options.runChecks.push(arg.slice('--run-check='.length));
+      continue;
+    }
+    if (arg === '--orchestrate' || arg === '--run') {
+      options.orchestrate = true;
+      continue;
+    }
+    if (arg === '--control-key') {
+      const value = argv[index + 1];
+      if (value) {
+        options.controlKey = value;
+        index += 1;
+      }
+      continue;
+    }
+    if (arg === '--status-key') {
+      const value = argv[index + 1];
+      if (value) {
+        options.statusKey = value;
+        index += 1;
+      }
+      continue;
+    }
+    if (arg === '--pause') {
+      options.pause = true;
+      continue;
+    }
+    if (arg === '--resume') {
+      options.resume = true;
+      continue;
+    }
+    if (arg === '--reason') {
+      const value = argv[index + 1];
+      if (value) {
+        options.reason = value;
+        index += 1;
+      }
+      continue;
+    }
+    if (arg === '--resume-at') {
+      const value = argv[index + 1];
+      if (value) {
+        options.resumeAt = value;
+        index += 1;
+      }
+      continue;
+    }
+    if (arg === '--requested-by') {
+      const value = argv[index + 1];
+      if (value) {
+        options.requestedBy = value;
+        index += 1;
+      }
+      continue;
+    }
+    if (arg === '--allow-when-paused' || arg === '--force') {
+      options.allowWhenPaused = true;
+      continue;
+    }
   }
 
   return options;
@@ -515,11 +697,462 @@ async function gatherStatusParts(options: CliOptions): Promise<PartialAutonomySt
   return parts;
 }
 
+interface TaskContext {
+  env: NodeJS.ProcessEnv;
+  control: AutonomyControl | null;
+  startedAt: Date;
+}
+
+type TaskRunner = (context: TaskContext) => Promise<AutonomyCheckResult>;
+
+function isoNow(): string {
+  return new Date().toISOString();
+}
+
+function lookupLabel(key: string): string {
+  const meta = CHECK_META.find((item) => item.key === key);
+  return meta?.label ?? toTitleCase(key);
+}
+
+function createResult(
+  key: DefaultCheckKey,
+  state: AutonomyCheckState,
+  detail?: string,
+  ranAt?: string,
+): AutonomyCheckResult {
+  return {
+    key,
+    label: lookupLabel(key),
+    state,
+    detail: detail && detail.trim().length ? detail.trim() : undefined,
+    ranAt: ranAt ?? isoNow(),
+  } satisfies AutonomyCheckResult;
+}
+
+function resolveWorkerUrl(env: NodeJS.ProcessEnv): string | null {
+  const candidate =
+    env.WORKER_URL || env.WORKER_BASE_URL || env.WORKER_ENDPOINT || env.MAGS_WORKER_URL || env.MAGGIE_WORKER_URL;
+  if (!candidate) return null;
+  const trimmed = candidate.trim();
+  if (!trimmed.length) return null;
+  return trimmed.replace(/\/$/, '');
+}
+
+async function fetchWorkerJson(
+  env: NodeJS.ProcessEnv,
+  pathName: string,
+  init: RequestInit = {},
+): Promise<any> {
+  const base = resolveWorkerUrl(env);
+  if (!base) {
+    throw new Error('WORKER_URL not configured');
+  }
+  const url = `${base}${pathName.startsWith('/') ? pathName : `/${pathName}`}`;
+  const headers = new Headers(init.headers ?? {});
+  const authToken =
+    env.WORKER_KEY || env.POST_THREAD_SECRET || env.MAGGIE_WORKER_KEY || env.CF_WORKER_KEY || env.AUTONOMY_WORKER_KEY;
+  if (authToken && !headers.has('authorization')) {
+    headers.set('authorization', `Bearer ${authToken}`);
+  }
+  if (!headers.has('content-type') && init.body) {
+    headers.set('content-type', 'application/json');
+  }
+  const response = await fetch(url, { ...init, headers });
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`HTTP ${response.status}${text ? ` ${text}` : ''}`);
+  }
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+async function runStripeCheck(context: TaskContext): Promise<AutonomyCheckResult> {
+  const key: DefaultCheckKey = 'stripe';
+  const secret =
+    context.env.STRIPE_SECRET_KEY || context.env.STRIPE_API_KEY || context.env.STRIPE_SECRET || context.env.STRIPE_TOKEN;
+  if (!secret) {
+    return createResult(key, 'warn', 'STRIPE_SECRET_KEY not configured');
+  }
+
+  try {
+    const { default: Stripe } = await import('stripe');
+    const stripe = new Stripe(secret, { apiVersion: '2023-10-16' });
+    const products = await stripe.products.list({ limit: 5 });
+    const prices = await stripe.prices.list({ limit: 5 });
+    const detail = `Fetched ${products.data.length} product(s), ${prices.data.length} price(s).`;
+    return createResult(key, 'ok', detail);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const lowered = message.toLowerCase();
+    const state: AutonomyCheckState = lowered.includes('secret') || lowered.includes('api key') ? 'fail' : 'warn';
+    return createResult(key, state, message);
+  }
+}
+
+async function runTallyCheck(context: TaskContext): Promise<AutonomyCheckResult> {
+  const key: DefaultCheckKey = 'tally';
+  const details: string[] = [];
+  let state: AutonomyCheckState | null = null;
+
+  const workerUrl = resolveWorkerUrl(context.env);
+  if (workerUrl) {
+    try {
+      const payload = await fetchWorkerJson(context.env, '/ops/recent-order');
+      if (payload?.ok && payload.summary) {
+        const createdAt = payload.summary.createdAt || payload.summary.created_at || payload.summary.created_at_iso;
+        const when = coerceIsoTimestamp(createdAt ?? null);
+        if (when) {
+          details.push(`Recent intake at ${when}`);
+        } else {
+          details.push('Recent intake summary available.');
+        }
+        state = 'ok';
+      } else {
+        details.push('No recent intake summary found.');
+        state = state ?? 'warn';
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      details.push(`Worker check failed: ${message}`);
+      state = state ?? 'warn';
+    }
+  }
+
+  if (!state || state === 'warn') {
+    const apiKey =
+      context.env.TALLY_API_KEY ||
+      context.env.TALLY_API_TOKEN ||
+      context.env.TALLY_SECRET_MAIN ||
+      context.env.TALLY_SIGNING_SECRET;
+    if (!apiKey) {
+      if (!state) state = 'warn';
+      details.push('TALLY_API_KEY not configured.');
+    } else {
+      try {
+        const response = await fetch('https://api.tally.so/api/v1/forms', {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        if (response.ok) {
+          const data = await response.json().catch(() => ({}));
+          const forms = Array.isArray(data?.data) ? data.data.length : undefined;
+          details.push(forms !== undefined ? `API reachable (${forms} form(s)).` : 'Tally API reachable.');
+          state = state === 'warn' ? 'warn' : 'ok';
+        } else if (response.status === 401 || response.status === 403) {
+          details.push('Tally API rejected credentials.');
+          state = 'fail';
+        } else {
+          details.push(`Tally API HTTP ${response.status}.`);
+          state = state ?? 'warn';
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        details.push(`Tally API error: ${message}`);
+        state = state ?? 'warn';
+      }
+    }
+  }
+
+  return createResult(key, state ?? 'warn', details.join(' '));
+}
+
+async function runSocialCheck(context: TaskContext): Promise<AutonomyCheckResult> {
+  const key: DefaultCheckKey = 'social';
+  const workerUrl = resolveWorkerUrl(context.env);
+  if (!workerUrl) {
+    return createResult(key, 'warn', 'WORKER_URL not configured.');
+  }
+
+  try {
+    const status = await fetchWorkerJson(context.env, '/admin/status');
+    if (!status || status.ok === false) {
+      return createResult(key, 'warn', 'Worker status endpoint returned no data.');
+    }
+    const segments: string[] = [];
+    if (typeof status.queueSize === 'number') {
+      segments.push(`Queue ${status.queueSize}`);
+    }
+    if (typeof status.trendsAgeMinutes === 'number') {
+      segments.push(`Trends ${status.trendsAgeMinutes}m old`);
+    }
+    if (typeof status.accountsCount === 'number') {
+      segments.push(`Accounts ${status.accountsCount}`);
+    }
+    const detail = segments.length ? segments.join(', ') : 'Worker status healthy.';
+    return createResult(key, 'ok', detail);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return createResult(key, 'warn', `Worker status check failed: ${message}`);
+  }
+}
+
+const CLEANUP_EXTENSIONS = new Set(['.tmp', '.log', '.zip', '.mp4', '.mov', '.mkv', '.mp3', '.json']);
+const CLEANUP_SKIP = new Set(['social-autopilot-queue.json']);
+
+async function cleanupDirectory(target: string, maxAgeMs: number): Promise<number> {
+  const entries = await fs
+    .readdir(target, { withFileTypes: true })
+    .catch(() => [] as Dirent[]);
+  const now = Date.now();
+  let removed = 0;
+
+  for (const entry of entries) {
+    const fullPath = path.join(target, entry.name);
+    if (CLEANUP_SKIP.has(entry.name)) {
+      continue;
+    }
+    try {
+      const stats = await fs.stat(fullPath);
+      const age = now - stats.mtimeMs;
+      if (entry.isDirectory()) {
+        removed += await cleanupDirectory(fullPath, maxAgeMs);
+        const leftover = await fs.readdir(fullPath).catch(() => []);
+        if (!leftover.length && age > maxAgeMs) {
+          await fs.rm(fullPath, { recursive: true, force: true });
+        }
+        continue;
+      }
+      const ext = path.extname(entry.name).toLowerCase();
+      const threshold = CLEANUP_EXTENSIONS.has(ext) ? Math.min(maxAgeMs, 12 * 60 * 60 * 1000) : maxAgeMs;
+      if (age > threshold) {
+        await fs.rm(fullPath, { force: true });
+        removed += 1;
+      }
+    } catch (err) {
+      console.warn('[fullAutonomy] Unable to cleanup', fullPath, err);
+    }
+  }
+
+  return removed;
+}
+
+async function runFileCleanup(context: TaskContext): Promise<AutonomyCheckResult> {
+  const key: DefaultCheckKey = 'fileCleanup';
+  const ttlMs = Number(context.env.AUTONOMY_FILE_TTL_MS ?? 48 * 60 * 60 * 1000);
+  const root = path.join(process.cwd(), 'work');
+
+  try {
+    const removed = await cleanupDirectory(root, ttlMs);
+    const detail = removed ? `Removed ${removed} stale file(s).` : 'No stale files detected.';
+    return createResult(key, 'ok', detail);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return createResult(key, 'warn', `Cleanup failed: ${message}`);
+  }
+}
+
+async function runMarketingCheck(context: TaskContext): Promise<AutonomyCheckResult> {
+  const key: DefaultCheckKey = 'marketing';
+  const token = context.env.NOTION_API_KEY || context.env.NOTION_TOKEN || context.env.NOTION_SECRET;
+  const pageId =
+    context.env.NOTION_DONOR_PAGE_ID ||
+    context.env.NOTION_PAGE_ID ||
+    context.env.NOTION_DONOR_PAGE ||
+    context.env.NOTION_DONOR_DATABASE_ID;
+
+  if (!token || !pageId) {
+    return createResult(key, 'warn', 'Notion credentials not configured.');
+  }
+
+  const notionVersion = context.env.NOTION_VERSION || '2022-06-28';
+  const trimmedId = pageId.trim();
+  try {
+    const res = await fetch(`https://api.notion.com/v1/pages/${trimmedId}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Notion-Version': notionVersion,
+      },
+    });
+    if (!res.ok) {
+      const detail = `Notion HTTP ${res.status}`;
+      const state: AutonomyCheckState = res.status === 404 ? 'fail' : 'warn';
+      return createResult(key, state, detail);
+    }
+    const payload = await res.json().catch(() => ({}));
+    const edited = payload?.last_edited_time ? new Date(payload.last_edited_time) : null;
+    if (!edited || Number.isNaN(edited.getTime())) {
+      return createResult(key, 'warn', 'Notion page lacks last_edited_time.');
+    }
+    const ageHours = Math.round((Date.now() - edited.getTime()) / (1000 * 60 * 60));
+    const detail = `Updated ${edited.toISOString().slice(0, 16)}Z (${ageHours}h ago).`;
+    const state: AutonomyCheckState = ageHours <= 72 ? 'ok' : 'warn';
+    return createResult(key, state, detail);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return createResult(key, 'warn', `Notion error: ${message}`);
+  }
+}
+
+const CHECK_RUNNERS: Record<DefaultCheckKey, TaskRunner> = {
+  stripe: runStripeCheck,
+  tally: runTallyCheck,
+  social: runSocialCheck,
+  fileCleanup: runFileCleanup,
+  marketing: runMarketingCheck,
+};
+
+interface OrchestrateOptions {
+  controlKey?: string;
+  statusKey?: string;
+  runChecks?: string[];
+  allowWhenPaused?: boolean;
+  checkOverrides?: CheckInput[];
+  task?: string;
+  timestamp?: string;
+  nextRun?: string;
+}
+
+async function orchestrateAutonomy(options: OrchestrateOptions): Promise<AutonomyStatus> {
+  const env = process.env;
+  const control = await loadAutonomyControl(options.controlKey ?? CONTROL_KV_KEY);
+  const paused = isAutonomyPaused(control) && !options.allowWhenPaused;
+  const startedAt = new Date();
+
+  const requestedKeys = options.runChecks && options.runChecks.length ? options.runChecks : CHECK_META.map((c) => c.key);
+  const normalizedKeys = Array.from(
+    new Set(
+      requestedKeys
+        .map((key) => resolveCheckKey(key))
+        .filter((key): key is DefaultCheckKey => !!key && CHECK_META.some((meta) => meta.key === key)),
+    ),
+  );
+
+  const results: CheckInput[] = [];
+
+  if (!paused) {
+    for (const key of normalizedKeys) {
+      const runner = CHECK_RUNNERS[key];
+      if (!runner) {
+        results.push({ key, state: 'pending', detail: 'No runner available.' });
+        continue;
+      }
+      try {
+        const result = await runner({ env, control, startedAt });
+        console.log(
+          `[fullAutonomy] ${result.label}: ${result.state}${result.detail ? ` — ${result.detail}` : ''}`,
+        );
+        results.push({
+          key: result.key,
+          label: result.label,
+          state: result.state,
+          detail: result.detail,
+          ranAt: result.ranAt,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`[fullAutonomy] ${lookupLabel(key)} failed:`, message);
+        results.push({ key, state: 'fail', detail: message, ranAt: isoNow() });
+      }
+    }
+  } else {
+    const pausedDetail = control?.reason ? `Paused: ${control.reason}` : 'Autonomy paused';
+    for (const key of normalizedKeys) {
+      results.push({
+        key,
+        label: lookupLabel(key),
+        state: 'pending',
+        detail: pausedDetail,
+        ranAt: control?.pausedAt ?? isoNow(),
+      });
+    }
+  }
+
+  const overrides = options.checkOverrides?.length ? options.checkOverrides : undefined;
+  const timestamp = coerceIsoTimestamp(options.timestamp ?? null) ?? isoNow();
+  const nextRun = coerceIsoTimestamp(options.nextRun ?? null)
+    ?? (paused ? control?.resumeAt ?? null : new Date(Date.now() + 30 * 60 * 1000).toISOString());
+
+  const baseStatus: PartialAutonomyStatus = {
+    timestamp,
+    currentTask: paused ? 'paused' : options.task ?? DEFAULT_TASK,
+    nextRun,
+    checks: results,
+  };
+
+  const merged = overrides ? coerceStatusInput([baseStatus, { checks: overrides }]) : coerceStatusInput([baseStatus]);
+  const status = await saveAutonomyStatus(merged, { key: options.statusKey ?? STATUS_KV_KEY });
+  console.log(
+    `[fullAutonomy] Autonomy ${paused ? 'heartbeat (paused)' : 'run'} complete. Summary: ${status.summary.text}`,
+  );
+  return status;
+}
+
+async function applyControlUpdate(options: CliOptions): Promise<AutonomyControl | null> {
+  if (!options.pause && !options.resume && !options.reason && !options.resumeAt && !options.requestedBy) {
+    return null;
+  }
+
+  const current = await loadAutonomyControl(options.controlKey ?? CONTROL_KV_KEY);
+  const nextPaused = options.pause ? true : options.resume ? false : current?.paused ?? false;
+  const timestamp = isoNow();
+  const next: AutonomyControl = {
+    paused: nextPaused,
+    reason: options.reason ?? current?.reason,
+    pausedAt: nextPaused ? (current?.pausedAt ?? timestamp) : null,
+    resumeAt: coerceIsoTimestamp(options.resumeAt ?? null) ?? (nextPaused ? current?.resumeAt ?? null : null),
+    updatedAt: timestamp,
+    requestedBy: options.requestedBy ?? current?.requestedBy,
+  };
+
+  await saveAutonomyControl(next, { key: options.controlKey });
+  console.log(
+    `[fullAutonomy] Autonomy ${next.paused ? 'paused' : 'resumed'}${next.reason ? ` — ${next.reason}` : ''}.`,
+  );
+  return next;
+}
+
 async function main() {
   const options = parseCliArgs(process.argv.slice(2));
+  const control = await applyControlUpdate(options);
+
+  if (options.orchestrate) {
+    await orchestrateAutonomy({
+      controlKey: options.controlKey,
+      statusKey: options.statusKey,
+      runChecks: options.runChecks,
+      allowWhenPaused: options.allowWhenPaused,
+      checkOverrides: options.checks,
+      task: options.task,
+      timestamp: options.timestamp,
+      nextRun: options.nextRun ?? options.resumeAt,
+    });
+    return;
+  }
+
   const parts = await gatherStatusParts(options);
+
+  if (control) {
+    if (control.paused) {
+      const pauseDetail = control.reason ? `Paused: ${control.reason}` : 'Autonomy paused';
+      parts.push({
+        currentTask: 'paused',
+        timestamp: control.updatedAt,
+        nextRun: control.resumeAt ?? null,
+        checks: CHECK_META.map((meta) => ({
+          key: meta.key,
+          state: 'pending',
+          detail: pauseDetail,
+          ranAt: control.pausedAt ?? control.updatedAt,
+        })),
+      });
+    } else {
+      parts.push({
+        currentTask: options.task ?? DEFAULT_TASK,
+        timestamp: control.updatedAt,
+        nextRun: options.nextRun ?? null,
+      });
+    }
+  }
+
   const merged = parts.length ? coerceStatusInput(parts) : {};
-  const status = await saveAutonomyStatus(merged);
+  const status = await saveAutonomyStatus(merged, { key: options.statusKey ?? STATUS_KV_KEY });
   console.log(
     `[fullAutonomy] Saved status for task "${status.currentTask}" at ${status.timestamp}. Summary: ${status.summary.text}`,
   );

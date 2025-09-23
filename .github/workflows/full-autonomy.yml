@@ -14,6 +14,14 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CF_KV_POSTQ_NAMESPACE_ID: ${{ secrets.CF_KV_POSTQ_NAMESPACE_ID }}
+      WORKER_URL: ${{ secrets.WORKER_URL }}
+      WORKER_BASE_URL: ${{ secrets.WORKER_URL }}
+      WORKER_KEY: ${{ secrets.WORKER_KEY }}
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      TALLY_API_KEY: ${{ secrets.TALLY_API_KEY }}
+      NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
+      NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+      NOTION_DONOR_PAGE_ID: ${{ secrets.NOTION_DONOR_PAGE_ID }}
       AUTONOMY_TASK: full-autonomy
       AUTONOMY_CHECKS: stripe=pending,tally=pending,social=pending,fileCleanup=pending,marketing=pending
     steps:
@@ -39,9 +47,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run full autonomy loop
-        run: |
-          echo "Running Maggie full autonomy loop..."
-          # TODO: Insert actual automation commands here.
+        run: pnpm tsx scripts/fullAutonomy.ts --orchestrate
 
       - name: Stamp run metadata
         if: always()
@@ -57,7 +63,11 @@ jobs:
               fh.write(f"AUTONOMY_NEXT_RUN={(now + timedelta(minutes=30)).isoformat().replace('+00:00','Z')}\n")
           PY
 
-      - name: Publish heartbeat status
-        if: always()
-        run: pnpm tsx scripts/fullAutonomy.ts --from-env
+      - name: Publish failure heartbeat
+        if: failure()
+        run: |
+          {
+            echo "AUTONOMY_CHECKS=stripe=fail:workflow-error,tally=fail:workflow-error,social=fail:workflow-error,fileCleanup=fail:workflow-error,marketing=fail:workflow-error"
+          } >> "$GITHUB_ENV"
+          pnpm tsx scripts/fullAutonomy.ts --from-env
 
