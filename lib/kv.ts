@@ -178,6 +178,29 @@ export async function putConfig(
   return { ok: true } as const;
 }
 
+export async function deleteConfigKey(key: string, options: ResolveOptions = {}) {
+  const { accountId, apiToken, namespaceId } = await resolveCredentials(options);
+  const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/storage/kv/namespaces/${namespaceId}/values/${encodeURIComponent(
+    key,
+  )}`;
+
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${apiToken}`,
+    },
+  });
+
+  if (!res.ok && res.status !== 404) {
+    const text = await res.text().catch(() => '');
+    throw new Error(
+      `Failed to delete config for ${key}: ${res.status}${text ? ` ${text}` : ''}`,
+    );
+  }
+
+  return { ok: true } as const;
+}
+
 export interface GetConfigOptions extends ResolveOptions {
   type?: 'text' | 'json';
 }
