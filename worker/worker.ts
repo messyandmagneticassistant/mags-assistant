@@ -3,6 +3,7 @@ import { handleHealth } from './health';
 import { handleDiagConfig } from './diag';
 import type { Env } from './lib/env';
 import { syncThreadStateFromGitHub } from './lib/threadStateSync';
+import { serveStaticSite } from './lib/site';
 type Ctx = { env: Env; request: Request; ctx: ExecutionContext };
 
 // ---------------- CORS helpers ----------------
@@ -76,6 +77,11 @@ export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
     try {
+      const siteResponse = await serveStaticSite(req, env);
+      if (siteResponse) {
+        return siteResponse;
+      }
+
       if (url.pathname === '/' || url.pathname === '/health') {
         return await handleHealth(env);
       }
