@@ -1,0 +1,46 @@
+name: Social Loop
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: '0 */2 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_KV_POSTQ_NAMESPACE_ID: ${{ secrets.CF_KV_POSTQ_NAMESPACE_ID }}
+      WORKER_URL: ${{ secrets.WORKER_URL }}
+      WORKER_BASE_URL: ${{ secrets.WORKER_URL }}
+      BROWSERLESS_BASE_URL: ${{ secrets.BROWSERLESS_BASE_URL }}
+      BROWSERLESS_API_KEY: ${{ secrets.BROWSERLESS_API_KEY }}
+      TIKTOK_PROFILE_MAIN: ${{ secrets.TIKTOK_PROFILE_MAIN }}
+      TIKTOK_PROFILE_MAGGIE: ${{ secrets.TIKTOK_PROFILE_MAGGIE }}
+      TIKTOK_PROFILE_WILLOW: ${{ secrets.TIKTOK_PROFILE_WILLOW }}
+      TIKTOK_PROFILE_MARS: ${{ secrets.TIKTOK_PROFILE_MARS }}
+      TIKTOK_SESSION_MAIN: ${{ secrets.TIKTOK_SESSION_MAIN }}
+      TIKTOK_SESSION_MAGGIE: ${{ secrets.TIKTOK_SESSION_MAGGIE }}
+      TIKTOK_SESSION_WILLOW: ${{ secrets.TIKTOK_SESSION_WILLOW }}
+      TIKTOK_SESSION_MARS: ${{ secrets.TIKTOK_SESSION_MARS }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Maggie social loop
+        run: npx tsx scripts/runMaggie.ts

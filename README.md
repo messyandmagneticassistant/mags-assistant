@@ -16,6 +16,17 @@ Use the private Telegram bot to run Maggie without opening GitHub:
 - `/start-sync` seeds Cloudflare KV with the latest brain payload, verifies `/diag/config`, and logs the run to Google Sheets.
 - `/maggie-status` reports the most recent brain sync, worker `/health`, recent task log entries, and any errors from the past 24 hours.
 - `/maggie-help` lists all supported chat commands.
+- `/status` checks Worker health, Browserless credentials, and TikTok session coverage from Telegram.
+- `/publish-site` deploys everything in `site/` directly to the Cloudflare Worker routes for `messyandmagnetic.com` and `assistant.messyandmagnetic.com`.
+- `/self-heal` restarts Browserless/Puppeteer flows and verifies TikTok sessions, reporting the results back to chat.
+
+Run `npx tsx scripts/runTelegram.ts` on a box with secrets loaded to keep the Telegram bridge online.
+
+## Automation loops
+
+- `scripts/publishSite.ts` publishes static HTML/CSS/JS from `site/` into Cloudflare KV and logs each deploy to Telegram.
+- `scripts/selfHeal.ts` retries Browserless, Puppeteer, and TikTok session health checks, sending a consolidated report.
+- `scripts/runMaggie.ts` orchestrates the social loop (TikTok boosters + Browserless warmup) and posts a summary to Telegram. GitHub Action **Social Loop** (`.github/workflows/social-loop.yml`) runs every two hours and on manual dispatch to execute this script.
 
 ### Pellet Cleaner
 Run `pnpm run clean:pellets` to nuke local node_modules and .pnpm-store, prune old packages, and reinstall fresh.

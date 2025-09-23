@@ -28,6 +28,14 @@ id = "1b8cbbc4a2f8426194368cb39baded79"
 pattern = "maggie.messyandmagnetic.com/*"
 zone_name = "messyandmagnetic.com"
 
+[[routes]]
+pattern = "assistant.messyandmagnetic.com/*"
+zone_name = "messyandmagnetic.com"
+
+[[routes]]
+pattern = "messyandmagnetic.com/*"
+zone_name = "messyandmagnetic.com"
+
 # === Cron triggers ===
 [triggers]
 crons = ["*/5 * * * *"]
