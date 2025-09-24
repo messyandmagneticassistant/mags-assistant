@@ -2,7 +2,7 @@ name: Full Autonomy
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -59,17 +59,115 @@ jobs:
       - name: Run Maggie orchestrator
         run: pnpm tsx scripts/fullAutonomy.ts
 
-      - name: Notify Telegram completion
+      - name: Evaluate run outcome
         if: always()
+        id: runlog
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+
+          const resolved = path.resolve(process.cwd(), 'run-output.json');
+          const summary = {
+            exists: false,
+            summary: '',
+            errors: 0,
+            warnings: 0,
+            critical: false,
+            muted: false,
+            quietStart: '',
+            nextRun: '',
+          };
+
+          try {
+            const raw = fs.readFileSync(resolved, 'utf8');
+            const log = JSON.parse(raw);
+            summary.exists = true;
+            if (log?.summary?.text) {
+              summary.summary = String(log.summary.text).replace(/\s+/g, ' ').slice(0, 400);
+            }
+            if (Array.isArray(log?.errors)) {
+              summary.errors = log.errors.length;
+            }
+            if (Array.isArray(log?.warnings)) {
+              summary.warnings = log.warnings.length;
+            }
+            summary.critical = !!log?.critical;
+            summary.muted = !!(log?.quiet && log.quiet.muted);
+            if (log?.quiet?.windowStart) {
+              summary.quietStart = String(log.quiet.windowStart);
+            }
+            if (log?.nextRun) {
+              summary.nextRun = String(log.nextRun);
+            }
+          } catch (err) {
+            console.warn('[workflow] No run-output.json found:', err instanceof Error ? err.message : err);
+          }
+
+          const shouldNotify = summary.exists ? (!summary.muted || summary.critical) : true;
+          const outputs = {
+            should_notify: String(shouldNotify),
+            critical: String(summary.critical),
+            muted: String(summary.muted),
+            summary: summary.summary.replace(/\r?\n/g, ' '),
+            errors: String(summary.errors),
+            quiet_start: summary.quietStart,
+            next_run: summary.nextRun,
+          };
+
+          const outPath = process.env.GITHUB_OUTPUT;
+          if (outPath) {
+            const lines = Object.entries(outputs)
+              .map(([key, value]) => `${key}=${value}`);
+            fs.appendFileSync(outPath, `${lines.join('\n')}\n`);
+          }
+
+          const envPath = process.env.GITHUB_ENV;
+          if (envPath) {
+            if (summary.nextRun) {
+              fs.appendFileSync(envPath, `RUNLOG_NEXT_RUN=${summary.nextRun}\n`);
+            }
+            if (summary.quietStart) {
+              fs.appendFileSync(envPath, `LAST_QUIET_START=${summary.quietStart}\n`);
+            }
+          }
+
+          console.log(
+            '[workflow] shouldNotify=%s critical=%s muted=%s errors=%s',
+            shouldNotify,
+            summary.critical,
+            summary.muted,
+            summary.errors,
+          );
+          NODE
+
+      - name: Notify Telegram completion
+        if: always() && steps.runlog.outputs.should_notify == 'true'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           if [ -n "${TELEGRAM_BOT_TOKEN}" ] && [ -n "${TELEGRAM_CHAT_ID}" ]; then
             DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            SUMMARY="${{ steps.runlog.outputs.summary }}"
+            ERRORS="${{ steps.runlog.outputs.errors }}"
+            CRITICAL="${{ steps.runlog.outputs.critical }}"
+            MESSAGE="Maggie run complete at ${DATE}"
+            if [ -n "$SUMMARY" ]; then
+              MESSAGE="${MESSAGE}
+Summary: ${SUMMARY}"
+            fi
+            if [ "$ERRORS" != "" ] && [ "$ERRORS" != "0" ]; then
+              MESSAGE="${MESSAGE}
+Errors logged: ${ERRORS}"
+            fi
+            if [ "$CRITICAL" = "true" ]; then
+              MESSAGE="${MESSAGE}
+Critical alerts present"
+            fi
             curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
               --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-              --data-urlencode "text=Maggie run complete at ${DATE}" \
+              --data-urlencode "text=${MESSAGE}" \
               > /dev/null
           else
             echo "Skipping Telegram notify – credentials missing"
@@ -84,9 +182,15 @@ jobs:
 
           path = os.environ['GITHUB_ENV']
           now = datetime.now(timezone.utc)
+          next_env = os.environ.get('RUNLOG_NEXT_RUN')
+          try:
+              next_target = datetime.fromisoformat(next_env.replace('Z', '+00:00')) if next_env else None
+          except Exception:
+              next_target = None
+          next_iso = (next_target or (now + timedelta(minutes=5))).isoformat().replace('+00:00','Z')
           with open(path, 'a', encoding='utf-8') as fh:
               fh.write(f"AUTONOMY_TIMESTAMP={now.isoformat().replace('+00:00','Z')}\n")
-              fh.write(f"AUTONOMY_NEXT_RUN={(now + timedelta(minutes=15)).isoformat().replace('+00:00','Z')}\n")
+              fh.write(f"AUTONOMY_NEXT_RUN={next_iso}\n")
           PY
 
       - name: Publish failure heartbeat

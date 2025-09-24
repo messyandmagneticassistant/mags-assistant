@@ -92,17 +92,58 @@ export default {
 
       if (url.pathname === '/status') {
         const state = await loadState(env);
-        const socialQueue = {
-          scheduled: state.scheduledPosts?.length || 0,
-          flopsRetry: state.flopRetries?.length || 0,
-          nextPost: state.scheduledPosts?.[0] || null,
+        const kv: KVNamespace | undefined =
+          (env as any).PostQ ?? (env as any).POSTQ ?? (env as any).BRAIN ?? undefined;
+        let latestRun: any = null;
+        if (kv && typeof (kv as KVNamespace).get === 'function') {
+          try {
+            latestRun = await kv.get('autonomy:last-run', 'json');
+          } catch (err) {
+            console.warn('[worker/status] Unable to load autonomy:last-run:', err);
+          }
+        }
+
+        const toNumber = (value: unknown): number | null => {
+          if (value === null || value === undefined) return null;
+          const num = Number(value);
+          return Number.isFinite(num) ? num : null;
         };
+
+        const queueFromRun = latestRun && typeof latestRun === 'object' ? latestRun.queue ?? null : null;
+        const scheduledFromRun = queueFromRun ? toNumber((queueFromRun as any).scheduled) : null;
+        const retriesFromRun = queueFromRun ? toNumber((queueFromRun as any).retries) : null;
+        const nextPostFromRun = queueFromRun && (queueFromRun as any).nextPost !== undefined
+          ? (queueFromRun as any).nextPost
+          : null;
+
+        const socialQueue = {
+          scheduled: scheduledFromRun ?? state.scheduledPosts?.length ?? 0,
+          flopsRetry: retriesFromRun ?? state.flopRetries?.length ?? 0,
+          nextPost: nextPostFromRun ?? state.scheduledPosts?.[0] ?? null,
+        };
+
+        const actions = Array.isArray(latestRun?.actions) ? latestRun.actions : [];
+        const errors = Array.isArray(latestRun?.errors) ? latestRun.errors : [];
+        const warnings = Array.isArray(latestRun?.warnings) ? latestRun.warnings : [];
+        const quiet = latestRun?.quiet && typeof latestRun.quiet === 'object' ? latestRun.quiet : null;
+        const lastRunTime = latestRun?.finishedAt || latestRun?.startedAt || state.lastCheck || null;
+        const nextRun = latestRun?.nextRun ?? null;
+        const summaryText = latestRun?.summary?.text ?? null;
+
         const status = {
           time: new Date().toISOString(),
           currentTasks: state.currentTasks || ['idle'],
           lastCheck: state.lastCheck || null,
           website: 'https://messyandmagnetic.com',
           socialQueue,
+          lastRun: lastRunTime,
+          nextRun,
+          actions,
+          errors,
+          warnings,
+          quiet,
+          critical: latestRun?.critical ?? false,
+          summary: summaryText,
         };
         return new Response(JSON.stringify(status, null, 2), {
           headers: { 'Content-Type': 'application/json' },

@@ -9,6 +9,8 @@ import { THREAD_STATE_KEY } from '../shared/maggieState';
 
 export const STATUS_KV_KEY = 'status:last';
 export const CONTROL_KV_KEY = 'autonomy:control';
+export const AUTONOMY_RUN_LOG_KEY = 'autonomy:run-log';
+export const AUTONOMY_LAST_RUN_KEY = 'autonomy:last-run';
 
 export interface AutonomyControl {
   paused: boolean;
@@ -84,6 +86,186 @@ const CHECK_ALIASES: Record<string, DefaultCheckKey> = {
 
 function formatIso(date: Date): string {
   return date.toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+const QUIET_TIMEZONE = 'America/Denver';
+const QUIET_START_HOUR = 22;
+const QUIET_END_HOUR = 7;
+
+interface ZonedDateParts {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+}
+
+function getZonedDateParts(date: Date, timeZone: string): { parts: ZonedDateParts; offsetMs: number } {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  const map = Object.fromEntries(
+    dtf
+      .formatToParts(date)
+      .filter((entry) => entry.type !== 'literal')
+      .map((entry) => [entry.type, entry.value]),
+  );
+  const year = Number(map.year);
+  const month = Number(map.month);
+  const day = Number(map.day);
+  const hour = Number(map.hour);
+  const minute = Number(map.minute);
+  const second = Number(map.second);
+  const utcGuess = Date.UTC(year, month - 1, day, hour, minute, second);
+  const offsetMs = utcGuess - date.getTime();
+  return {
+    parts: { year, month, day, hour, minute, second },
+    offsetMs,
+  };
+}
+
+function buildZonedDate(parts: ZonedDateParts, timeZone: string): Date {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  const initial = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second || 0);
+  const mapped = Object.fromEntries(
+    dtf
+      .formatToParts(new Date(initial))
+      .filter((entry) => entry.type !== 'literal')
+      .map((entry) => [entry.type, entry.value]),
+  );
+  const corrected = Date.UTC(
+    Number(mapped.year),
+    Number(mapped.month) - 1,
+    Number(mapped.day),
+    Number(mapped.hour),
+    Number(mapped.minute),
+    Number(mapped.second),
+  );
+  const offset = corrected - initial;
+  return new Date(initial - offset);
+}
+
+function computeQuietWindow(reference: Date): QuietWindowInfo {
+  const { parts } = getZonedDateParts(reference, QUIET_TIMEZONE);
+  const hour = parts.hour;
+  const muted = hour >= QUIET_START_HOUR || hour < QUIET_END_HOUR;
+  if (!muted) {
+    return { muted: false, timezone: QUIET_TIMEZONE };
+  }
+
+  const startParts: ZonedDateParts = { ...parts, hour: QUIET_START_HOUR, minute: 0, second: 0 };
+  const endParts: ZonedDateParts = { ...parts, hour: QUIET_END_HOUR, minute: 0, second: 0 };
+
+  if (hour < QUIET_END_HOUR) {
+    const priorAnchor = new Date(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second));
+    priorAnchor.setUTCDate(priorAnchor.getUTCDate() - 1);
+    const priorParts = getZonedDateParts(priorAnchor, QUIET_TIMEZONE).parts;
+    startParts.year = priorParts.year;
+    startParts.month = priorParts.month;
+    startParts.day = priorParts.day;
+  } else {
+    endParts.minute = 0;
+    endParts.second = 0;
+    const nextAnchor = new Date(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second));
+    nextAnchor.setUTCDate(nextAnchor.getUTCDate() + 1);
+    const nextParts = getZonedDateParts(nextAnchor, QUIET_TIMEZONE).parts;
+    endParts.year = nextParts.year;
+    endParts.month = nextParts.month;
+    endParts.day = nextParts.day;
+  }
+
+  const windowStart = buildZonedDate(startParts, QUIET_TIMEZONE).toISOString();
+  const windowEnd = buildZonedDate(endParts, QUIET_TIMEZONE).toISOString();
+
+  return {
+    muted: true,
+    timezone: QUIET_TIMEZONE,
+    windowStart,
+    windowEnd,
+    reason: 'quiet-hours',
+  };
+}
+
+const RUN_HISTORY_LIMIT = 300;
+
+async function loadRunHistory(): Promise<AutonomyRunLogEntry[]> {
+  try {
+    const raw = await getConfigValue<AutonomyRunLogEntry[]>(AUTONOMY_RUN_LOG_KEY, { type: 'json' });
+    if (Array.isArray(raw)) {
+      return raw.filter((entry): entry is AutonomyRunLogEntry => !!entry && typeof entry === 'object');
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (!/Failed to fetch config/.test(message)) {
+      console.warn('[fullAutonomy] Unable to load run history:', err);
+    }
+  }
+  return [];
+}
+
+async function saveRunHistory(entries: AutonomyRunLogEntry[]): Promise<void> {
+  try {
+    await putConfig(AUTONOMY_RUN_LOG_KEY, entries, { contentType: 'application/json' });
+  } catch (err) {
+    console.warn('[fullAutonomy] Unable to save run history:', err);
+  }
+}
+
+async function appendRunHistory(entry: AutonomyRunLogEntry): Promise<void> {
+  const existing = await loadRunHistory();
+  const combined = [entry, ...existing];
+  const seen = new Set<string>();
+  const normalized: AutonomyRunLogEntry[] = [];
+  for (const item of combined) {
+    if (!item || typeof item !== 'object') continue;
+    const id = item.id || item.finishedAt || item.startedAt;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    normalized.push(item);
+    if (normalized.length >= RUN_HISTORY_LIMIT) break;
+  }
+  await saveRunHistory(normalized);
+}
+
+async function recordLatestRun(entry: AutonomyRunLogEntry): Promise<void> {
+  try {
+    await putConfig(AUTONOMY_LAST_RUN_KEY, entry, { contentType: 'application/json' });
+  } catch (err) {
+    console.warn('[fullAutonomy] Unable to store latest run snapshot:', err);
+  }
+}
+
+async function writeRunOutputFile(entry: AutonomyRunLogEntry): Promise<void> {
+  const resolved = path.resolve(process.cwd(), 'run-output.json');
+  try {
+    await fs.writeFile(resolved, JSON.stringify(entry, null, 2), 'utf8');
+    console.log(`[fullAutonomy] Run output saved to ${resolved}`);
+  } catch (err) {
+    console.warn('[fullAutonomy] Unable to write run-output.json:', err);
+  }
+}
+
+async function persistRunLog(entry: AutonomyRunLogEntry): Promise<void> {
+  await writeRunOutputFile(entry);
+  await recordLatestRun(entry);
+  await appendRunHistory(entry);
 }
 
 function normalizeTasksList(value: unknown): string[] {
@@ -380,6 +562,42 @@ export interface AutonomyStatus {
   nextRun: string | null;
   checks: AutonomyCheckResult[];
   summary: AutonomySummary;
+}
+
+export interface QuietWindowInfo {
+  muted: boolean;
+  timezone: string;
+  windowStart?: string;
+  windowEnd?: string;
+  reason?: string;
+}
+
+export interface AutonomyRunLogEntry {
+  id: string;
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  statusTimestamp: string;
+  nextRun: string | null;
+  summary: AutonomySummary;
+  checks: AutonomyCheckResult[];
+  fallbackQueued: string[];
+  actions: string[];
+  warnings: string[];
+  errors: string[];
+  quiet: QuietWindowInfo;
+  muted: boolean;
+  critical: boolean;
+  criticalReasons: string[];
+  queue?: {
+    scheduled?: number | null;
+    retries?: number | null;
+    nextPost?: string | null;
+  };
+  workerStatus?: {
+    fetchedAt: string;
+    ok: boolean;
+  };
 }
 
 type CheckInput =
@@ -1324,7 +1542,9 @@ interface OrchestrateOptions {
   nextRun?: string;
 }
 
-async function orchestrateAutonomy(options: OrchestrateOptions): Promise<AutonomyStatus> {
+async function orchestrateAutonomy(
+  options: OrchestrateOptions,
+): Promise<{ status: AutonomyStatus; runLog: AutonomyRunLogEntry }> {
   const env = process.env;
   const control = await loadAutonomyControl(options.controlKey ?? CONTROL_KV_KEY);
   const paused = isAutonomyPaused(control) && !options.allowWhenPaused;
@@ -1350,12 +1570,20 @@ async function orchestrateAutonomy(options: OrchestrateOptions): Promise<Autonom
   });
 
   let workerStatus: any | null = null;
+  let workerFetchedAt: string | null = null;
 
   if (!paused) {
     for (const key of normalizedKeys) {
       const runner = CHECK_RUNNERS[key];
       if (!runner) {
-        results.push({ key, state: 'pending', detail: 'No runner available.' });
+        const fallback: AutonomyCheckResult = {
+          key,
+          label: lookupLabel(key),
+          state: 'pending',
+          detail: 'No runner available.',
+          ranAt: isoNow(),
+        };
+        results.push(fallback);
         continue;
       }
       try {
@@ -1373,25 +1601,34 @@ async function orchestrateAutonomy(options: OrchestrateOptions): Promise<Autonom
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.error(`[fullAutonomy] ${lookupLabel(key)} failed:`, message);
-        results.push({ key, state: 'fail', detail: message, ranAt: isoNow() });
+        const failure: AutonomyCheckResult = {
+          key,
+          label: lookupLabel(key),
+          state: 'fail',
+          detail: message,
+          ranAt: isoNow(),
+        };
+        results.push(failure);
       }
     }
 
     workerStatus = await fetchWorkerStatusSnapshot(env);
+    workerFetchedAt = isoNow();
   } else {
     const pausedDetail = control?.reason ? `Paused: ${control.reason}` : 'Autonomy paused';
     for (const key of normalizedKeys) {
-      results.push({
-        key,
-        label: lookupLabel(key),
-        state: 'pending',
-        detail: pausedDetail,
-        ranAt: control?.pausedAt ?? isoNow(),
-      });
+    const pausedResult: AutonomyCheckResult = {
+      key,
+      label: lookupLabel(key),
+      state: 'pending',
+      detail: pausedDetail,
+      ranAt: control?.pausedAt ?? isoNow(),
+    };
+      results.push(pausedResult);
     }
   }
 
-  await updateThreadStateActivity({
+  const activityResult = await updateThreadStateActivity({
     env,
     phase: paused ? 'paused' : 'complete',
     checks: normalizedKeys,
@@ -1402,8 +1639,10 @@ async function orchestrateAutonomy(options: OrchestrateOptions): Promise<Autonom
 
   const overrides = options.checkOverrides?.length ? options.checkOverrides : undefined;
   const timestamp = coerceIsoTimestamp(options.timestamp ?? null) ?? isoNow();
-  const nextRun = coerceIsoTimestamp(options.nextRun ?? null)
-    ?? (paused ? control?.resumeAt ?? null : new Date(Date.now() + 15 * 60 * 1000).toISOString());
+  const defaultNextRun = paused
+    ? control?.resumeAt ?? null
+    : new Date(Date.now() + 5 * 60 * 1000).toISOString();
+  const nextRun = coerceIsoTimestamp(options.nextRun ?? null) ?? defaultNextRun;
 
   const baseStatus: PartialAutonomyStatus = {
     timestamp,
@@ -1419,7 +1658,71 @@ async function orchestrateAutonomy(options: OrchestrateOptions): Promise<Autonom
   console.log(
     `[fullAutonomy] Autonomy ${paused ? 'heartbeat (paused)' : 'run'} complete. Summary: ${status.summary.text}`,
   );
-  return status;
+  const finishedAt = new Date();
+  const quiet = computeQuietWindow(startedAt);
+  const fallbackQueued = activityResult.fallbackQueued ?? [];
+  const errors = status.checks
+    .filter((check) => check.state === 'fail')
+    .map((check) => `${iconForState(check.state)} ${check.label}${check.detail ? ` — ${check.detail}` : ''}`);
+  const warnings = status.checks
+    .filter((check) => check.state === 'warn')
+    .map((check) => `${iconForState(check.state)} ${check.label}${check.detail ? ` — ${check.detail}` : ''}`);
+  const actions: string[] = [];
+  for (const queued of fallbackQueued) {
+    actions.push(`Queued fallback: ${queued}`);
+  }
+
+  const queueSnapshot =
+    workerStatus && typeof workerStatus === 'object' && workerStatus.socialQueue
+      ? {
+          scheduled: coerceCount(workerStatus.socialQueue.scheduled),
+          retries: coerceCount(workerStatus.socialQueue.flopsRetry),
+          nextPost:
+            typeof workerStatus.socialQueue.nextPost === 'string'
+              ? workerStatus.socialQueue.nextPost
+              : workerStatus.socialQueue.nextPost
+                ? String(workerStatus.socialQueue.nextPost)
+                : null,
+        }
+      : undefined;
+
+  const criticalKeys: DefaultCheckKey[] = ['stripe', 'tally', 'marketing'];
+  const criticalReasons: string[] = [];
+  for (const check of status.checks) {
+    const key = resolveCheckKey(check.key ?? '') as DefaultCheckKey | null;
+    if (key && criticalKeys.includes(key) && check.state === 'fail') {
+      criticalReasons.push(check.label);
+    }
+  }
+  if (!workerStatus) {
+    criticalReasons.push('Website');
+  }
+
+  const runLog: AutonomyRunLogEntry = {
+    id: formatIso(startedAt),
+    startedAt: startedAt.toISOString(),
+    finishedAt: finishedAt.toISOString(),
+    durationMs: Math.max(0, finishedAt.getTime() - startedAt.getTime()),
+    statusTimestamp: status.timestamp,
+    nextRun: status.nextRun,
+    summary: status.summary,
+    checks: status.checks,
+    fallbackQueued,
+    actions,
+    warnings,
+    errors,
+    quiet,
+    muted: quiet.muted,
+    critical: criticalReasons.length > 0,
+    criticalReasons,
+    queue: queueSnapshot,
+    workerStatus: {
+      fetchedAt: workerFetchedAt ?? finishedAt.toISOString(),
+      ok: !!workerStatus,
+    },
+  };
+
+  return { status, runLog };
 }
 
 async function applyControlUpdate(options: CliOptions): Promise<AutonomyControl | null> {
@@ -1470,7 +1773,7 @@ async function main() {
   }
 
   if (options.orchestrate) {
-    await orchestrateAutonomy({
+    const { runLog } = await orchestrateAutonomy({
       controlKey: options.controlKey,
       statusKey: options.statusKey,
       runChecks: options.runChecks,
@@ -1480,6 +1783,11 @@ async function main() {
       timestamp: options.timestamp,
       nextRun: options.nextRun ?? options.resumeAt,
     });
+    await persistRunLog(runLog);
+    const quietNote = runLog.quiet.muted ? `quiet:${runLog.quiet.windowStart ?? 'unknown'}` : 'active';
+    console.log(
+      `[fullAutonomy] Run stored (${quietNote}) — critical=${runLog.critical ? 'yes' : 'no'}, errors=${runLog.errors.length}`,
+    );
     return;
   }
 

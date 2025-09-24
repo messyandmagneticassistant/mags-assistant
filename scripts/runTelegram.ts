@@ -1,5 +1,6 @@
 import { publishSite } from './publishSite';
 import { selfHeal } from './selfHeal';
+import { buildDigest } from './digest';
 import { sendTelegramMessage } from './lib/telegramClient';
 
 const POLL_TIMEOUT_SEC = 30;
@@ -90,16 +91,115 @@ function describeTikTokSessions(): string {
   return `✅ ${sessions.length} TikTok session cookie(s) present`;
 }
 
+const STATUS_TZ = 'America/Denver';
+
+function resolveWorkerUrl(): string | null {
+  const url = process.env.WORKER_URL || process.env.WORKER_BASE_URL;
+  if (!url) return null;
+  return url.replace(/\/$/, '');
+}
+
+async function fetchAutonomyStatus(): Promise<any | null> {
+  const base = resolveWorkerUrl();
+  if (!base) return null;
+  try {
+    const res = await fetch(`${base}/status`);
+    if (!res.ok) return null;
+    return await res.json().catch(() => null);
+  } catch (err) {
+    console.error('[telegram] Failed to fetch worker /status:', err);
+    return null;
+  }
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function formatStatusTime(value: string | null | undefined): string {
+  if (!value) return 'unknown';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return escapeHtml(value);
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: STATUS_TZ,
+    hour12: false,
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  return `${formatter.format(date)} (${STATUS_TZ})`;
+}
+
+function formatPreview(entries: string[] | undefined): string | null {
+  if (!entries || !entries.length) return null;
+  const first = escapeHtml(entries[0]);
+  return entries.length > 1 ? `${first} (+${entries.length - 1})` : first;
+}
+
 async function handleStatus(chatId: string) {
-  const [worker, browserless, tikTok] = await Promise.all([
+  const [worker, browserless, tikTok, autonomy] = await Promise.all([
     fetchWorkerHealth(),
     Promise.resolve(describeBrowserless()),
     Promise.resolve(describeTikTokSessions()),
+    fetchAutonomyStatus(),
   ]);
 
-  const timestamp = new Date().toISOString();
-  const message = `🛰️ <b>Maggie Status</b>\n${worker}\n${browserless}\n${tikTok}\n⏱️ <i>${timestamp}</i>`;
-  await sendReply(chatId, message);
+  const lines: string[] = ['🛰️ <b>Maggie Status</b>'];
+
+  if (autonomy) {
+    lines.push(`• Last run: <code>${formatStatusTime(autonomy.lastRun)}</code>`);
+    lines.push(`• Next: <code>${formatStatusTime(autonomy.nextRun)}</code>`);
+    const queue = autonomy.socialQueue || {};
+    lines.push(
+      `• Queue: ${queue.scheduled ?? 0} scheduled / ${queue.flopsRetry ?? 0} retry${
+        queue.nextPost ? ` (next ${escapeHtml(String(queue.nextPost))})` : ''
+      }`,
+    );
+    if (typeof autonomy.summary === 'string') {
+      lines.push(`• Summary: ${escapeHtml(autonomy.summary)}`);
+    }
+    const errorsPreview = formatPreview(autonomy.errors);
+    if (errorsPreview) {
+      lines.push(`• Errors: ${errorsPreview}`);
+    } else {
+      const warnPreview = formatPreview(autonomy.warnings);
+      if (warnPreview) {
+        lines.push(`• Warnings: ${warnPreview}`);
+      }
+    }
+    if (Array.isArray(autonomy.actions) && autonomy.actions.length) {
+      lines.push(`• Actions: ${formatPreview(autonomy.actions)}`);
+    }
+    if (autonomy.quiet?.muted) {
+      lines.push('• Quiet hours: muted');
+    }
+    if (autonomy.critical) {
+      lines.push('• Critical: yes');
+    }
+  } else {
+    lines.push('• Autonomy status unavailable.');
+  }
+
+  lines.push(escapeHtml(worker));
+  lines.push(escapeHtml(browserless));
+  lines.push(escapeHtml(tikTok));
+  lines.push(`⏱️ <i>${escapeHtml(new Date().toISOString())}</i>`);
+
+  await sendReply(chatId, lines.join('\n'));
+}
+
+async function handleDigest(chatId: string, since?: string) {
+  try {
+    const result = await buildDigest(since ? { since } : {});
+    await sendReply(chatId, result.text);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await sendReply(chatId, `❌ <b>Digest failed</b>\n<code>${escapeHtml(message)}</code>`);
+  }
 }
 
 async function handlePublish(chatId: string) {
@@ -146,14 +246,19 @@ async function handleSelfHeal(chatId: string) {
 }
 
 async function handleCommand(chatId: string, text: string) {
-  const [raw] = text.trim().split(/\s+/);
-  if (!raw.startsWith('/')) return;
+  const tokens = text.trim().split(/\s+/);
+  const raw = tokens[0];
+  if (!raw?.startsWith('/')) return;
   const command = raw.toLowerCase().split('@')[0];
+  const args = tokens.slice(1);
   console.log('[telegram] Received command', command, 'from chat', chatId);
 
   switch (command) {
     case '/status':
       await handleStatus(chatId);
+      break;
+    case '/digest':
+      await handleDigest(chatId, args[0]);
       break;
     case '/publish-site':
       await handlePublish(chatId);
@@ -162,7 +267,7 @@ async function handleCommand(chatId: string, text: string) {
       await handleSelfHeal(chatId);
       break;
     default:
-      await sendReply(chatId, '🤖 Unknown command. Try /status, /publish-site, or /self-heal.');
+      await sendReply(chatId, '🤖 Unknown command. Try /status, /digest, /publish-site, or /self-heal.');
   }
 }
 
