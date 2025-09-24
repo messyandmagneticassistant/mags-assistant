@@ -4,8 +4,9 @@ import path from 'node:path';
 import process from 'node:process';
 
 import { getConfigValue, putConfig } from '../lib/kv';
-import type { MaggieState } from '../shared/maggieState';
+import type { AutonomyRunLogEntry, AutonomyRunIssue, MaggieState } from '../shared/maggieState';
 import { THREAD_STATE_KEY } from '../shared/maggieState';
+import { computeQuietWindow, isWithinQuietHours, QUIET_TIMEZONE } from './lib/timeUtils';
 
 export const STATUS_KV_KEY = 'status:last';
 export const CONTROL_KV_KEY = 'autonomy:control';
@@ -57,6 +58,7 @@ const FALLBACK_QUEUE_ITEMS: FallbackQueueItem[] = [
 ];
 
 const CHECK_META = [
+  { key: 'website', label: 'Website' },
   { key: 'stripe', label: 'Stripe' },
   { key: 'tally', label: 'Tally' },
   { key: 'social', label: 'Social' },
@@ -67,6 +69,9 @@ const CHECK_META = [
 type DefaultCheckKey = (typeof CHECK_META)[number]['key'];
 
 const CHECK_ALIASES: Record<string, DefaultCheckKey> = {
+  website: 'website',
+  site: 'website',
+  web: 'website',
   stripe: 'stripe',
   stripeaudit: 'stripe',
   tally: 'tally',
@@ -207,12 +212,100 @@ interface ThreadStateUpdateOptions {
   startedAt: Date;
   control?: AutonomyControl | null;
   workerStatus?: any;
+  status?: AutonomyStatus | null;
+}
+
+function cloneChecks(checks: AutonomyCheckResult[] | undefined): AutonomyCheckResult[] {
+  if (!Array.isArray(checks)) return [];
+  return checks.map((check) => ({ ...check }));
+}
+
+function mapIssues(
+  checks: AutonomyCheckResult[] | undefined,
+  match: AutonomyCheckState[],
+): AutonomyRunIssue[] {
+  if (!Array.isArray(checks) || !checks.length) return [];
+  return checks
+    .filter((check) => match.includes(check.state))
+    .map(
+      (check) =>
+        ({
+          key: check.key,
+          label: check.label,
+          detail: check.detail,
+          state: check.state,
+          critical: check.critical,
+        }) satisfies AutonomyRunIssue,
+    );
+}
+
+function createRunLogEntry(options: {
+  status: AutonomyStatus | null;
+  startedAt: Date;
+  finishedAt: Date;
+  fallbackQueued: string[];
+}): AutonomyRunLogEntry {
+  const checks = cloneChecks(options.status?.checks);
+  const summaryText = options.status?.summary?.text ?? 'No checks recorded.';
+  const ok = options.status?.summary?.ok ?? checks.every((check) => check.state !== 'fail');
+  const critical = checks.some((check) => check.critical);
+  const errors = mapIssues(checks, ['fail']);
+  const warnings = mapIssues(checks, ['warn']);
+  const quietWindow = computeQuietWindow(options.startedAt);
+
+  return {
+    startedAt: options.startedAt.toISOString(),
+    finishedAt: options.finishedAt.toISOString(),
+    durationMs: Math.max(0, options.finishedAt.getTime() - options.startedAt.getTime()),
+    summary: summaryText,
+    ok,
+    critical,
+    nextRun: options.status?.nextRun ?? null,
+    actions: [...options.fallbackQueued],
+    errors,
+    warnings,
+    checks,
+    quiet: {
+      start: quietWindow.start.toISOString(),
+      end: quietWindow.end.toISOString(),
+      inQuiet: isWithinQuietHours(options.startedAt),
+      timeZone: QUIET_TIMEZONE,
+    },
+  } satisfies AutonomyRunLogEntry;
+}
+
+async function writeRunOutput(status: AutonomyStatus, entry: AutonomyRunLogEntry): Promise<void> {
+  const outputPath = process.env.RUN_OUTPUT_PATH || 'run-output.json';
+  const payload = {
+    generatedAt: new Date().toISOString(),
+    statusTimestamp: status.timestamp,
+    startedAt: entry.startedAt,
+    finishedAt: entry.finishedAt,
+    durationMs: entry.durationMs ?? null,
+    summary: entry.summary,
+    ok: entry.ok ?? false,
+    critical: entry.critical ?? false,
+    nextRun: entry.nextRun ?? status.nextRun ?? null,
+    actions: entry.actions ?? [],
+    errors: entry.errors ?? [],
+    warnings: entry.warnings ?? [],
+    quiet: entry.quiet,
+    checks: status.checks ?? [],
+    status,
+  };
+
+  try {
+    await fs.writeFile(path.resolve(process.cwd(), outputPath), `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+  } catch (err) {
+    console.warn('[fullAutonomy] Unable to write run-output file:', err);
+  }
 }
 
 async function updateThreadStateActivity(
   options: ThreadStateUpdateOptions,
-): Promise<{ fallbackQueued: string[]; updated: boolean }> {
+): Promise<{ fallbackQueued: string[]; updated: boolean; logEntry?: AutonomyRunLogEntry }> {
   const fallbackQueued: string[] = [];
+  let logEntry: AutonomyRunLogEntry | undefined;
 
   try {
     const state = await loadThreadStateSnapshot();
@@ -311,12 +404,31 @@ async function updateThreadStateActivity(
       nextState.lastCheck = finishedIso;
       const autonomyMeta =
         (typeof state.autonomy === 'object' && state.autonomy !== null ? state.autonomy : {}) as Record<string, unknown>;
+      logEntry = createRunLogEntry({
+        status: options.status ?? null,
+        startedAt: options.startedAt,
+        finishedAt,
+        fallbackQueued,
+      });
+      const previousHistory = Array.isArray((autonomyMeta as any).history)
+        ? ((autonomyMeta as any).history as AutonomyRunLogEntry[])
+        : [];
+      const history = [logEntry, ...previousHistory].slice(0, 50);
       nextState.autonomy = {
         ...autonomyMeta,
         lastRunAt: finishedIso,
         lastStartedAt: options.startedAt.toISOString(),
         checks: options.checks,
         fallbackQueued,
+        lastNextRun: options.status?.nextRun ?? null,
+        lastSummary: logEntry.summary,
+        lastDurationMs: logEntry.durationMs,
+        lastCritical: logEntry.critical,
+        lastActions: logEntry.actions,
+        lastErrors: logEntry.errors,
+        lastWarnings: logEntry.warnings,
+        history,
+        lastQuietWindow: logEntry.quiet,
       };
       const previousScheduled = normalizeQueueList(state.scheduledPosts);
       const previousRetries = normalizeQueueList(state.flopRetries);
@@ -334,11 +446,12 @@ async function updateThreadStateActivity(
         ...autonomyMeta,
         pausedAt: options.control?.pausedAt ?? options.control?.updatedAt ?? new Date().toISOString(),
         pausedReason: options.control?.reason,
+        lastNextRun: options.status?.nextRun ?? null,
       };
     }
 
     if (!changed) {
-      return { fallbackQueued, updated: false };
+      return { fallbackQueued, updated: false, logEntry };
     }
 
     await putConfig(THREAD_STATE_KEY, nextState, { contentType: 'application/json' });
@@ -348,14 +461,31 @@ async function updateThreadStateActivity(
     if (fallbackQueued.length) {
       console.log(`[fullAutonomy] Injected fallback queue item(s): ${fallbackQueued.join(', ')}`);
     }
-    return { fallbackQueued, updated: true };
+    return { fallbackQueued, updated: true, logEntry };
   } catch (err) {
     console.warn('[fullAutonomy] Unable to update thread-state activity:', err);
-    return { fallbackQueued, updated: false };
+    return { fallbackQueued, updated: false, logEntry };
   }
 }
 
 export type AutonomyCheckState = 'ok' | 'fail' | 'warn' | 'pending';
+
+const CRITICAL_CHECKS = new Set<DefaultCheckKey>(['website', 'stripe', 'tally', 'marketing']);
+
+function shouldMarkCritical(
+  key: string,
+  state: AutonomyCheckState,
+  explicit?: boolean | null,
+): boolean {
+  if (typeof explicit === 'boolean') {
+    return explicit;
+  }
+  if (state !== 'fail') {
+    return false;
+  }
+  const resolved = resolveCheckKey(key) ?? (key as DefaultCheckKey | null);
+  return resolved ? CRITICAL_CHECKS.has(resolved as DefaultCheckKey) : false;
+}
 
 export interface AutonomyCheckResult {
   key: string;
@@ -363,6 +493,7 @@ export interface AutonomyCheckResult {
   state: AutonomyCheckState;
   detail?: string;
   ranAt: string | null;
+  critical?: boolean;
 }
 
 export interface AutonomySummary {
@@ -397,6 +528,7 @@ type CheckInput =
       message?: string;
       ranAt?: string;
       timestamp?: string;
+      critical?: boolean;
     };
 
 interface NormalizedCheckInput {
@@ -405,6 +537,7 @@ interface NormalizedCheckInput {
   state?: AutonomyCheckState;
   detail?: string;
   ranAt?: string | null;
+  critical?: boolean;
 }
 
 export type PartialAutonomyStatus = Partial<Omit<AutonomyStatus, 'summary' | 'checks'>> & {
@@ -584,6 +717,7 @@ function coerceCheckInput(entry: CheckInput): NormalizedCheckInput | null {
   if ('key' in entry && typeof entry.key === 'string') {
     const key = resolveCheckKey(entry.key) ?? resolveCheckKey(entry.label ?? entry.name ?? undefined);
     if (!key) return null;
+    const critical = normalizeBoolean((entry as any).critical);
     return {
       key,
       label: typeof entry.label === 'string' ? entry.label : undefined,
@@ -595,11 +729,13 @@ function coerceCheckInput(entry: CheckInput): NormalizedCheckInput | null {
             ? (entry as any).message
             : undefined,
       ranAt: coerceIsoTimestamp((entry as any).ranAt ?? (entry as any).timestamp ?? null),
+      critical: critical === undefined ? undefined : critical,
     };
   }
 
   const candidate = resolveCheckKey((entry as any).name ?? (entry as any).label);
   if (!candidate) return null;
+  const critical = normalizeBoolean((entry as any).critical);
   return {
     key: candidate,
     label: typeof (entry as any).label === 'string' ? (entry as any).label : undefined,
@@ -611,6 +747,7 @@ function coerceCheckInput(entry: CheckInput): NormalizedCheckInput | null {
           ? (entry as any).message
           : undefined,
     ranAt: coerceIsoTimestamp((entry as any).ranAt ?? (entry as any).timestamp ?? null),
+    critical: critical === undefined ? undefined : critical,
   };
 }
 
@@ -626,6 +763,7 @@ function mergeCheckInputs(parts: NormalizedCheckInput[][]): NormalizedCheckInput
         state: item.state ?? existing.state,
         detail: item.detail ?? existing.detail,
         ranAt: item.ranAt ?? existing.ranAt,
+        critical: item.critical ?? existing.critical,
       });
     }
   }
@@ -640,12 +778,14 @@ function ensureCheckOrder(checks: NormalizedCheckInput[], fallbackTimestamp: str
     const state = input.state ?? 'pending';
     const ranAt =
       input.ranAt ?? (state === 'pending' ? null : coerceIsoTimestamp(fallbackTimestamp));
+    const critical = shouldMarkCritical(key, state, input.critical);
     return {
       key,
       label,
       state,
       detail: input.detail,
       ranAt,
+      critical: critical ? true : undefined,
     } satisfies AutonomyCheckResult;
   });
 
@@ -663,6 +803,7 @@ function ensureCheckOrder(checks: NormalizedCheckInput[], fallbackTimestamp: str
         state: 'pending',
         detail: undefined,
         ranAt: null,
+        critical: undefined,
       });
     }
   }
@@ -1025,13 +1166,18 @@ function createResult(
   state: AutonomyCheckState,
   detail?: string,
   ranAt?: string,
+  critical?: boolean,
 ): AutonomyCheckResult {
+  const normalizedDetail = detail && detail.trim().length ? detail.trim() : undefined;
+  const ranTimestamp = ranAt ?? isoNow();
+  const isCritical = shouldMarkCritical(key, state, critical);
   return {
     key,
     label: lookupLabel(key),
     state,
-    detail: detail && detail.trim().length ? detail.trim() : undefined,
-    ranAt: ranAt ?? isoNow(),
+    detail: normalizedDetail,
+    ranAt: ranTimestamp,
+    critical: isCritical ? true : undefined,
   } satisfies AutonomyCheckResult;
 }
 
@@ -1083,6 +1229,42 @@ async function fetchWorkerStatusSnapshot(env: NodeJS.ProcessEnv): Promise<any | 
   } catch (err) {
     console.warn('[fullAutonomy] Unable to fetch worker /status snapshot:', err);
     return null;
+  }
+}
+
+async function runWebsiteCheck(context: TaskContext): Promise<AutonomyCheckResult> {
+  const key: DefaultCheckKey = 'website';
+  const candidate =
+    context.env.WEBSITE_URL ||
+    context.env.SITE_URL ||
+    context.env.WEBSITE_BASE_URL ||
+    context.env.WEBSITE ||
+    'https://messyandmagnetic.com';
+  const trimmed = typeof candidate === 'string' ? candidate.trim() : '';
+  if (!trimmed) {
+    return createResult(key, 'warn', 'WEBSITE_URL not configured.');
+  }
+  const target = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12_000);
+  try {
+    const response = await fetch(target, { method: 'GET', signal: controller.signal });
+    if (!response.ok) {
+      const critical = response.status >= 500;
+      return createResult(key, critical ? 'fail' : 'warn', `HTTP ${response.status}`, undefined, critical);
+    }
+    const server = response.headers.get('server');
+    const cache = response.headers.get('cache-control');
+    const detailParts = [`HTTP ${response.status}`];
+    if (server) detailParts.push(server);
+    if (cache) detailParts.push(cache.split(',')[0]);
+    return createResult(key, 'ok', detailParts.join(' • '));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return createResult(key, 'fail', message);
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -1306,6 +1488,7 @@ async function runMarketingCheck(context: TaskContext): Promise<AutonomyCheckRes
 }
 
 const CHECK_RUNNERS: Record<DefaultCheckKey, TaskRunner> = {
+  website: runWebsiteCheck,
   stripe: runStripeCheck,
   tally: runTallyCheck,
   social: runSocialCheck,
@@ -1369,11 +1552,18 @@ async function orchestrateAutonomy(options: OrchestrateOptions): Promise<Autonom
           state: result.state,
           detail: result.detail,
           ranAt: result.ranAt,
+          critical: result.critical,
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.error(`[fullAutonomy] ${lookupLabel(key)} failed:`, message);
-        results.push({ key, state: 'fail', detail: message, ranAt: isoNow() });
+        results.push({
+          key,
+          state: 'fail',
+          detail: message,
+          ranAt: isoNow(),
+          critical: shouldMarkCritical(key, 'fail'),
+        });
       }
     }
 
@@ -1391,19 +1581,10 @@ async function orchestrateAutonomy(options: OrchestrateOptions): Promise<Autonom
     }
   }
 
-  await updateThreadStateActivity({
-    env,
-    phase: paused ? 'paused' : 'complete',
-    checks: normalizedKeys,
-    startedAt,
-    control,
-    workerStatus,
-  });
-
   const overrides = options.checkOverrides?.length ? options.checkOverrides : undefined;
   const timestamp = coerceIsoTimestamp(options.timestamp ?? null) ?? isoNow();
   const nextRun = coerceIsoTimestamp(options.nextRun ?? null)
-    ?? (paused ? control?.resumeAt ?? null : new Date(Date.now() + 15 * 60 * 1000).toISOString());
+    ?? (paused ? control?.resumeAt ?? null : new Date(Date.now() + 5 * 60 * 1000).toISOString());
 
   const baseStatus: PartialAutonomyStatus = {
     timestamp,
@@ -1419,6 +1600,27 @@ async function orchestrateAutonomy(options: OrchestrateOptions): Promise<Autonom
   console.log(
     `[fullAutonomy] Autonomy ${paused ? 'heartbeat (paused)' : 'run'} complete. Summary: ${status.summary.text}`,
   );
+
+  const activity = await updateThreadStateActivity({
+    env,
+    phase: paused ? 'paused' : 'complete',
+    checks: normalizedKeys,
+    startedAt,
+    control,
+    workerStatus,
+    status,
+  });
+  const finishedAt = status.timestamp ? new Date(status.timestamp) : new Date();
+  const logEntry =
+    activity.logEntry ??
+    createRunLogEntry({
+      status,
+      startedAt,
+      finishedAt: Number.isNaN(finishedAt.getTime()) ? new Date() : finishedAt,
+      fallbackQueued: activity.fallbackQueued,
+    });
+  await writeRunOutput(status, logEntry);
+
   return status;
 }
 

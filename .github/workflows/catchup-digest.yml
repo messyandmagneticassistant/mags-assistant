@@ -1,0 +1,41 @@
+name: Catch-up Digest
+
+on:
+  schedule:
+    - cron: '5 13 * * *'
+  workflow_dispatch:
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      WORKER_URL: ${{ secrets.WORKER_URL }}
+      WORKER_BASE_URL: ${{ secrets.WORKER_URL }}
+      WORKER_KEY: ${{ secrets.WORKER_KEY }}
+      POST_THREAD_SECRET: ${{ secrets.WORKER_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup PNPM
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+          run_install: false
+
+      - name: Enable Corepack
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.12.0 --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Send catch-up digest
+        run: pnpm tsx scripts/digest.ts --since lastQuietStart

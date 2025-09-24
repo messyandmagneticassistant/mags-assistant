@@ -97,12 +97,29 @@ export default {
           flopsRetry: state.flopRetries?.length || 0,
           nextPost: state.scheduledPosts?.[0] || null,
         };
+        const autonomy = (typeof state.autonomy === 'object' && state.autonomy !== null
+          ? state.autonomy
+          : {}) as Record<string, any>;
+        const actions = Array.isArray(autonomy.lastActions) ? autonomy.lastActions : [];
+        const errors = Array.isArray(autonomy.lastErrors) ? autonomy.lastErrors : [];
+        const warnings = Array.isArray(autonomy.lastWarnings) ? autonomy.lastWarnings : [];
+        const history = Array.isArray(autonomy.history) ? autonomy.history.slice(0, 50) : [];
+        const nextRun = typeof autonomy.lastNextRun === 'string' ? autonomy.lastNextRun : null;
         const status = {
           time: new Date().toISOString(),
           currentTasks: state.currentTasks || ['idle'],
           lastCheck: state.lastCheck || null,
-          website: 'https://messyandmagnetic.com',
+          website: state.website || 'https://messyandmagnetic.com',
           socialQueue,
+          lastRun: autonomy.lastRunAt ?? null,
+          nextRun,
+          actions,
+          errors,
+          warnings,
+          autonomy: {
+            ...autonomy,
+            history,
+          },
         };
         return new Response(JSON.stringify(status, null, 2), {
           headers: { 'Content-Type': 'application/json' },
