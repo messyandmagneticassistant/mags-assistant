@@ -52,3 +52,14 @@ jobs:
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
         run: wrangler pages deploy ui
 
+      - name: Notify Telegram of deploy
+        if: always()
+        run: |
+          MSG="🌸 Website deployed: https://messyandmagnetic.com"
+          if [ "${{ job.status }}" != "success" ]; then
+            MSG="❌ Website deploy failed."
+          fi
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
+            --data-urlencode text="$MSG"
+

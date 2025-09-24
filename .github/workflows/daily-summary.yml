@@ -1,0 +1,39 @@
+name: Daily 5PM Maggie Summary
+
+on:
+  schedule:
+    - cron: "0 23 * * *"  # 23:00 UTC = 5:00 PM America/Denver most of the year
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  summary:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch Worker daily summary
+        id: pull
+        run: |
+          set -e
+          curl -sS "https://maggie.messyandmagnetic.com/summary" \
+            -H "Authorization: Bearer ${{ secrets.POST_THREAD_SECRET }}" \
+            -o summary.json
+          echo "text<<EOF" >> $GITHUB_OUTPUT
+          jq -r '
+            def n(x): if x==null then "0" else (x|tostring) end;
+            "📒 Maggie Daily Summary\n" +
+            "⏰ " + (.time // "unknown") + "\n" +
+            "🧩 Tasks: " + ((.currentTasks // ["idle"]) | join(", ")) + "\n" +
+            "🌐 Website: " + (.website // "https://messyandmagnetic.com") + "\n" +
+            "📅 Scheduled: " + n(.socialQueue.scheduled) + " | 🔁 Retries: " + n(.socialQueue.flopsRetry) + "\n" +
+            "➡️ Next Post: " + ((.socialQueue.nextPost // "none")|tostring) + "\n" +
+            (if .topTrends then "🔥 Top Trends: " + (.topTrends | map(.title) | join(", ")) else "" end)
+          ' summary.json >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Send Telegram
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
+            --data-urlencode text="${{ steps.pull.outputs.text }}"
