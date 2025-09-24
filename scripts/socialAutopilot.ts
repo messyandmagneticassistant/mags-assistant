@@ -10,6 +10,8 @@ import { getConfigValue, putConfig } from '../lib/kv';
 import { analyzeTrends } from '../insights';
 import { buildSchedule } from '../lib/social/tiktokScheduler';
 import { sendTelegramMessage } from './lib/telegramClient';
+import type { MaggieState, MaggieTrend } from '../shared/maggieState';
+import { THREAD_STATE_KEY } from '../shared/maggieState';
 
 // Puppeteer is optional at compile-time; we resolve at runtime to avoid bundling issues.
 type Browser = any;
@@ -61,6 +63,7 @@ interface AnalyticsSnapshot {
   averageViews?: number;
   fetchedAt: string;
   source: 'api' | 'scrape' | 'fallback';
+  topTrends?: (string | MaggieTrend)[];
 }
 
 interface TikTokSession {
@@ -88,6 +91,106 @@ const TELEGRAM_PREFIX = '📣 Social Autopilot';
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function formatDenverTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('en-US', {
+    timeZone: 'America/Denver',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function formatQueueLabel(item: QueueItem): string {
+  const label = item.driveName || item.caption || item.id;
+  if (!item.scheduledTime) return label;
+  return `${label} — ${formatDenverTime(item.scheduledTime)}`;
+}
+
+function normalizeTopTrendsFromAnalytics(analytics?: AnalyticsSnapshot): MaggieTrend[] | undefined {
+  if (!analytics) return undefined;
+  if (Array.isArray(analytics.topTrends)) {
+    const trends = analytics.topTrends
+      .map((entry) => {
+        if (!entry) return null;
+        if (typeof entry === 'string') {
+          return { title: entry } satisfies MaggieTrend;
+        }
+        if (typeof entry === 'object') {
+          const obj = entry as Record<string, unknown>;
+          const title = obj.title ?? obj.name ?? obj.caption ?? obj.id;
+          if (typeof title === 'string' && title.trim()) {
+            return { ...obj, title: title.trim() } as MaggieTrend;
+          }
+          if (typeof obj.url === 'string') {
+            return { ...obj, title: obj.url } as MaggieTrend;
+          }
+        }
+        return null;
+      })
+      .filter((value): value is MaggieTrend => Boolean(value));
+    if (trends.length) return trends;
+  }
+  if (Array.isArray(analytics.trendingHooks)) {
+    const hooks = analytics.trendingHooks
+      .filter((hook): hook is string => typeof hook === 'string')
+      .map((hook) => ({ title: hook } satisfies MaggieTrend));
+    if (hooks.length) return hooks;
+  }
+  return undefined;
+}
+
+const RESERVED_TASKS = new Set(['idle', 'social queue', 'flop retries']);
+
+function mergeTaskList(existing: unknown, hasPending: boolean, hasRetries: boolean): string[] {
+  const base = Array.isArray(existing)
+    ? existing.filter((task): task is string => typeof task === 'string' && !RESERVED_TASKS.has(task))
+    : [];
+  if (hasPending) base.push('social queue');
+  if (hasRetries) base.push('flop retries');
+  if (!hasPending && !hasRetries && base.length === 0) {
+    base.push('idle');
+  }
+  return Array.from(new Set(base));
+}
+
+async function syncThreadStateSnapshot(queue: QueueState, analytics?: AnalyticsSnapshot): Promise<void> {
+  try {
+    const currentState = (await getConfigValue<MaggieState>(THREAD_STATE_KEY, { type: 'json' }).catch(
+      () => ({}) as MaggieState,
+    )) as MaggieState;
+    const pending = queue.items
+      .filter((item) => item.status !== 'posted')
+      .sort((a, b) => new Date(a.scheduledTime).getTime() - new Date(b.scheduledTime).getTime());
+    const retries = queue.items
+      .filter((item) => item.status === 'retry')
+      .sort((a, b) => new Date(a.scheduledTime).getTime() - new Date(b.scheduledTime).getTime());
+
+    const scheduledPosts = pending.map(formatQueueLabel);
+    const flopRetries = retries.map(formatQueueLabel);
+    const currentTasks = mergeTaskList(currentState.currentTasks, scheduledPosts.length > 0, flopRetries.length > 0);
+    const trends = normalizeTopTrendsFromAnalytics(analytics);
+
+    const updated: MaggieState = {
+      ...currentState,
+      currentTasks,
+      lastCheck: queue.lastRunAt || currentState.lastCheck || nowIso(),
+      scheduledPosts,
+      flopRetries,
+    };
+
+    if (trends && trends.length) {
+      updated.topTrends = trends;
+    }
+
+    await putConfig(THREAD_STATE_KEY, updated, { contentType: 'application/json' });
+  } catch (err) {
+    console.warn('[social-autopilot] Failed to sync thread-state snapshot:', err);
+  }
 }
 function isQueueItem(value: unknown): value is QueueItem {
   if (!value || typeof value !== 'object') return false;
@@ -161,8 +264,10 @@ async function loadQueueState(): Promise<QueueState> {
   };
 }
 
-async function persistQueueState(queue: QueueState): Promise<void> {
-  queue.lastRunAt = nowIso();
+async function persistQueueState(queue: QueueState, analytics?: AnalyticsSnapshot): Promise<void> {
+  if (!queue.lastRunAt) {
+    queue.lastRunAt = nowIso();
+  }
   try {
     await putConfig(QUEUE_KEY, queue);
     console.log('[social-autopilot] Queue persisted to Cloudflare KV');
@@ -176,6 +281,8 @@ async function persistQueueState(queue: QueueState): Promise<void> {
   } catch (err) {
     console.warn('[social-autopilot] Failed to store local queue backup:', err);
   }
+
+  await syncThreadStateSnapshot(queue, analytics);
 }
 function normalizeTimeWindow(value: string | undefined): string | null {
   if (!value) return null;
@@ -854,6 +961,9 @@ async function collectAnalytics(
     if (hooks.length) {
       fallback.trendingHooks = hooks;
     }
+    if ((trends as any).topTrends?.length) {
+      fallback.topTrends = (trends as any).topTrends;
+    }
   }
   fallback.fetchedAt = nowIso();
   fallback.source = 'fallback';
@@ -949,6 +1059,8 @@ async function runAutopilot(): Promise<void> {
 
   const analytics = await collectAnalytics(queue, sessions);
   queue.lastAnalyticsSync = analytics.fetchedAt;
+  const runTimestamp = nowIso();
+  queue.lastRunAt = runTimestamp;
 
   let queueChanged = false;
   let telegramNeeded = false;
@@ -1015,7 +1127,9 @@ async function runAutopilot(): Promise<void> {
   pruneQueue(queue);
 
   if (queueChanged) {
-    await persistQueueState(queue);
+    await persistQueueState(queue, analytics);
+  } else {
+    await syncThreadStateSnapshot(queue, analytics);
   }
 
   const messages: string[] = [];

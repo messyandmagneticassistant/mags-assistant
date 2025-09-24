@@ -4,6 +4,7 @@ import { handleDiagConfig } from './diag';
 import type { Env } from './lib/env';
 import { syncThreadStateFromGitHub } from './lib/threadStateSync';
 import { serveStaticSite } from './lib/site';
+import { loadState } from './lib/state';
 type Ctx = { env: Env; request: Request; ctx: ExecutionContext };
 
 // ---------------- CORS helpers ----------------
@@ -87,6 +88,46 @@ export default {
       }
       if (url.pathname === '/diag/config') {
         return await handleDiagConfig(env);
+      }
+
+      if (url.pathname === '/status') {
+        const state = await loadState(env);
+        const socialQueue = {
+          scheduled: state.scheduledPosts?.length || 0,
+          flopsRetry: state.flopRetries?.length || 0,
+          nextPost: state.scheduledPosts?.[0] || null,
+        };
+        const status = {
+          time: new Date().toISOString(),
+          currentTasks: state.currentTasks || ['idle'],
+          lastCheck: state.lastCheck || null,
+          website: 'https://messyandmagnetic.com',
+          socialQueue,
+        };
+        return new Response(JSON.stringify(status, null, 2), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      if (url.pathname === '/summary') {
+        const state = await loadState(env);
+        const topTrends = Array.isArray((state as any).topTrends) ? (state as any).topTrends : [];
+        const socialQueue = {
+          scheduled: state.scheduledPosts?.length || 0,
+          flopsRetry: state.flopRetries?.length || 0,
+          nextPost: state.scheduledPosts?.[0] || null,
+        };
+        const summary = {
+          time: new Date().toISOString(),
+          currentTasks: state.currentTasks || ['idle'],
+          lastCheck: state.lastCheck || null,
+          website: 'https://messyandmagnetic.com',
+          socialQueue,
+          topTrends,
+        };
+        return new Response(JSON.stringify(summary, null, 2), {
+          headers: { 'Content-Type': 'application/json' },
+        });
       }
 
       if (url.pathname === "/init-blob") {
