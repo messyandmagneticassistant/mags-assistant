@@ -1,6 +1,11 @@
 import { Buffer } from 'buffer';
 import { ensureOrderWorkspace, ensureFolder, loadIconLibrary } from './common';
 import type { NormalizedIntake, IconBundleResult, IconAsset, FulfillmentWorkspace } from './types';
+import {
+  loadAdvancedEsotericConfig,
+  resolveCohortFromIntake,
+  getActiveSystems,
+} from './advanced-esoteric';
 
 interface IconRequest {
   slug: string;
@@ -87,6 +92,42 @@ function deriveIconRequests(intake: NormalizedIntake): IconRequest[] {
       tags: ['family', 'connection'],
       tone: 'bright',
     });
+  }
+
+  if (intake.expansions?.includes('advanced-esoteric')) {
+    const advanced = loadAdvancedEsotericConfig();
+    if (advanced) {
+      const cohort = resolveCohortFromIntake(intake);
+      const activeSystems = getActiveSystems(advanced, { cohort });
+      const activeIds = new Set(activeSystems.map((system) => system.id));
+      const iconMatches: Array<{ match: string; id: string }> = [
+        { match: 'enneagram', id: 'enneagram' },
+        { match: 'akashic', id: 'akashic' },
+        { match: 'chakra', id: 'chakras' },
+        { match: 'soul urge', id: 'soul-urge' },
+        { match: 'progressed', id: 'progressed' },
+        { match: 'sabian', id: 'sabian' },
+        { match: 'i ching', id: 'iching' },
+        { match: 'archetype', id: 'archetype' },
+      ];
+      const used = new Set<string>();
+      for (const icon of advanced.magicCodes.icons) {
+        const labelLower = icon.label.toLowerCase();
+        const mapping = iconMatches.find((entry) => labelLower.includes(entry.match));
+        if (!mapping) continue;
+        if (!activeIds.has(mapping.id)) continue;
+        const slug = `magic-code-${mapping.id}`;
+        if (used.has(slug)) continue;
+        used.add(slug);
+        requests.push({
+          slug,
+          label: `${icon.label} magic code`,
+          description: icon.meaning,
+          tags: ['magic', 'code', mapping.id],
+          tone: 'bright',
+        });
+      }
+    }
   }
 
   return requests;

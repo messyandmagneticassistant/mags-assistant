@@ -1,0 +1,135 @@
+{
+  "section": {
+    "title": "Advanced Soul Systems",
+    "introduction": "Blend eight additional esoteric modalities into the Full Soul Blueprint immediately after the Destiny Matrix + Gene Keys section. Let the prose feel like a single conversation rather than a checklist.",
+    "mediumshipStyle": "Anchor every insight in tactile, evidential cues—describe the body sensations, deja vu flashes, ancestral echoes, or environmental signs that show up when this soul leans into the teaching.",
+    "rhythmIntegration": "Loop each modality back to Maggie's rhythm language: aura color calibration, chakra pacing, household magnets, and daily pattern resets.",
+    "evidentialExamples": [
+      "left shoulder tingles when truth lands",
+      "palms warming when energy wants to be shared",
+      "sudden memory of salt air or old train stations",
+      "pull toward particular colors or textures"
+    ]
+  },
+  "systems": [
+    {
+      "id": "enneagram",
+      "label": "Enneagram",
+      "icon": "✴",
+      "narrative": "Identify their likely Enneagram type and wing through the emotional signatures already mapped in the charts. Speak to their inner driver, primary fear, and the spiral of evolution they are walking.",
+      "integration": "Link subtype instincts back to the client’s Human Design profile lines and Life Path Number, translating the trio into rhythm cues they can feel in their calendar.",
+      "mediumship": "Name embodied tells—breath cadence, posture shifts, or how their voice softens around certain topics—to confirm the type.",
+      "rhythmTieIn": "Offer one rhythm reminder that keeps the type regulated (rest days, outreach pacing, or magnet resets).",
+      "childTone": "Frame the type as a friendly role (helper, explorer, builder) and give one brave choice they can practice with a caregiver.",
+      "mandatoryMentions": ["enneagram"]
+    },
+    {
+      "id": "akashic",
+      "label": "Akashic Records",
+      "icon": "🌀",
+      "narrative": "Pull through one to three past-life echoes or archetypal scenes that repeat through their lineage. Highlight gifts and karmic loops that now want refinement.",
+      "integration": "Connect each memory to their present vocation or relationship lesson so it feels actionable.",
+      "mediumship": "Offer sensory breadcrumbs—temperature drops, phantom scents, flashes of clothing or architecture—that often accompany the memory.",
+      "rhythmTieIn": "Translate the lesson into a present-day rhythm shift (who they collaborate with, how they schedule recovery, or where they travel).",
+      "mandatoryMentions": ["akashic"],
+      "skipForChild": true
+    },
+    {
+      "id": "chakras",
+      "label": "Chakra Imbalances",
+      "icon": "🕉",
+      "narrative": "Scan all seven chakras for both strength and congestion. Describe how those imprints show up in their daily life and relationships.",
+      "integration": "Provide rhythm-supportive remedies—colors, somatic practices, affirmations, and musical or nature cues that restore flow.",
+      "mediumship": "Mention physical confirmations (buzzing ears, fluttering solar plexus, grounded feet) that alert them when a chakra shifts.",
+      "rhythmTieIn": "Map chakra balance back to their aura color and household cadence so adjustments feel doable.",
+      "childTone": "Use simple color imagery and playful actions for younger souls (dance break, humming, hugging a tree).",
+      "mandatoryMentions": ["chakra"]
+    },
+    {
+      "id": "soul-urge",
+      "label": "Soul Urge Evolution",
+      "icon": "💗",
+      "narrative": "Compare the Soul Urge Number from their birth name with the vibration of their current legal or chosen name. Note any upgrades in emotional expression or clarity of longing.",
+      "integration": "If a name change occurred, reflect how it sharpened their life path or clarified relationships and creative voice.",
+      "mediumship": "Point out signs that confirm the shift—favorite songs, recurring initials, or the sensation of a name resonating in the chest.",
+      "rhythmTieIn": "Recommend one vocal or written ritual that keeps the new Soul Urge humming inside their daily magnet routines.",
+      "childTone": "Explain the Soul Urge as the heart’s nickname and describe how speaking their name with confidence changes the room.",
+      "mandatoryMentions": ["soul urge"]
+    },
+    {
+      "id": "progressed",
+      "label": "Progressed Astrology",
+      "icon": "🌅",
+      "narrative": "Read the progressed Sun, Moon, and Ascendant to map the next two to three years. Name the tone of identity, emotional climate, and outward expression.",
+      "integration": "Offer gentle forecasts and preparation tips so they can organize projects, launches, or sabbaticals around the shifts.",
+      "mediumship": "Describe timing markers—seasonal breezes, dream motifs, or bodily cravings—that signal each progression kicking in.",
+      "rhythmTieIn": "Suggest adjustments to their rhythm trackers and magnet system that match the coming wave.",
+      "mandatoryMentions": ["progressed"]
+    },
+    {
+      "id": "sabian",
+      "label": "Sabian Symbols",
+      "icon": "📜",
+      "narrative": "Translate the poetic Sabian Symbols for their Sun and Ascendant degrees. Show how these mythic images mentor their soul mission and mediumship practice.",
+      "integration": "Tie the symbols back to daily rituals—breathwork, writing prompts, or teaching moments—that embody the image.",
+      "mediumship": "Note the visual or auditory cues (certain birds, bells, or landscapes) that tend to appear when the symbol is active.",
+      "rhythmTieIn": "Integrate the symbolism into their weekly share schedule or content cadence.",
+      "mandatoryMentions": ["sabian"]
+    },
+    {
+      "id": "iching",
+      "label": "I Ching Guidance",
+      "icon": "☯",
+      "narrative": "Pull a relevant hexagram that answers the client’s current life path question. Offer a concise message from Source that aids decision-making.",
+      "integration": "If applicable, link the hexagram to any Human Design gate activations present in their chart.",
+      "mediumship": "Mention tactile confirmations (coin clinks, wind shifts, repetitive numbers) that tell them the guidance is landing.",
+      "rhythmTieIn": "Advise one embodiment step or rhythm cue to honor the hexagram.",
+      "mandatoryMentions": ["i ching", "hexagram"],
+      "skipForChild": true
+    },
+    {
+      "id": "archetype",
+      "label": "Archetype Mapping",
+      "icon": "🗺",
+      "narrative": "Assign the Hero’s Journey or mythical archetypes that mirror their current role—The Healer, The Bridge, The Sage, etc.—and explain how they move through the quest.",
+      "integration": "Connect the archetype to their business offers, household leadership, and rhythm commitments.",
+      "mediumship": "Share story-world clues—favorite films, recurring symbols, or the way strangers describe them—that affirm the archetype.",
+      "rhythmTieIn": "Translate the archetype into a personalized daily or weekly rhythm pattern so they can live it with ease.",
+      "childTone": "Describe the archetype as the hero of their storybook and invite a simple ritual (cape, dance, mantra) that helps them step into it.",
+      "mandatoryMentions": ["archetype"]
+    }
+  ],
+  "summary": {
+    "calloutHeading": "Advanced Systems Integration",
+    "instructions": "Close the expansion with a callout box that braids all eight modalities together. Emphasize how the combined insight sharpens their rhythm path, mediumship training, and intuitive confidence."
+  },
+  "magicCodes": {
+    "title": "Magic Codes Key",
+    "intro": "Offer a quick legend so they can reference each symbol in the PDF. The tone should feel like a secret decoder for their soul.",
+    "icons": [
+      { "symbol": "✴", "label": "Enneagram", "meaning": "Core drive + wing compass" },
+      { "symbol": "🌀", "label": "Akashic Echo", "meaning": "Past-life clue or ancestral echo" },
+      { "symbol": "🕉", "label": "Chakra Current", "meaning": "Energy center focus + remedy" },
+      { "symbol": "💗", "label": "Soul Urge", "meaning": "Heart-longing expression" },
+      { "symbol": "🌅", "label": "Progressed Light", "meaning": "Next 2–3 year phase" },
+      { "symbol": "📜", "label": "Sabian Myth", "meaning": "Poetic mission image" },
+      { "symbol": "☯", "label": "I Ching Whisper", "meaning": "Hexagram guidance" },
+      { "symbol": "🗺", "label": "Archetype Trail", "meaning": "Quest role + rhythm" }
+    ]
+  },
+  "automation": {
+    "includeTiers": ["full"],
+    "childRules": {
+      "skipSystems": ["akashic", "iching"],
+      "tone": "Use gentle language, keep the focus on adventure and emotional safety, and swap heavy karmic language for playful metaphors."
+    },
+    "fallbacks": {
+      "missingBirth": "If precise birth details are missing, name which data point would deepen the reading and offer an intuitive bridge until it arrives."
+    }
+  },
+  "upgradeNote": "Let them know this suite is bundled inside the Full Soul Blueprint now, while hinting that each modality may become a standalone upgrade later if they want a deeper dive.",
+  "helperAgents": {
+    "iconSuggester": "Reader-agent can spin up custom icon concepts from the Magic Codes legend when requested.",
+    "summary": "Helper agents may also condense the advanced layer into recap cards for overwhelmed clients."
+  }
+}

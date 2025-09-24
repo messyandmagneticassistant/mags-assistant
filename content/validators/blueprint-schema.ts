@@ -5,7 +5,7 @@ interface ValidationResult {
   headings: string[];
 }
 
-const STANDARD_HEADINGS = [
+const BASE_HEADINGS = [
   'Who You Are at Your Core',
   'Your Soul’s Purpose + Mission',
   'Your Gifts and Rare Talents',
@@ -25,6 +25,20 @@ const STANDARD_HEADINGS = [
   'How to Know You’re On or Off Path',
   'Child-Friendly Version',
 ];
+
+const FULL_HEADINGS = [
+  ...BASE_HEADINGS.slice(0, 12),
+  'Destiny Matrix + Gene Keys',
+  'Advanced Soul Systems',
+  'Magic Codes Key',
+  ...BASE_HEADINGS.slice(12),
+];
+
+const HEADINGS_BY_TIER: Record<Exclude<BlueprintTier, 'realignment'>, string[]> = {
+  full: FULL_HEADINGS,
+  lite: BASE_HEADINGS,
+  mini: BASE_HEADINGS,
+};
 
 const REALIGN_REQUIRED = [
   'Why You’re Here',
@@ -75,8 +89,14 @@ export function validateBlueprint(
       if (!allowed.has(h)) throw new Error(`Unexpected heading: ${h}`);
     }
   } else {
-    for (let i = 0; i < STANDARD_HEADINGS.length; i++) {
-      const expected = STANDARD_HEADINGS[i];
+    const expectedHeadings = HEADINGS_BY_TIER[tier] || BASE_HEADINGS;
+    if (headings.length !== expectedHeadings.length) {
+      throw new Error(
+        `Heading count mismatch: expected ${expectedHeadings.length} got ${headings.length}`
+      );
+    }
+    for (let i = 0; i < expectedHeadings.length; i++) {
+      const expected = expectedHeadings[i];
       const actual = headings[i];
       if (actual !== expected) {
         throw new Error(`Heading mismatch at position ${i}: expected ${expected} got ${actual}`);

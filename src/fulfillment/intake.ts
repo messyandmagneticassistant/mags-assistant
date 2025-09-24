@@ -164,6 +164,11 @@ export async function normalizeFromStripe(
   if (session.customer_details?.address) prefs.address = session.customer_details.address;
 
   const customer = buildCustomerProfile(session);
+  const ageCohort = deriveAgeCohortFromData({
+    ...(session.metadata || {}),
+    ...prefs,
+  });
+  const expansions = tier === 'full' ? ['advanced-esoteric'] : [];
   const normalized: NormalizedIntake = {
     source: 'stripe',
     email,
@@ -174,6 +179,9 @@ export async function normalizeFromStripe(
     referenceId: session.id,
     raw: session,
   };
+
+  if (expansions.length) normalized.expansions = expansions;
+  if (ageCohort) normalized.ageCohort = ageCohort;
 
   const missing: string[] = [];
   if (!validateEmail(email)) missing.push('email');
@@ -219,6 +227,67 @@ function parseHousehold(data: Record<string, any>): string[] | undefined {
   return undefined;
 }
 
+function deriveAgeCohortFromData(
+  data: Record<string, any>
+): 'child' | 'teen' | 'adult' | 'elder' | undefined {
+  const stringFields = [
+    'cohort',
+    'client_cohort',
+    'age_group',
+    'agegroup',
+    'client_age_group',
+    'recipient_age_group',
+    'tier_cohort',
+    'age_range',
+    'recipient_age_range',
+  ];
+  for (const field of stringFields) {
+    const value = data[field];
+    if (typeof value === 'string') {
+      const lower = value.toLowerCase();
+      if (lower.includes('child') || lower.includes('kid')) return 'child';
+      if (lower.includes('teen') || lower.includes('youth')) return 'teen';
+      if (lower.includes('elder') || lower.includes('senior')) return 'elder';
+      if (lower.includes('adult')) return 'adult';
+    }
+  }
+
+  const boolFields = ['is_child', 'child_reading', 'for_child'];
+  for (const field of boolFields) {
+    const value = data[field];
+    if (value === true) return 'child';
+    if (typeof value === 'string') {
+      const lower = value.toLowerCase();
+      if (['true', 'yes', 'y', '1'].includes(lower)) return 'child';
+    }
+  }
+
+  const ageFields = ['age', 'client_age', 'recipient_age', 'child_age'];
+  for (const field of ageFields) {
+    const value = data[field];
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      if (value < 13) return 'child';
+      if (value < 18) return 'teen';
+      if (value >= 65) return 'elder';
+      return 'adult';
+    }
+    if (typeof value === 'string') {
+      const digits = value.match(/\d+/);
+      if (digits) {
+        const num = parseInt(digits[0], 10);
+        if (!Number.isNaN(num)) {
+          if (num < 13) return 'child';
+          if (num < 18) return 'teen';
+          if (num >= 65) return 'elder';
+          return 'adult';
+        }
+      }
+    }
+  }
+
+  return undefined;
+}
+
 export async function normalizeFromTally(
   payload: any,
   opts: { env?: any } = {}
@@ -257,6 +326,9 @@ export async function normalizeFromTally(
     prefs[key] = value;
   }
 
+  const ageCohort = deriveAgeCohortFromData(data);
+  const expansions = tier === 'full' ? ['advanced-esoteric'] : [];
+
   const normalized: NormalizedIntake = {
     source: 'tally',
     email,
@@ -268,6 +340,9 @@ export async function normalizeFromTally(
     schedulePreferences: schedulePrefs,
     raw: payload,
   };
+
+  if (expansions.length) normalized.expansions = expansions;
+  if (ageCohort) normalized.ageCohort = ageCohort;
 
   const missing: string[] = [];
   if (!validateEmail(email)) missing.push('email');
@@ -288,11 +363,20 @@ export async function normalizeFromTally(
 }
 
 export function mergeIntake(base: NormalizedIntake, update: Partial<NormalizedIntake>): NormalizedIntake {
-  return {
+  const addOns = Array.from(new Set([...(base.addOns || []), ...(update.addOns || [])])).filter(Boolean);
+  const expansions = Array.from(new Set([...(base.expansions || []), ...(update.expansions || [])])).filter(Boolean);
+  const merged: NormalizedIntake = {
     ...base,
     ...update,
-    addOns: Array.from(new Set([...(base.addOns || []), ...(update.addOns || [])])).filter(Boolean),
+    addOns,
     prefs: { ...base.prefs, ...(update.prefs || {}) },
     customer: mergeCustomer(base.customer || {}, update.customer || {}),
+    ageCohort: update.ageCohort || base.ageCohort,
   };
+  if (expansions.length) {
+    merged.expansions = expansions;
+  } else if ('expansions' in merged) {
+    delete (merged as Partial<NormalizedIntake>).expansions;
+  }
+  return merged;
 }

@@ -2,6 +2,17 @@ import { Buffer } from 'buffer';
 import type { docs_v1 } from 'googleapis';
 import { ensureOrderWorkspace, ensureFolder, summarizeStory, notifyOpsChannel } from './common';
 import type { NormalizedIntake, BlueprintResult, FulfillmentWorkspace, ModelAttempt } from './types';
+import {
+  loadAdvancedEsotericConfig,
+  resolveCohortFromIntake,
+  getActiveSystems,
+  describeSystemForPrompt,
+  summarizeMagicCodes,
+  findMissingSystems,
+  hasMagicCodesLegend,
+  buildMissingSystemsPrompt,
+  buildMagicCodesPrompt,
+} from './advanced-esoteric';
 import { runWithCodex } from '../../lib/codex';
 
 async function callCodex(prompt: string): Promise<string> {
@@ -60,6 +71,74 @@ async function callGemini(prompt: string): Promise<string> {
   return text;
 }
 
+async function ensureAdvancedCoverage(
+  story: string,
+  intake: NormalizedIntake,
+  attempts: ModelAttempt[]
+): Promise<string> {
+  if (intake.tier !== 'full') return story;
+  const config = loadAdvancedEsotericConfig();
+  if (!config) return story;
+  const cohort = resolveCohortFromIntake(intake);
+  const systems = getActiveSystems(config, { cohort });
+  if (!systems.length) return story;
+
+  let updatedStory = story;
+  const missing = findMissingSystems(updatedStory, systems);
+  if (missing.length) {
+    const prompt = buildMissingSystemsPrompt(missing, config, { cohort });
+    const startedAt = new Date();
+    try {
+      const supplement = await callGemini(prompt);
+      attempts.push({
+        provider: 'gemini',
+        ok: true,
+        startedAt: startedAt.toISOString(),
+        finishedAt: new Date().toISOString(),
+      });
+      const trimmed = supplement.trim();
+      if (trimmed) {
+        updatedStory = `${updatedStory.trim()}\n\n${trimmed}`;
+      }
+    } catch (err: any) {
+      attempts.push({
+        provider: 'gemini',
+        ok: false,
+        startedAt: startedAt.toISOString(),
+        finishedAt: new Date().toISOString(),
+        error: err?.message || String(err),
+      });
+    }
+  }
+
+  if (!hasMagicCodesLegend(updatedStory, config)) {
+    const startedAt = new Date();
+    try {
+      const legend = await callCodex(buildMagicCodesPrompt(config));
+      attempts.push({
+        provider: 'codex',
+        ok: true,
+        startedAt: startedAt.toISOString(),
+        finishedAt: new Date().toISOString(),
+      });
+      const trimmedLegend = legend.trim();
+      if (trimmedLegend) {
+        updatedStory = `${updatedStory.trim()}\n\n${trimmedLegend}`;
+      }
+    } catch (err: any) {
+      attempts.push({
+        provider: 'codex',
+        ok: false,
+        startedAt: startedAt.toISOString(),
+        finishedAt: new Date().toISOString(),
+        error: err?.message || String(err),
+      });
+    }
+  }
+
+  return updatedStory;
+}
+
 function buildPrompt(intake: NormalizedIntake): string {
   const focus = intake.prefs?.focus || intake.prefs?.intention || 'support their natural rhythm';
   const name = intake.customer.name || intake.customer.firstName || 'this soul';
@@ -76,7 +155,7 @@ function buildPrompt(intake: NormalizedIntake): string {
     .slice(0, 12)
     .join('\n');
 
-  return `You are writing a ${tierLabel} soul blueprint in a friendly, grounded, poetic tone. Avoid sounding robotic and do not use m-dashes.
+  let prompt = `You are writing a ${tierLabel} soul blueprint in a friendly, grounded, poetic tone. Avoid sounding robotic and do not use m-dashes.
 Client: ${name}
 Tier: ${tierLabel}
 Birth: ${birthLine}
@@ -85,6 +164,78 @@ Preferences:
 ${preferenceSummary || 'No additional notes.'}
 
 Write a single cohesive story that weaves astrology, numerology, and subtle energy themes into a warm narrative. Include gentle suggestions for rhythm and rituals appropriate for their stage of life. Keep paragraphs short (3-4 sentences max) and emphasize encouragement.`;
+
+  if (intake.tier === 'full') {
+    const advanced = loadAdvancedEsotericConfig();
+    if (advanced) {
+      const cohort = resolveCohortFromIntake(intake);
+      const systems = getActiveSystems(advanced, { cohort });
+      if (systems.length) {
+        const systemNarrative = systems
+          .map((system) => `${system.label}: ${describeSystemForPrompt(system, { cohort })}`)
+          .join('\n');
+        const advancedLines: string[] = [];
+        advancedLines.push(
+          `When you reach the "${advanced.section.title}" expansion immediately after the Destiny Matrix + Gene Keys section, weave in the following directives without creating a list in the final copy. ${advanced.section.introduction}`
+        );
+        if (advanced.section.mediumshipStyle) {
+          advancedLines.push(`Mediumship tone: ${advanced.section.mediumshipStyle}`);
+        }
+        if (advanced.section.rhythmIntegration) {
+          advancedLines.push(`Rhythm weaving: ${advanced.section.rhythmIntegration}`);
+        }
+        if (advanced.section.evidentialExamples?.length) {
+          advancedLines.push(
+            `Sensory evidence you can cite: ${advanced.section.evidentialExamples.join(', ')}.`
+          );
+        }
+        if (cohort === 'child' && advanced.automation?.childRules?.tone) {
+          advancedLines.push(`Child-friendly reminder: ${advanced.automation.childRules.tone}`);
+        }
+        advancedLines.push('Modality prompts to blend together:');
+        advancedLines.push(systemNarrative);
+        advancedLines.push(
+          'Show how each modality fortifies their aura color, chakra care, magnet routines, household rhythms, and psychic development path.'
+        );
+        if (advanced.summary?.calloutHeading) {
+          advancedLines.push(
+            `Close the section with a callout titled "${advanced.summary.calloutHeading}". ${advanced.summary.instructions}`
+          );
+        }
+        advancedLines.push(
+          `Add a dedicated "${advanced.magicCodes.title}" page. ${advanced.magicCodes.intro} Use the icons ${summarizeMagicCodes(advanced)}.`
+        );
+        if (advanced.upgradeNote) {
+          advancedLines.push(advanced.upgradeNote);
+        }
+        if (advanced.helperAgents && Object.values(advanced.helperAgents).length) {
+          advancedLines.push(
+            `If layers feel complex, note that helper agents are available (${Object.values(advanced.helperAgents).join('; ')}).`
+          );
+        }
+        const missingBirth: string[] = [];
+        if (!intake.customer?.birth?.date) missingBirth.push('birth date');
+        if (!intake.customer?.birth?.time) missingBirth.push('birth time');
+        if (!intake.customer?.birth?.location) missingBirth.push('birth location');
+        if (missingBirth.length) {
+          const fallback = advanced.automation?.fallbacks?.missingBirth
+            ? advanced.automation.fallbacks.missingBirth
+            : 'If data is missing, gently name what would deepen accuracy and share the intuitive bridge you are using in the meantime.';
+          advancedLines.push(`Missing data awareness (${missingBirth.join(', ')}): ${fallback}`);
+        }
+        advancedLines.push(
+          'Note that these advanced modalities are bundled into the Full Soul Blueprint now, with the option to request them later as standalone upgrades.'
+        );
+        advancedLines.push('Vary your language so none of the modality summaries repeat verbatim.');
+        prompt += `\n\nAdvanced Soul Systems directives:\n${advancedLines.join('\n')}`;
+      }
+    } else {
+      prompt +=
+        '\n\nAdvanced Soul Systems directives: even if the config fails to load, ensure the Advanced Soul Systems section covers Enneagram, Akashic Records, Chakra scan, Soul Urge evolution, Progressed Astrology, Sabian Symbols, an I Ching hexagram, and Archetype mapping. Include sensory evidence, rhythm guidance, psychic development tips, and a Magic Codes Key legend.';
+    }
+  }
+
+  return prompt;
 }
 
 async function generateStory(intake: NormalizedIntake): Promise<{ story: string; attempts: ModelAttempt[] }> {
@@ -109,7 +260,8 @@ async function generateStory(intake: NormalizedIntake): Promise<{ story: string;
           startedAt: startedAt.toISOString(),
           finishedAt: new Date().toISOString(),
         });
-        return { story, attempts };
+        const finalStory = await ensureAdvancedCoverage(story, intake, attempts);
+        return { story: finalStory, attempts };
       } catch (err: any) {
         attempts.push({
           provider: provider.id,

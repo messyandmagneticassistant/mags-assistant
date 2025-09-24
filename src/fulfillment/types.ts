@@ -26,6 +26,14 @@ export interface NormalizedIntake {
   addOns: string[];
   prefs: Record<string, any>;
   customer: CustomerProfile;
+  /**
+   * Optional list of expansions to enable for this fulfillment run (e.g. advanced esoteric suite).
+   */
+  expansions?: string[];
+  /**
+   * Derived cohort from intake data so downstream modules can simplify language for younger clients.
+   */
+  ageCohort?: 'child' | 'teen' | 'adult' | 'elder';
   referenceId?: string;
   schedulePreferences?: string[];
   raw?: any;
