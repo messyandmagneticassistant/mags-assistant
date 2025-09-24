@@ -2,7 +2,7 @@ name: Full Autonomy
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -23,7 +23,7 @@ jobs:
       NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
       NOTION_DONOR_PAGE_ID: ${{ secrets.NOTION_DONOR_PAGE_ID }}
       AUTONOMY_TASK: full-autonomy
-      AUTONOMY_CHECKS: stripe=pending,tally=pending,social=pending,fileCleanup=pending,marketing=pending
+      AUTONOMY_CHECKS: website=pending,stripe=pending,tally=pending,social=pending,fileCleanup=pending,marketing=pending
     steps:
       - uses: actions/checkout@v4
 
@@ -59,21 +59,107 @@ jobs:
       - name: Run Maggie orchestrator
         run: pnpm tsx scripts/fullAutonomy.ts
 
-      - name: Notify Telegram completion
+      - name: Evaluate run summary
         if: always()
+        id: summary
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+
+          const outputPath = path.resolve('run-output.json');
+          let data = null;
+          try {
+            const raw = fs.readFileSync(outputPath, 'utf8');
+            data = JSON.parse(raw);
+          } catch (err) {
+            console.warn('[autonomy] Unable to read run-output.json:', err?.message ?? err);
+          }
+
+          const lines = [];
+          let critical = false;
+          let inQuiet = false;
+          if (data) {
+            critical = data.critical === true || (Array.isArray(data.errors) && data.errors.length > 0);
+            inQuiet = !!(data.quiet && data.quiet.inQuiet);
+            const icon = critical ? '🚨' : data.ok === false ? '⚠️' : '✅';
+            const summary = typeof data.summary === 'string' && data.summary.trim().length
+              ? data.summary.trim()
+              : 'Autonomy run complete.';
+            lines.push(`${icon} <b>Maggie autonomy</b>`);
+            lines.push(summary);
+            if (Array.isArray(data.actions) && data.actions.length) {
+              lines.push('⚙️ Actions:');
+              for (const action of data.actions) {
+                lines.push(`• ${action}`);
+              }
+            } else {
+              lines.push('⚙️ Actions: none');
+            }
+            if (Array.isArray(data.errors) && data.errors.length) {
+              lines.push('⚠️ Alerts:');
+              for (const issue of data.errors) {
+                const label = issue?.label ?? issue?.key ?? 'alert';
+                const detail = issue?.detail ?? 'Check failed.';
+                lines.push(`• ${label} — ${detail}`);
+              }
+            } else {
+              lines.push('⚠️ Alerts: none');
+            }
+            if (Array.isArray(data.warnings) && data.warnings.length) {
+              lines.push('🟡 Warnings:');
+              for (const issue of data.warnings) {
+                const label = issue?.label ?? issue?.key ?? 'warning';
+                const detail = issue?.detail ?? 'Degraded check.';
+                lines.push(`• ${label} — ${detail}`);
+              }
+            }
+            if (typeof data.nextRun === 'string' && data.nextRun.trim().length) {
+              const next = new Date(data.nextRun);
+              if (!Number.isNaN(next.getTime())) {
+                const nextLabel = new Intl.DateTimeFormat('en-US', {
+                  timeZone: 'America/Denver',
+                  dateStyle: 'medium',
+                  timeStyle: 'short',
+                  timeZoneName: 'short',
+                }).format(next);
+                lines.push(`➡️ Next: ${nextLabel}`);
+              }
+            }
+          } else {
+            critical = true;
+            lines.push('⚠️ <b>Maggie autonomy</b>');
+            lines.push('Run completed but run-output.json was not generated.');
+          }
+
+          const shouldNotify = critical || !inQuiet;
+          console.log('shouldNotify:', shouldNotify);
+          console.log('critical:', critical);
+          console.log('inQuiet:', inQuiet);
+
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `should_notify=${shouldNotify}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `critical=${critical}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `in_quiet=${inQuiet}\n`);
+
+          const message = lines.join('\n');
+          fs.appendFileSync(process.env.GITHUB_ENV, `AUTONOMY_MESSAGE<<'EOF'\n${message}\nEOF\n`);
+          NODE
+
+      - name: Notify Telegram completion
+        if: ${{ always() && steps.summary.outputs.should_notify == 'true' }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          AUTONOMY_MESSAGE: ${{ env.AUTONOMY_MESSAGE }}
         run: |
-          if [ -n "${TELEGRAM_BOT_TOKEN}" ] && [ -n "${TELEGRAM_CHAT_ID}" ]; then
-            DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-            curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-              --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-              --data-urlencode "text=Maggie run complete at ${DATE}" \
-              > /dev/null
-          else
+          if [ -z "${TELEGRAM_BOT_TOKEN}" ] || [ -z "${TELEGRAM_CHAT_ID}" ]; then
             echo "Skipping Telegram notify – credentials missing"
+            exit 0
           fi
+          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${AUTONOMY_MESSAGE}" \
+            > /dev/null
 
       - name: Stamp run metadata
         if: always()
@@ -86,14 +172,14 @@ jobs:
           now = datetime.now(timezone.utc)
           with open(path, 'a', encoding='utf-8') as fh:
               fh.write(f"AUTONOMY_TIMESTAMP={now.isoformat().replace('+00:00','Z')}\n")
-              fh.write(f"AUTONOMY_NEXT_RUN={(now + timedelta(minutes=15)).isoformat().replace('+00:00','Z')}\n")
+              fh.write(f"AUTONOMY_NEXT_RUN={(now + timedelta(minutes=5)).isoformat().replace('+00:00','Z')}\n")
           PY
 
       - name: Publish failure heartbeat
         if: failure()
         run: |
           {
-            echo "AUTONOMY_CHECKS=stripe=fail:workflow-error,tally=fail:workflow-error,social=fail:workflow-error,fileCleanup=fail:workflow-error,marketing=fail:workflow-error"
+            echo "AUTONOMY_CHECKS=website=fail:workflow-error,stripe=fail:workflow-error,tally=fail:workflow-error,social=fail:workflow-error,fileCleanup=fail:workflow-error,marketing=fail:workflow-error"
           } >> "$GITHUB_ENV"
           pnpm tsx scripts/fullAutonomy.ts --from-env
 
