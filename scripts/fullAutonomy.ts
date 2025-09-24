@@ -4,6 +4,8 @@ import path from 'node:path';
 import process from 'node:process';
 
 import { getConfigValue, putConfig } from '../lib/kv';
+import type { MaggieState } from '../shared/maggieState';
+import { THREAD_STATE_KEY } from '../shared/maggieState';
 
 export const STATUS_KV_KEY = 'status:last';
 export const CONTROL_KV_KEY = 'autonomy:control';
@@ -22,6 +24,37 @@ interface ControlOptions {
 }
 
 const DEFAULT_TASK = 'autonomy-loop';
+
+const AUTONOMY_QUEUE_MARKER = '[auto]';
+const AUTONOMY_TASK_SUFFIX = '(auto)';
+
+interface FallbackQueueItem {
+  queue: string;
+  task: string;
+}
+
+const FALLBACK_QUEUE_ITEMS: FallbackQueueItem[] = [
+  {
+    queue: `Retry website deploy ${AUTONOMY_QUEUE_MARKER}`,
+    task: `Retry website deploy ${AUTONOMY_TASK_SUFFIX}`,
+  },
+  {
+    queue: `Scan support email inbox ${AUTONOMY_QUEUE_MARKER}`,
+    task: `Scan support email inbox ${AUTONOMY_TASK_SUFFIX}`,
+  },
+  {
+    queue: `Clean Drive staging area ${AUTONOMY_QUEUE_MARKER}`,
+    task: `Clean Drive staging area ${AUTONOMY_TASK_SUFFIX}`,
+  },
+  {
+    queue: `Refresh donor CRM follow-ups ${AUTONOMY_QUEUE_MARKER}`,
+    task: `Refresh donor CRM follow-ups ${AUTONOMY_TASK_SUFFIX}`,
+  },
+  {
+    queue: `Rebuild marketing performance digest ${AUTONOMY_QUEUE_MARKER}`,
+    task: `Rebuild marketing performance digest ${AUTONOMY_TASK_SUFFIX}`,
+  },
+];
 
 const CHECK_META = [
   { key: 'stripe', label: 'Stripe' },
@@ -48,6 +81,279 @@ const CHECK_ALIASES: Record<string, DefaultCheckKey> = {
   marketing: 'marketing',
   growth: 'marketing',
 };
+
+function formatIso(date: Date): string {
+  return date.toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+function normalizeTasksList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string') continue;
+    const trimmed = entry.trim();
+    if (!trimmed || /^idle$/i.test(trimmed)) continue;
+    if (seen.has(trimmed)) continue;
+    normalized.push(trimmed);
+    seen.add(trimmed);
+  }
+  return normalized;
+}
+
+function normalizeQueueList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string') continue;
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    if (seen.has(trimmed)) continue;
+    normalized.push(trimmed);
+    seen.add(trimmed);
+  }
+  return normalized;
+}
+
+function normalizeTaskForComparison(value: string): string {
+  return value
+    .replace(/\(auto\)$/i, '')
+    .replace(/\[auto\]$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function stripAutoSuffix(value: string): string {
+  return value.replace(/\s*\(auto\)\s*$/i, '').trim();
+}
+
+function coerceCount(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim().length) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function isFallbackQueueItem(value: string): boolean {
+  return value.includes(AUTONOMY_QUEUE_MARKER);
+}
+
+function isFallbackTaskItem(value: string): boolean {
+  return value.toLowerCase().endsWith(AUTONOMY_TASK_SUFFIX);
+}
+
+function pushUnique(list: string[], value: string): void {
+  const trimmed = value.trim();
+  if (!trimmed) return;
+  if (!list.includes(trimmed)) {
+    list.push(trimmed);
+  }
+}
+
+function pickFallbackQueueItems(count: number, used: Set<string>): FallbackQueueItem[] {
+  const results: FallbackQueueItem[] = [];
+  const startIndex = Math.abs(Math.floor(Date.now() / (5 * 60 * 1000)));
+  for (let offset = 0; offset < FALLBACK_QUEUE_ITEMS.length && results.length < count; offset += 1) {
+    const candidate = FALLBACK_QUEUE_ITEMS[(startIndex + offset) % FALLBACK_QUEUE_ITEMS.length];
+    const normalized = normalizeTaskForComparison(candidate.task);
+    if (used.has(normalized)) {
+      continue;
+    }
+    results.push(candidate);
+    used.add(normalized);
+  }
+  if (!results.length) {
+    results.push(FALLBACK_QUEUE_ITEMS[startIndex % FALLBACK_QUEUE_ITEMS.length]);
+  }
+  return results;
+}
+
+async function loadThreadStateSnapshot(): Promise<MaggieState> {
+  try {
+    const snapshot = await getConfigValue<MaggieState>(THREAD_STATE_KEY, { type: 'json' });
+    if (snapshot && typeof snapshot === 'object') {
+      return snapshot as MaggieState;
+    }
+  } catch (err) {
+    console.warn('[fullAutonomy] Unable to load thread-state snapshot:', err);
+  }
+  return {};
+}
+
+function listsEqual(left: string[] | undefined, right: string[]): boolean {
+  if (!Array.isArray(left)) {
+    return right.length === 0;
+  }
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every((value, index) => value === right[index]);
+}
+
+type ThreadStatePhase = 'start' | 'complete' | 'paused';
+
+interface ThreadStateUpdateOptions {
+  env: NodeJS.ProcessEnv;
+  phase: ThreadStatePhase;
+  checks: DefaultCheckKey[];
+  startedAt: Date;
+  control?: AutonomyControl | null;
+  workerStatus?: any;
+}
+
+async function updateThreadStateActivity(
+  options: ThreadStateUpdateOptions,
+): Promise<{ fallbackQueued: string[]; updated: boolean }> {
+  const fallbackQueued: string[] = [];
+
+  try {
+    const state = await loadThreadStateSnapshot();
+    let tasks = normalizeTasksList(state.currentTasks).filter(
+      (task) => !task.toLowerCase().startsWith('autonomy loop:'),
+    );
+    const scheduledExisting = normalizeQueueList(state.scheduledPosts);
+    const flopExisting = normalizeQueueList(state.flopRetries);
+
+    let scheduledNext = scheduledExisting;
+    let flopNext = flopExisting;
+
+    if (options.phase === 'complete') {
+      const actualScheduled = scheduledExisting.filter((item) => !isFallbackQueueItem(item));
+      const actualRetries = flopExisting.filter((item) => !isFallbackQueueItem(item));
+
+      const queueScheduled =
+        options.workerStatus?.socialQueue?.scheduled !== undefined
+          ? coerceCount(options.workerStatus.socialQueue.scheduled)
+          : null;
+      const queueRetries =
+        options.workerStatus?.socialQueue?.flopsRetry !== undefined
+          ? coerceCount(options.workerStatus.socialQueue.flopsRetry)
+          : null;
+
+      const effectiveScheduled =
+        queueScheduled === null
+          ? actualScheduled.length
+          : queueScheduled === 0
+            ? actualScheduled.length
+            : queueScheduled;
+      const effectiveRetries =
+        queueRetries === null
+          ? actualRetries.length
+          : queueRetries === 0
+            ? actualRetries.length
+            : queueRetries;
+
+      tasks = tasks.filter((task) => !isFallbackTaskItem(task));
+
+      if (effectiveScheduled === 0 && effectiveRetries === 0) {
+        const used = new Set(tasks.map(normalizeTaskForComparison));
+        const fallbackItems = pickFallbackQueueItems(2, used);
+        if (fallbackItems.length) {
+          scheduledNext = fallbackItems.map((item) => item.queue);
+          flopNext = [];
+          for (const item of fallbackItems) {
+            pushUnique(tasks, item.task);
+            fallbackQueued.push(stripAutoSuffix(item.task));
+          }
+        } else {
+          scheduledNext = actualScheduled;
+          flopNext = actualRetries;
+        }
+      } else {
+        scheduledNext = actualScheduled;
+        flopNext = actualRetries;
+      }
+    } else {
+      tasks = tasks.filter((task) => !isFallbackTaskItem(task));
+    }
+
+    const usedAfterQueue = new Set(tasks.map(normalizeTaskForComparison));
+    let label: string;
+    if (options.phase === 'paused') {
+      const reason = options.control?.reason?.trim();
+      label = `Autonomy loop: paused${reason ? ` — ${reason}` : ''}`;
+    } else if (options.phase === 'start') {
+      const startedIso = formatIso(options.startedAt);
+      const count = options.checks.length;
+      label = `Autonomy loop: running ${count} check${count === 1 ? '' : 's'} (started ${startedIso})`;
+    } else {
+      const finishedIsoShort = formatIso(new Date());
+      const count = options.checks.length;
+      label = `Autonomy loop: completed ${count} check${count === 1 ? '' : 's'} at ${finishedIsoShort}`;
+    }
+    if (!usedAfterQueue.has(normalizeTaskForComparison(label))) {
+      pushUnique(tasks, label);
+    }
+
+    const previousTasks = normalizeTasksList(state.currentTasks);
+    const tasksChanged = !listsEqual(previousTasks, tasks);
+
+    const nextState: MaggieState = {
+      ...state,
+      currentTasks: tasks,
+    };
+
+    let changed = tasksChanged;
+
+    if (options.phase === 'complete') {
+      const finishedAt = new Date();
+      const finishedIso = finishedAt.toISOString();
+      nextState.scheduledPosts = scheduledNext;
+      nextState.flopRetries = flopNext;
+      nextState.lastCheck = finishedIso;
+      const autonomyMeta =
+        (typeof state.autonomy === 'object' && state.autonomy !== null ? state.autonomy : {}) as Record<string, unknown>;
+      nextState.autonomy = {
+        ...autonomyMeta,
+        lastRunAt: finishedIso,
+        lastStartedAt: options.startedAt.toISOString(),
+        checks: options.checks,
+        fallbackQueued,
+      };
+      const previousScheduled = normalizeQueueList(state.scheduledPosts);
+      const previousRetries = normalizeQueueList(state.flopRetries);
+      const scheduledChanged = !listsEqual(previousScheduled, scheduledNext);
+      const retriesChanged = !listsEqual(previousRetries, flopNext);
+      changed = true;
+      if (!scheduledChanged && !retriesChanged && state.lastCheck === finishedIso && !tasksChanged) {
+        // still changed due to new autonomy metadata
+        changed = true;
+      }
+    } else if (options.phase === 'paused') {
+      const autonomyMeta =
+        (typeof state.autonomy === 'object' && state.autonomy !== null ? state.autonomy : {}) as Record<string, unknown>;
+      nextState.autonomy = {
+        ...autonomyMeta,
+        pausedAt: options.control?.pausedAt ?? options.control?.updatedAt ?? new Date().toISOString(),
+        pausedReason: options.control?.reason,
+      };
+    }
+
+    if (!changed) {
+      return { fallbackQueued, updated: false };
+    }
+
+    await putConfig(THREAD_STATE_KEY, nextState, { contentType: 'application/json' });
+    console.log(
+      `[fullAutonomy] Thread-state updated (${options.phase}) — tasks: ${nextState.currentTasks?.join(', ') ?? 'none'}`,
+    );
+    if (fallbackQueued.length) {
+      console.log(`[fullAutonomy] Injected fallback queue item(s): ${fallbackQueued.join(', ')}`);
+    }
+    return { fallbackQueued, updated: true };
+  } catch (err) {
+    console.warn('[fullAutonomy] Unable to update thread-state activity:', err);
+    return { fallbackQueued, updated: false };
+  }
+}
 
 export type AutonomyCheckState = 'ok' | 'fail' | 'warn' | 'pending';
 
@@ -771,6 +1077,15 @@ async function fetchWorkerJson(
   }
 }
 
+async function fetchWorkerStatusSnapshot(env: NodeJS.ProcessEnv): Promise<any | null> {
+  try {
+    return await fetchWorkerJson(env, '/status');
+  } catch (err) {
+    console.warn('[fullAutonomy] Unable to fetch worker /status snapshot:', err);
+    return null;
+  }
+}
+
 async function runStripeCheck(context: TaskContext): Promise<AutonomyCheckResult> {
   const key: DefaultCheckKey = 'stripe';
   const secret =
@@ -1026,6 +1341,16 @@ async function orchestrateAutonomy(options: OrchestrateOptions): Promise<Autonom
 
   const results: CheckInput[] = [];
 
+  await updateThreadStateActivity({
+    env,
+    phase: paused ? 'paused' : 'start',
+    checks: normalizedKeys,
+    startedAt,
+    control,
+  });
+
+  let workerStatus: any | null = null;
+
   if (!paused) {
     for (const key of normalizedKeys) {
       const runner = CHECK_RUNNERS[key];
@@ -1051,6 +1376,8 @@ async function orchestrateAutonomy(options: OrchestrateOptions): Promise<Autonom
         results.push({ key, state: 'fail', detail: message, ranAt: isoNow() });
       }
     }
+
+    workerStatus = await fetchWorkerStatusSnapshot(env);
   } else {
     const pausedDetail = control?.reason ? `Paused: ${control.reason}` : 'Autonomy paused';
     for (const key of normalizedKeys) {
@@ -1064,14 +1391,25 @@ async function orchestrateAutonomy(options: OrchestrateOptions): Promise<Autonom
     }
   }
 
+  await updateThreadStateActivity({
+    env,
+    phase: paused ? 'paused' : 'complete',
+    checks: normalizedKeys,
+    startedAt,
+    control,
+    workerStatus,
+  });
+
   const overrides = options.checkOverrides?.length ? options.checkOverrides : undefined;
   const timestamp = coerceIsoTimestamp(options.timestamp ?? null) ?? isoNow();
   const nextRun = coerceIsoTimestamp(options.nextRun ?? null)
-    ?? (paused ? control?.resumeAt ?? null : new Date(Date.now() + 30 * 60 * 1000).toISOString());
+    ?? (paused ? control?.resumeAt ?? null : new Date(Date.now() + 15 * 60 * 1000).toISOString());
 
   const baseStatus: PartialAutonomyStatus = {
     timestamp,
-    currentTask: paused ? 'paused' : options.task ?? DEFAULT_TASK,
+    currentTask: paused
+      ? 'paused'
+      : options.task ?? `${DEFAULT_TASK} (${normalizedKeys.length} check${normalizedKeys.length === 1 ? '' : 's'})`,
     nextRun,
     checks: results,
   };
@@ -1111,6 +1449,25 @@ async function applyControlUpdate(options: CliOptions): Promise<AutonomyControl 
 async function main() {
   const options = parseCliArgs(process.argv.slice(2));
   const control = await applyControlUpdate(options);
+
+  const shouldDefaultToOrchestrate =
+    !options.orchestrate &&
+    options.inputPaths.length === 0 &&
+    !options.fromEnv &&
+    !options.pause &&
+    !options.resume &&
+    !options.reason &&
+    !options.resumeAt &&
+    !options.timestamp &&
+    !options.nextRun &&
+    options.runChecks.length === 0 &&
+    options.checks.length === 0 &&
+    (!options.task || options.task === DEFAULT_TASK) &&
+    (process.env.AUTONOMY_TASK || '').trim() === 'full-autonomy';
+
+  if (shouldDefaultToOrchestrate) {
+    options.orchestrate = true;
+  }
 
   if (options.orchestrate) {
     await orchestrateAutonomy({
