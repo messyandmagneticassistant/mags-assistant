@@ -54,7 +54,9 @@
     "// --- Stripe ---": "-----------------------------------------------",
     "stripe:sync": "tsx scripts/stripe-sync.ts",
     "seed:stripe": "tsx scripts/seed/stripe.ts",
-    "seed:kv": "tsx scripts/seedKV.ts"
+    "seed:kv": "tsx scripts/seedKV.ts",
+    "telegram:auto-repair": "tsx scripts/telegram-auto-repair.ts",
+    "telegram:auto-repair:watch": "tsx scripts/telegram-auto-repair.ts --watch"
   },
   "dependencies": {
     "@notionhq/client": "^2.3.0",
