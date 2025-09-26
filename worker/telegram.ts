@@ -320,7 +320,7 @@ async function registerTaskStart(env: Env, label: string): Promise<void> {
   await sendTelegram(env, `✅ started ${trimmed}`);
 }
 
-async function respondToFreeText(env: Env, text: string): Promise<void> {
+export async function handleFreeformMessage(env: Env, text: string): Promise<void> {
   const intent = detectIntent(text);
   if (intent.kind === 'status') {
     await handleStatus(env);
@@ -382,9 +382,10 @@ progressEvents.on('milestone-complete', (payload) => {
 export async function handleTelegramUpdate(update: TelegramUpdate, env: Env, origin?: string): Promise<void> {
   await ensureTelegramWebhook(env, origin);
   const message = extractMessage(update);
-  const text = (message?.text || message?.caption || '').trim();
+  if (!message) return;
+  const text = (message.text || message.caption || '').trim();
   if (!text) return;
-  if (message?.from?.is_bot) return;
+  if (message.from?.is_bot) return;
 
   const command = commandFromText(text);
   if (command) {
@@ -406,5 +407,5 @@ export async function handleTelegramUpdate(update: TelegramUpdate, env: Env, ori
     return;
   }
 
-  await respondToFreeText(env, text);
+  await handleFreeformMessage(env, text);
 }
