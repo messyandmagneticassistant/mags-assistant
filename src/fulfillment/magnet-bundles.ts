@@ -79,6 +79,24 @@ export interface PersonalizationContext {
   preferredFormat: MagnetFormat;
   personaTags: MagnetPersonaTag[];
   keywords: string[];
+  soulTraits?: string[];
+  genderIdentity?: string;
+  pronouns?: string;
+  householdSummary?: string;
+}
+
+export interface PersonalizationProfile {
+  soulTraits?: string[];
+  ageCohort?: 'child' | 'teen' | 'adult' | 'elder';
+  genderIdentity?: string;
+  pronouns?: string;
+  householdSummary?: string;
+}
+
+export interface ReuseProfile extends PersonalizationProfile {
+  keywords?: string[];
+  personaTags?: MagnetPersonaTag[];
+  preferredCategory?: string;
 }
 
 export interface MagnetBundlePlan {
@@ -96,14 +114,58 @@ interface BundleModuleOptions {
   staticPath?: string;
   runtimePath?: string;
   allowPersistence?: boolean;
+  libraryPath?: string;
+  allowLibraryTracking?: boolean;
 }
 
 const STATIC_BUNDLE_PATH = path.resolve(process.cwd(), 'config', 'magnet-bundles.json');
 const RUNTIME_BUNDLE_PATH = path.resolve(process.cwd(), 'data', 'generated-magnet-bundles.json');
+const BUNDLE_LIBRARY_PATH = path.resolve(process.cwd(), 'data', 'Magnet_Bundle_Library.json');
 
 interface BundleStoreShape {
   bundles?: StoredMagnetBundle[];
 }
+
+interface BundleLibraryVersion {
+  id: string;
+  createdAt: string;
+  profile: PersonalizationProfile & {
+    keywords?: string[];
+    personaTags?: MagnetPersonaTag[];
+    preferredFormat?: MagnetFormat;
+  };
+  bundle: StoredMagnetBundle & { source?: 'stored' | 'generated' | 'fallback' };
+}
+
+interface BundleLibraryEntry {
+  bundleId: string;
+  name: string;
+  category: string;
+  versions: BundleLibraryVersion[];
+}
+
+interface BundleLibraryStore {
+  bundles: BundleLibraryEntry[];
+}
+
+const SOUL_TRAIT_TITLES: Record<string, string> = {
+  mg: 'Move + Flow',
+  'manifesting generator': 'Move + Flow',
+  generator: 'Glow + Steady',
+  manifester: 'Spark + Initiate',
+  projector: 'Guide + Glow',
+  reflector: 'Mirror + Moon',
+  mystic: 'Mystic Flow',
+  alchemist: 'Alchemize & Anchor',
+};
+
+const GENDERED_PATTERNS: Array<{ regex: RegExp; replacement: string }> = [
+  { regex: /\b(she|he)\b/gi, replacement: 'they' },
+  { regex: /\b(her|him)\b/gi, replacement: 'them' },
+  { regex: /\b(hers|his)\b/gi, replacement: 'theirs' },
+  { regex: /\b(mom|mother|mama)\b/gi, replacement: 'caregiver' },
+  { regex: /\b(dad|father|papa)\b/gi, replacement: 'caregiver' },
+];
 
 function readField(data: Record<string, any>, keys: string[]): string | undefined {
   for (const key of keys) {
@@ -143,6 +205,158 @@ function collectKeywords(data: Record<string, any>): string[] {
     }
   }
   return Array.from(keywords);
+}
+
+function titleCase(input: string): string {
+  return input
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function normalizeTrait(trait: string): string {
+  return trait.trim().toLowerCase();
+}
+
+function resolveTraitTitle(trait: string): string {
+  const normalized = normalizeTrait(trait);
+  return SOUL_TRAIT_TITLES[normalized] || titleCase(trait.trim());
+}
+
+function buildTraitTitle(traits: string[] | undefined): string | undefined {
+  if (!traits || !traits.length) return undefined;
+  const seen = new Set<string>();
+  const titles = traits
+    .map((trait) => resolveTraitTitle(trait))
+    .filter((title) => {
+      const key = title.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  if (!titles.length) return undefined;
+  if (titles.length === 1) return titles[0];
+  return titles.join(' + ');
+}
+
+function neutralizeGenderedLanguage(input: string, pronouns?: string): string {
+  if (!input) return input;
+  let neutralBase = 'they';
+  if (pronouns && pronouns.includes('/')) {
+    neutralBase = pronouns.split('/')[0]?.trim().toLowerCase() || 'they';
+  } else if (pronouns) {
+    neutralBase = pronouns.trim().toLowerCase();
+  }
+
+  const replacements = GENDERED_PATTERNS.map(({ regex, replacement }) => ({
+    regex,
+    replacement: replacement === 'they' ? neutralBase : replacement,
+  }));
+
+  let output = input;
+  for (const { regex, replacement } of replacements) {
+    output = output.replace(regex, (match) => {
+      if (!replacement) return match;
+      if (match === match.toUpperCase()) return replacement.toUpperCase();
+      if (match[0] === match[0].toUpperCase())
+        return replacement.charAt(0).toUpperCase() + replacement.slice(1);
+      return replacement;
+    });
+  }
+  return output;
+}
+
+function simplifyForCohort(text: string, cohort?: 'child' | 'teen' | 'adult' | 'elder'): string {
+  if (!text || !cohort) return text;
+  if (cohort === 'child') {
+    const sentence = text.split(/[.!?]/)[0]?.trim() || text;
+    const words = sentence.split(/\s+/).slice(0, 12).join(' ');
+    return words ? `${words}${words.endsWith('.') ? '' : '.'}` : sentence;
+  }
+  if (cohort === 'teen') {
+    const sentence = text.split(/[.!?]/)[0]?.trim() || text;
+    return sentence.length > 0 ? sentence : text;
+  }
+  return text;
+}
+
+function applyHouseholdContext(
+  text: string,
+  householdSummary?: string,
+  fallbackPrefix = 'Designed for'
+): string {
+  if (!text) return text;
+  if (!householdSummary) return text;
+  if (text.toLowerCase().includes(householdSummary.toLowerCase())) return text;
+  return `${text.trim()} ${fallbackPrefix} ${householdSummary}.`.replace(/\s+/g, ' ').trim();
+}
+
+async function loadBundleLibrary(libraryPath: string): Promise<BundleLibraryStore> {
+  try {
+    const raw = await fs.readFile(libraryPath, 'utf8');
+    const parsed = JSON.parse(raw || '{}');
+    if (Array.isArray(parsed)) {
+      return { bundles: parsed as BundleLibraryEntry[] };
+    }
+    if (parsed && Array.isArray(parsed.bundles)) {
+      return { bundles: parsed.bundles };
+    }
+    return { bundles: [] };
+  } catch (err) {
+    return { bundles: [] };
+  }
+}
+
+async function saveBundleLibrary(libraryPath: string, store: BundleLibraryStore): Promise<void> {
+  await fs.mkdir(path.dirname(libraryPath), { recursive: true });
+  await fs.writeFile(libraryPath, JSON.stringify({ bundles: store.bundles }, null, 2));
+}
+
+async function trackBundleLibraryVersion(
+  bundle: StoredMagnetBundle & { source?: 'stored' | 'generated' | 'fallback' },
+  personalization: PersonalizationContext,
+  opts: BundleModuleOptions
+): Promise<void> {
+  if (opts.allowLibraryTracking === false) return;
+  const libraryPath = opts.libraryPath || BUNDLE_LIBRARY_PATH;
+  try {
+    const store = await loadBundleLibrary(libraryPath);
+    let entry = store.bundles.find((item) => item.bundleId === bundle.id);
+    if (!entry) {
+      entry = { bundleId: bundle.id, name: bundle.name, category: bundle.category, versions: [] };
+      store.bundles.push(entry);
+    } else {
+      entry.name = bundle.name;
+      entry.category = bundle.category;
+    }
+
+    const version: BundleLibraryVersion = {
+      id: `v-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      profile: {
+        soulTraits: personalization.soulTraits,
+        ageCohort: personalization.cohort,
+        genderIdentity: personalization.genderIdentity,
+        pronouns: personalization.pronouns,
+        householdSummary: personalization.householdSummary,
+        keywords: personalization.keywords,
+        personaTags: personalization.personaTags,
+        preferredFormat: personalization.preferredFormat,
+      },
+      bundle: { ...bundle },
+    };
+
+    entry.versions.push(version);
+    if (entry.versions.length > 25) {
+      entry.versions = entry.versions.slice(-25);
+    }
+
+    await saveBundleLibrary(libraryPath, store);
+  } catch (err) {
+    console.warn('[magnet-bundles] failed to track bundle library version:', err);
+  }
 }
 
 function detectPersonaTags(intake: NormalizedIntake): MagnetPersonaTag[] {
@@ -188,6 +402,93 @@ function detectPersonaTags(intake: NormalizedIntake): MagnetPersonaTag[] {
   if (intake.ageCohort === 'child') tags.add('toddler');
 
   return Array.from(tags);
+}
+
+function collectSoulTraits(prefs: Record<string, any>): string[] {
+  const fields = [
+    'soul_traits',
+    'soul_trait',
+    'soul_type',
+    'design_type',
+    'human_design',
+    'blueprint_traits',
+    'soul_chart_traits',
+  ];
+  const traits = new Set<string>();
+  for (const field of fields) {
+    const value = prefs?.[field];
+    if (typeof value === 'string') {
+      value
+        .split(/[+,/\n]/)
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .forEach((part) => traits.add(part));
+    }
+    if (Array.isArray(value)) {
+      value
+        .map((item) => (typeof item === 'string' ? item.trim() : ''))
+        .filter(Boolean)
+        .forEach((part) => traits.add(part));
+    }
+  }
+  return Array.from(traits);
+}
+
+function describeHousehold(intake: NormalizedIntake): string | undefined {
+  const members = (intake.customer?.householdMembers || []).map((member) => member.trim()).filter(Boolean);
+  const prefs = intake.prefs || {};
+  const householdText = readField(prefs, ['household', 'household_type', 'family_structure', 'family']);
+  if (members.length) {
+    const kidCount = members.filter((member) => /kid|child|son|daughter|teen/i.test(member)).length;
+    const adultCount = members.length - kidCount;
+    if (kidCount && adultCount) {
+      const adultLabel = adultCount > 1 ? `${adultCount} Adults` : 'Parent';
+      const kidLabel = `${kidCount} Kid${kidCount > 1 ? 's' : ''}`;
+      return `${adultLabel} + ${kidLabel}`;
+    }
+    return members.join(' + ');
+  }
+  if (householdText) {
+    if (/parent|kid|child|family|household/i.test(householdText)) {
+      return titleCase(householdText);
+    }
+  }
+  return undefined;
+}
+
+function scoreLibraryMatch(
+  entry: BundleLibraryEntry,
+  version: BundleLibraryVersion,
+  profile: ReuseProfile
+): number {
+  let score = 0;
+  const targetTraits = profile.soulTraits?.map(normalizeTrait) || [];
+  const versionTraits = version.profile.soulTraits?.map(normalizeTrait) || [];
+  const traitMatches = targetTraits.filter((trait) => versionTraits.includes(trait)).length;
+  score += traitMatches * 4;
+
+  if (profile.householdSummary && version.profile.householdSummary) {
+    const target = profile.householdSummary.toLowerCase();
+    const existing = version.profile.householdSummary.toLowerCase();
+    if (existing === target) score += 3;
+    else if (existing.includes(target) || target.includes(existing)) score += 2;
+  }
+
+  if (profile.preferredCategory && entry.category) {
+    if (entry.category.toLowerCase() === profile.preferredCategory.toLowerCase()) score += 2;
+  }
+
+  const targetKeywords = (profile.keywords || []).map((kw) => kw.toLowerCase());
+  const versionKeywords = (version.profile.keywords || []).map((kw) => kw.toLowerCase());
+  const keywordMatches = targetKeywords.filter((kw) => versionKeywords.includes(kw)).length;
+  score += Math.min(keywordMatches, 3);
+
+  const personaMatches = (profile.personaTags || []).filter((tag) => version.profile.personaTags?.includes(tag)).length;
+  score += personaMatches;
+
+  if (version.bundle.source === 'generated') score += 1;
+
+  return score;
 }
 
 function resolvePreferredFormat(intake: NormalizedIntake): MagnetFormat {
@@ -308,6 +609,58 @@ function applyPersonalization(
     }
   }
   return clone;
+}
+
+export function personalizeBundle(
+  bundle: StoredMagnetBundle,
+  profile: PersonalizationProfile
+): StoredMagnetBundle {
+  const traitTitle = buildTraitTitle(profile.soulTraits);
+  const primaryTrait = traitTitle ? traitTitle.split(' + ')[0] : undefined;
+  const nameWithTrait = traitTitle ? `${traitTitle} ${bundle.name}` : bundle.name;
+  const name = profile.householdSummary
+    ? `${nameWithTrait} – ${profile.householdSummary}`.trim()
+    : nameWithTrait.trim();
+
+  const descriptionParts: string[] = [];
+  if (traitTitle) descriptionParts.push(`Aligned to ${traitTitle} energy.`);
+  if (bundle.description) descriptionParts.push(bundle.description);
+  if (profile.householdSummary) descriptionParts.push(`Household: ${profile.householdSummary}.`);
+
+  let description = descriptionParts.filter(Boolean).join(' ');
+  description = neutralizeGenderedLanguage(description, profile.pronouns || profile.genderIdentity);
+  description = simplifyForCohort(description, profile.ageCohort);
+  description = applyHouseholdContext(description, profile.householdSummary, 'Perfect for');
+
+  const icons = bundle.icons.map((icon) => {
+    let label = icon.label;
+    if (primaryTrait && /flow|reset|move|spark|anchor|glow|focus/i.test(icon.label) &&
+      !label.toLowerCase().includes(primaryTrait.toLowerCase())) {
+      label = `${primaryTrait} ${label}`.replace(/\s+/g, ' ').trim();
+    }
+    if (profile.householdSummary && icon.tags?.some((tag) => /(family|household|kid|child)/i.test(tag))) {
+      if (!label.includes(profile.householdSummary)) {
+        label = `${label} (${profile.householdSummary})`;
+      }
+    }
+
+    let iconDescription = neutralizeGenderedLanguage(icon.description, profile.pronouns || profile.genderIdentity);
+    iconDescription = simplifyForCohort(iconDescription, profile.ageCohort);
+    iconDescription = applyHouseholdContext(iconDescription, profile.householdSummary, 'For');
+
+    return {
+      ...icon,
+      label,
+      description: iconDescription,
+    };
+  });
+
+  return {
+    ...bundle,
+    name,
+    description,
+    icons,
+  };
 }
 
 function buildHelperTasks(plan: {
@@ -536,6 +889,10 @@ function buildPersonalization(intake: NormalizedIntake): PersonalizationContext 
   const familyName = readField(intake.prefs || {}, ['family_name', 'last_name', 'household_name']) || intake.customer?.lastName;
   const childName = readField(intake.prefs || {}, ['child_name', 'kid_name', 'recipient_name']);
   const rhythmStyle = readField(intake.prefs || {}, ['rhythm_style', 'energy_style', 'vibe']);
+  const soulTraits = collectSoulTraits(intake.prefs || {});
+  const genderIdentity = readField(intake.prefs || {}, ['gender_identity', 'gender']);
+  const pronouns = intake.customer?.pronouns;
+  const householdSummary = describeHousehold(intake);
   return {
     familyName,
     childName,
@@ -544,6 +901,10 @@ function buildPersonalization(intake: NormalizedIntake): PersonalizationContext 
     preferredFormat,
     personaTags,
     keywords,
+    soulTraits,
+    genderIdentity,
+    pronouns,
+    householdSummary,
   };
 }
 
@@ -600,18 +961,28 @@ export async function resolveMagnetBundlePlan(
     bestScore = 5;
   }
 
-  const requests = toRequests(best, personalization);
+  const personalizedBundle = personalizeBundle(best, {
+    soulTraits: personalization.soulTraits,
+    ageCohort: personalization.cohort,
+    genderIdentity: personalization.genderIdentity,
+    pronouns: personalization.pronouns,
+    householdSummary: personalization.householdSummary,
+  });
+
+  const requests = toRequests(personalizedBundle, personalization);
   const format = personalization.preferredFormat;
   const helpers = buildHelperTasks({
     format,
     personaTags: personalization.personaTags,
     keywords: personalization.keywords,
-    bundleName: best.name,
+    bundleName: personalizedBundle.name,
     iconCount: requests.length,
   });
 
-  return {
-    bundle: { ...best, source },
+  const bundleWithSource = { ...personalizedBundle, source };
+
+  const plan: MagnetBundlePlan = {
+    bundle: bundleWithSource,
     requests: requests.length ? requests : buildFallbackIconRequests(intake),
     helpers,
     personalization,
@@ -619,6 +990,10 @@ export async function resolveMagnetBundlePlan(
     format,
     source,
   };
+
+  await trackBundleLibraryVersion(bundleWithSource, personalization, opts);
+
+  return plan;
 }
 
 export async function persistBundlePlanArtifacts(
@@ -705,4 +1080,99 @@ export async function persistBundlePlanArtifacts(
   } catch (err) {
     console.warn('[magnet-bundles] unable to persist generated bundle artifacts:', err);
   }
+}
+
+export interface BundleMergeSection {
+  title: string;
+  category: string;
+  description?: string;
+  icons: BundleIconDefinition[];
+}
+
+export interface PrintableBundleSheet {
+  id: string;
+  name: string;
+  summary: string;
+  sections: BundleMergeSection[];
+}
+
+export interface ReusableBundleSuggestion {
+  bundle: StoredMagnetBundle & { source?: 'stored' | 'generated' | 'fallback' };
+  versionId: string;
+  score: number;
+  message: string;
+}
+
+export async function suggestReusableBundle(
+  profile: ReuseProfile,
+  opts: BundleModuleOptions = {}
+): Promise<ReusableBundleSuggestion | null> {
+  const libraryPath = opts.libraryPath || BUNDLE_LIBRARY_PATH;
+  const store = await loadBundleLibrary(libraryPath);
+  if (!store.bundles.length) return null;
+
+  let best: { entry: BundleLibraryEntry; version: BundleLibraryVersion; score: number } | null = null;
+  for (const entry of store.bundles) {
+    for (const version of entry.versions) {
+      const score = scoreLibraryMatch(entry, version, profile);
+      if (!best || score > best.score) {
+        best = { entry, version, score };
+      }
+    }
+  }
+
+  if (!best || best.score === 0) return null;
+
+  const householdNote = profile.householdSummary ? ` (${profile.householdSummary})` : '';
+  const message = `Found a ${best.entry.name}${householdNote ? householdNote : ''} bundle from your blueprint. Want to reuse or tweak it?`;
+
+  return {
+    bundle: best.version.bundle,
+    versionId: best.version.id,
+    score: best.score,
+    message,
+  };
+}
+
+export function mergeBundles(
+  bundles: StoredMagnetBundle[],
+  profile: PersonalizationProfile = {},
+  sheetName?: string
+): PrintableBundleSheet {
+  if (!Array.isArray(bundles) || !bundles.length) {
+    throw new Error('mergeBundles requires at least one bundle');
+  }
+
+  const personalizedBundles = bundles.map((bundle) => personalizeBundle(bundle, profile));
+  const traitTitle = buildTraitTitle(profile.soulTraits);
+  const defaultName = traitTitle ? `${traitTitle} Magnet Blend` : 'Custom Magnet Blend';
+  const name = sheetName || defaultName;
+  const summaryParts: string[] = [];
+  if (profile.householdSummary) summaryParts.push(`Household: ${profile.householdSummary}.`);
+  if (traitTitle) summaryParts.push(`Soul traits: ${traitTitle}.`);
+  const summary = summaryParts.join(' ') || 'Combined bundles for a single printable sheet.';
+
+  const seenIcons = new Set<string>();
+  const sections: BundleMergeSection[] = personalizedBundles.map((bundle) => {
+    const icons = bundle.icons.filter((icon) => {
+      if (!icon.slug) return true;
+      const key = icon.slug.toLowerCase();
+      if (seenIcons.has(key)) return false;
+      seenIcons.add(key);
+      return true;
+    });
+    return {
+      title: bundle.name,
+      category: bundle.category,
+      description: bundle.description,
+      icons,
+    };
+  });
+
+  return {
+    id: `merged-${slugify(`${name}-${Date.now()}`)}`,
+    name,
+    summary,
+    sections,
+  };
 }
