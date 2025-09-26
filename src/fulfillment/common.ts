@@ -62,6 +62,10 @@ export async function loadFulfillmentConfig(opts: LoadOptions = {}): Promise<Ful
     iconLibraryFolderId: fromBlob.iconLibraryFolderId || env.FULFILLMENT_ICON_LIBRARY_ID,
     resendFromEmail: fromBlob.resendFromEmail || env.RESEND_FROM_EMAIL,
     resendFromName: fromBlob.resendFromName || env.RESEND_FROM_NAME,
+    bundleLibrarySheetId:
+      fromBlob.bundleLibrarySheetId ||
+      env.MAGNET_BUNDLE_LIBRARY_SHEET_ID ||
+      env.BUNDLE_LIBRARY_SHEET_ID,
   };
 
   if (!config.driveRootId) {
