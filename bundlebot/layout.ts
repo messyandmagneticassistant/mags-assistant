@@ -4,6 +4,7 @@ import path from 'path';
 import crypto from 'crypto';
 
 import { getBrowserlessOptions } from '../src/clients/browserless';
+import { callGeminiJSON } from '../src/clients/gemini';
 
 type GridSize = `${number}x${number}`;
 
@@ -119,20 +120,144 @@ function buildGroupsWithHeuristics(icons: string[]): LayoutGroupPlan[] {
 
 async function callGeminiForLayoutPlan(request: BundleLayoutRequest, fallbackGroups: LayoutGroupPlan[]): Promise<LayoutPlan> {
   const iconCount = request.icons.length;
-  const { columns, rows } = coerceGridSize(request.gridSize, iconCount);
-
-  // TODO: Replace this heuristic block with an actual Gemini API call when credentials are available.
-  // Example:
-  // const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-  // const prompt = `Create an organized grid layout for these icons: ${request.icons.join(', ')}`;
-  // const result = await genAI.generativeModel({ model: 'gemini-1.5-pro' }).generateContent(prompt);
-  // Parse result to determine groupings, annotations, and layout suggestions.
-
-  return {
-    columns,
-    rows,
+  const baseGrid = coerceGridSize(request.gridSize, iconCount);
+  const fallbackPlan: LayoutPlan = {
+    ...baseGrid,
     groups: fallbackGroups,
     annotations: request.annotations && request.annotations.length > 0 ? request.annotations : undefined,
+  };
+
+  const prompt = buildGeminiPrompt(request, baseGrid);
+
+  try {
+    const rawPlan = await callGeminiJSON<GeminiLayoutPlan>(prompt, {
+      model: process.env.GEMINI_LAYOUT_MODEL || 'gemini-1.5-pro',
+      temperature: 0.35,
+    });
+
+    const normalized = normalizeGeminiPlan(rawPlan, fallbackPlan, request);
+    return normalized;
+  } catch (error) {
+    console.warn('[BundleBot] Gemini layout plan failed – falling back to heuristics:', error);
+    return fallbackPlan;
+  }
+}
+
+type GeminiLayoutPlan = {
+  columns?: number;
+  rows?: number;
+  groups?: Array<{
+    label?: string | null;
+    icons?: string[];
+  }>;
+  annotations?: string[];
+};
+
+function buildGeminiPrompt(request: BundleLayoutRequest, grid: { columns: number; rows: number }): string {
+  const iconList = request.icons.map((icon) => `- ${icon}`).join('\n');
+  const style = request.style ? `Preferred style: ${request.style}.` : '';
+  const theme = request.theme ? `Theme: ${request.theme}.` : 'Use a calm but legible palette if none specified.';
+  const annotationHint = request.annotations?.length
+    ? `These notes should appear as annotations: ${request.annotations.join(', ')}.`
+    : 'Include annotations only if they add clarity to the routine.';
+  const formatHint = request.format === 'pdf' ? 'The layout should print cleanly on letter-sized paper.' : '';
+
+  return `You are a layout designer generating printable magnet board layouts for Maggie. You will receive a list of icon labels and should group them into a meaningful grid for families.
+
+Instructions:
+- Only use the provided icon labels without changing their text.
+- Suggest a grid within ${grid.columns} columns by ${grid.rows} rows unless you have a better idea that still fits every icon.
+- Icons may be grouped by routine (Morning, School, Family, etc.). Add group labels if they are helpful, otherwise omit them.
+- Keep groups small (between 2 and 6 icons) and balanced.
+- Return strictly JSON following this schema:
+{
+  "columns": number,
+  "rows": number,
+  "groups": [
+    { "label": string | null, "icons": string[] }
+  ],
+  "annotations": string[] (optional)
+}
+
+Context:
+${style}
+${theme}
+${annotationHint}
+${formatHint}
+
+Icons to place (in order of preference):
+${iconList}
+
+Ensure every icon from the list appears exactly once in the groups. If you cannot improve the grouping, copy the provided order but keep the JSON structure.`;
+}
+
+function normalizeGeminiPlan(plan: GeminiLayoutPlan, fallback: LayoutPlan, request: BundleLayoutRequest): LayoutPlan {
+  if (!plan || typeof plan !== 'object') {
+    return fallback;
+  }
+
+  const allIcons = request.icons;
+  const seen = new Set<string>();
+  const normalizedGroups: LayoutGroupPlan[] = [];
+
+  if (Array.isArray(plan.groups)) {
+    for (const group of plan.groups) {
+      if (!group || !Array.isArray(group.icons)) continue;
+      const cleanedIcons = group.icons
+        .map((icon) => icon?.trim())
+        .filter((icon): icon is string => Boolean(icon) && allIcons.includes(icon) && !seen.has(icon));
+
+      if (cleanedIcons.length === 0) continue;
+
+      cleanedIcons.forEach((icon) => seen.add(icon));
+
+      const label = typeof group.label === 'string' && group.label.trim().length > 0 ? group.label.trim() : undefined;
+      normalizedGroups.push({ label, icons: cleanedIcons });
+    }
+  }
+
+  if (seen.size < allIcons.length) {
+    const leftovers = allIcons.filter((icon) => !seen.has(icon));
+
+    for (const icon of leftovers) {
+      const fallbackGroup = fallback.groups.find((group) => group.icons.includes(icon));
+      if (!fallbackGroup) continue;
+      let target = normalizedGroups.find((group) => group.label === fallbackGroup.label);
+      if (!target) {
+        target = { label: fallbackGroup.label, icons: [] };
+        normalizedGroups.push(target);
+      }
+      target.icons.push(icon);
+      seen.add(icon);
+    }
+  }
+
+  const hasValidGroups = normalizedGroups.length > 0 && normalizedGroups.some((group) => group.icons.length > 0);
+  if (!hasValidGroups || seen.size !== allIcons.length) {
+    return fallback;
+  }
+
+  const totalIcons = allIcons.length;
+  const suggestedColumns = Number(plan.columns);
+  const validColumns = Number.isFinite(suggestedColumns) && suggestedColumns > 0 && suggestedColumns <= 8
+    ? Math.floor(suggestedColumns)
+    : fallback.columns;
+
+  const suggestedRows = Number(plan.rows);
+  const minimumRows = Math.ceil(totalIcons / Math.max(1, validColumns));
+  const validRows = Number.isFinite(suggestedRows) && suggestedRows >= minimumRows
+    ? Math.floor(suggestedRows)
+    : Math.max(fallback.rows, minimumRows);
+
+  const annotations = Array.isArray(plan.annotations)
+    ? plan.annotations.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    : fallback.annotations;
+
+  return {
+    columns: validColumns,
+    rows: validRows,
+    groups: normalizedGroups,
+    annotations: annotations && annotations.length > 0 ? annotations : undefined,
   };
 }
 
