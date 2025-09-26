@@ -65,7 +65,8 @@ export interface IconAsset {
   description: string;
   url: string;
   fileId: string;
-  origin: 'library' | 'generated';
+  origin: 'library' | 'generated' | 'blank';
+  isBlank?: boolean;
 }
 
 export interface IconBundleResult {

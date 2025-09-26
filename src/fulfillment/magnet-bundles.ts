@@ -63,6 +63,37 @@ export interface MagnetIconRequest {
   description: string;
   tags: string[];
   tone: 'bright' | 'soft' | 'earthy';
+  isBlank?: boolean;
+}
+
+export interface BlankMagnetPlaceholder {
+  slug: string;
+  label: string;
+  description: string;
+  quantity: number;
+  tags: string[];
+  tone: MagnetIconRequest['tone'];
+}
+
+export interface MagnetBundleLayoutIcon {
+  slug: string;
+  label: string;
+  isBlank?: boolean;
+}
+
+export interface MagnetBundleLayoutSection {
+  title: string;
+  description?: string;
+  icons: MagnetBundleLayoutIcon[];
+}
+
+export interface MagnetBundleLayout {
+  id: string;
+  title: string;
+  summary: string;
+  format: MagnetFormat;
+  sections: MagnetBundleLayoutSection[];
+  notes?: string;
 }
 
 export interface HelperBotTask {
@@ -107,6 +138,8 @@ export interface MagnetBundlePlan {
   keywords: string[];
   format: MagnetFormat;
   source: 'stored' | 'generated' | 'fallback';
+  placeholders: BlankMagnetPlaceholder[];
+  layout?: MagnetBundleLayout;
 }
 
 interface BundleModuleOptions {
@@ -291,6 +324,412 @@ function applyHouseholdContext(
   if (!householdSummary) return text;
   if (text.toLowerCase().includes(householdSummary.toLowerCase())) return text;
   return `${text.trim()} ${fallbackPrefix} ${householdSummary}.`.replace(/\s+/g, ' ').trim();
+}
+
+const BLANK_CONFIG_KEYS = [
+  'blank_magnets',
+  'blankMagnets',
+  'blank_icons',
+  'blankIcons',
+  'blank_slots',
+  'blankSlots',
+  'blankRequests',
+  'blankPlaceholders',
+];
+
+const BLANK_COUNT_KEYS = [
+  'blank_magnet_count',
+  'blankMagnetCount',
+  'blank_count',
+  'blankCount',
+  'extra_blank_magnets',
+  'extraBlankMagnets',
+  'blank_slots_count',
+  'blankSlotsCount',
+];
+
+export interface NormalizeBlankOptions {
+  defaultLabel?: string;
+  defaultDescription?: string;
+  defaultTone?: MagnetIconRequest['tone'];
+  defaultTags?: string[];
+}
+
+function coerceBlankNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const match = value.match(/-?\d+/);
+    if (match) {
+      const parsed = Number.parseInt(match[0], 10);
+      if (!Number.isNaN(parsed)) {
+        return parsed;
+      }
+    }
+  }
+  return undefined;
+}
+
+function toArray<T>(value: T | T[] | undefined): T[] {
+  if (value === undefined || value === null) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+export function normalizeBlankConfig(
+  prefs: Record<string, any> | undefined,
+  options: NormalizeBlankOptions = {}
+): BlankMagnetPlaceholder[] {
+  if (!prefs) return [];
+
+  const defaults = {
+    label: options.defaultLabel?.trim() || 'Blank magnet',
+    description:
+      options.defaultDescription?.trim() || 'Intentionally left blank so the household can write in custom rhythms.',
+    tone: options.defaultTone || 'soft',
+    tags: (options.defaultTags && options.defaultTags.length
+      ? options.defaultTags
+      : ['blank'])
+      .map((tag) => (typeof tag === 'string' ? tag.trim().toLowerCase() : ''))
+      .filter(Boolean),
+  };
+  if (!defaults.tags.length) defaults.tags.push('blank');
+
+  const rawValues: unknown[] = [];
+  for (const key of BLANK_CONFIG_KEYS) {
+    const value = prefs[key];
+    if (value !== undefined && value !== null && value !== '') {
+      rawValues.push(value);
+    }
+  }
+
+  for (const key of BLANK_COUNT_KEYS) {
+    const count = coerceBlankNumber(prefs[key]);
+    if (count && count > 0) {
+      rawValues.push(count);
+    }
+  }
+
+  if (!rawValues.length) {
+    return [];
+  }
+
+  const placeholders: BlankMagnetPlaceholder[] = [];
+  const slugCounter = new Map<string, number>();
+  let placeholderIndex = 0;
+
+  const pushPlaceholder = (input: {
+    label?: string;
+    description?: string;
+    quantity?: number;
+    tone?: string;
+    tags?: unknown;
+    slug?: string;
+  }) => {
+    const quantityRaw = input.quantity ?? 1;
+    const quantityNumber = coerceBlankNumber(quantityRaw);
+    const safeQuantity = quantityNumber === undefined ? 1 : Math.abs(Math.round(quantityNumber));
+    if (!safeQuantity) return;
+
+    const label = input.label && typeof input.label === 'string' && input.label.trim()
+      ? input.label.trim()
+      : defaults.label;
+    const description = input.description && typeof input.description === 'string' && input.description.trim()
+      ? input.description.trim()
+      : defaults.description;
+
+    const toneRaw = typeof input.tone === 'string' ? input.tone.trim().toLowerCase() : '';
+    const tone: MagnetIconRequest['tone'] = toneRaw === 'bright' || toneRaw === 'earthy' ? (toneRaw as MagnetIconRequest['tone']) : defaults.tone;
+
+    const normalizedTags = new Set(defaults.tags);
+    const providedTags = Array.isArray(input.tags) ? input.tags : toArray(input.tags as any);
+    for (const tag of providedTags) {
+      if (typeof tag === 'string' && tag.trim()) {
+        normalizedTags.add(tag.trim().toLowerCase());
+      }
+    }
+    normalizedTags.add('blank');
+
+    const baseSlug =
+      input.slug && typeof input.slug === 'string' && input.slug.trim()
+        ? slugify(input.slug)
+        : slugify(`${label}-${placeholderIndex + 1}`) || `blank-magnet-${placeholderIndex + 1}`;
+
+    const duplicateCount = slugCounter.get(baseSlug) || 0;
+    slugCounter.set(baseSlug, duplicateCount + 1);
+    const slug = duplicateCount ? `${baseSlug}-${duplicateCount + 1}` : baseSlug;
+
+    placeholders.push({
+      slug,
+      label,
+      description,
+      quantity: safeQuantity,
+      tone,
+      tags: Array.from(normalizedTags),
+    });
+
+    placeholderIndex += 1;
+  };
+
+  const processValue = (value: unknown) => {
+    if (value === undefined || value === null || value === '') return;
+    if (Array.isArray(value)) {
+      value.forEach(processValue);
+      return;
+    }
+    if (typeof value === 'number') {
+      pushPlaceholder({ quantity: value });
+      return;
+    }
+    if (typeof value === 'boolean') {
+      if (value) pushPlaceholder({ quantity: 1 });
+      return;
+    }
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return;
+      const quantity = coerceBlankNumber(trimmed) ?? 1;
+      const labelCandidate = trimmed
+        .replace(/\d+x?/gi, ' ')
+        .replace(/blank(s)?/gi, ' ')
+        .replace(/[\-*]/g, ' ')
+        .trim();
+      const label = labelCandidate ? titleCase(labelCandidate) : undefined;
+      pushPlaceholder({ label, quantity });
+      return;
+    }
+    if (typeof value === 'object') {
+      const record = value as Record<string, any>;
+      const quantity =
+        coerceBlankNumber(record.count ?? record.quantity ?? record.qty ?? record.amount ?? record.total ?? record.number) ?? 1;
+      const label = typeof record.label === 'string' && record.label.trim()
+        ? record.label.trim()
+        : typeof record.name === 'string' && record.name.trim()
+        ? record.name.trim()
+        : undefined;
+      const description = typeof record.description === 'string' && record.description.trim()
+        ? record.description.trim()
+        : typeof record.note === 'string' && record.note.trim()
+        ? record.note.trim()
+        : undefined;
+      pushPlaceholder({
+        label,
+        description,
+        quantity,
+        tone: record.tone,
+        tags: record.tags ?? record.keywords,
+        slug: record.slug,
+      });
+    }
+  };
+
+  rawValues.forEach(processValue);
+
+  return placeholders;
+}
+
+function expandBlankRequests(placeholders: BlankMagnetPlaceholder[]): MagnetIconRequest[] {
+  const requests: MagnetIconRequest[] = [];
+  const slugCounter = new Map<string, number>();
+
+  for (const placeholder of placeholders) {
+    const baseSlug = placeholder.slug || slugify(`${placeholder.label}-blank`);
+    for (let index = 0; index < placeholder.quantity; index += 1) {
+      const existing = slugCounter.get(baseSlug) || 0;
+      slugCounter.set(baseSlug, existing + 1);
+      const slug = existing === 0 && placeholder.quantity === 1 ? baseSlug : `${baseSlug}-${existing + 1}`;
+      const label = placeholder.quantity > 1 ? `${placeholder.label} ${existing + 1}` : placeholder.label;
+      requests.push({
+        slug,
+        label,
+        description: placeholder.description,
+        tags: placeholder.tags.length ? placeholder.tags : ['blank'],
+        tone: placeholder.tone,
+        isBlank: true,
+      });
+    }
+  }
+
+  return requests;
+}
+
+function chunkArray<T>(items: T[], chunkSize: number): T[][] {
+  if (chunkSize <= 0) return [items];
+  const output: T[][] = [];
+  for (let i = 0; i < items.length; i += chunkSize) {
+    output.push(items.slice(i, i + chunkSize));
+  }
+  return output;
+}
+
+function fallbackBundleLayout(plan: MagnetBundlePlan): MagnetBundleLayout {
+  const nonBlank = plan.requests.filter((request) => !request.isBlank);
+  const blanks = plan.requests.filter((request) => request.isBlank);
+  const chunkSize = plan.format === 'printable' || plan.format === 'pdf' ? 9 : 6;
+  const sections: MagnetBundleLayoutSection[] = [];
+
+  if (nonBlank.length) {
+    const groups = chunkArray(nonBlank, chunkSize);
+    groups.forEach((group, index) => {
+      sections.push({
+        title: groups.length > 1 ? `Icon Set ${index + 1}` : plan.bundle.name,
+        description: index === 0 ? plan.bundle.description : undefined,
+        icons: group.map((icon) => ({ slug: icon.slug, label: icon.label, isBlank: icon.isBlank })),
+      });
+    });
+  }
+
+  if (blanks.length) {
+    sections.push({
+      title: 'Blank Magnets',
+      description: 'Intentionally empty slots reserved for handwriting or future icons.',
+      icons: blanks.map((icon) => ({ slug: icon.slug, label: icon.label, isBlank: true })),
+    });
+  }
+
+  if (!sections.length) {
+    sections.push({
+      title: plan.bundle.name,
+      description: plan.bundle.description,
+      icons: [],
+    });
+  }
+
+  const summaryParts: string[] = [];
+  if (plan.bundle.description) summaryParts.push(plan.bundle.description);
+  if (plan.personalization.householdSummary)
+    summaryParts.push(`Household: ${plan.personalization.householdSummary}.`);
+  if (plan.placeholders.length) summaryParts.push('Includes blank magnet placeholders for handwriting.');
+
+  const layoutId = `layout-${slugify(plan.bundle.id || plan.bundle.name || 'bundle')}`;
+
+  return {
+    id: layoutId,
+    title: plan.bundle.name,
+    summary: summaryParts.join(' ') || 'Layout for printable magnet sheet.',
+    format: plan.format,
+    sections,
+    notes: blanks.length ? 'Include blank magnet placeholders when preparing the printable sheet.' : undefined,
+  };
+}
+
+export async function generateBundleLayout(
+  intake: NormalizedIntake,
+  plan: MagnetBundlePlan,
+  _opts: BundleModuleOptions = {}
+): Promise<MagnetBundleLayout> {
+  const fallback = fallbackBundleLayout(plan);
+  const hasAiKey = Boolean(
+    process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY_GPT || process.env.MAGGIE_OPENAI_KEY
+  );
+  if (!hasAiKey) {
+    return fallback;
+  }
+  try {
+    const response = await chatJSON<{
+      title?: string;
+      summary?: string;
+      notes?: string;
+      sections?: Array<{
+        title?: string;
+        description?: string;
+        icons?: Array<{ slug?: string; label?: string; isBlank?: boolean }>;
+      }>;
+    }>(
+      "You are Maggie's magnet printable layout designer. Respond with clean JSON matching the schema {\"title\",\"summary\",\"notes?\",\"sections\":[{\"title\",\"description?\",\"icons\":[{\"slug\",\"label\",\"isBlank?\"}]}]}.",
+      `Bundle layout plan:${JSON.stringify(
+        {
+          bundle: {
+            id: plan.bundle.id,
+            name: plan.bundle.name,
+            category: plan.bundle.category,
+          },
+          format: plan.format,
+          intake: { tier: intake.tier, email: intake.email },
+          personalization: {
+            cohort: plan.personalization.cohort,
+            household: plan.personalization.householdSummary,
+            soulTraits: plan.personalization.soulTraits,
+          },
+          placeholders: plan.placeholders,
+          icons: plan.requests.map((request) => ({
+            slug: request.slug,
+            label: request.label,
+            description: request.description,
+            tags: request.tags,
+            tone: request.tone,
+            isBlank: Boolean(request.isBlank),
+          })),
+        },
+        null,
+        2
+      )}`
+    );
+
+    if (!response || !Array.isArray(response.sections) || !response.sections.length) {
+      return fallback;
+    }
+
+    const sanitizedSections: MagnetBundleLayoutSection[] = response.sections
+      .map((section, index) => {
+        const icons = Array.isArray(section.icons)
+          ? section.icons
+              .map((icon) => {
+                const slug = icon.slug?.trim();
+                const label = icon.label?.trim();
+                if (!slug || !label) return null;
+                return {
+                  slug,
+                  label,
+                  isBlank:
+                    icon.isBlank === true || plan.requests.some((request) => request.slug === slug && request.isBlank),
+                };
+              })
+              .filter((icon): icon is MagnetBundleLayoutIcon => Boolean(icon))
+          : [];
+        if (!icons.length) return null;
+        const title = section.title?.trim() || `Section ${index + 1}`;
+        const description = section.description?.trim() || undefined;
+        return { title, description, icons };
+      })
+      .filter((section): section is MagnetBundleLayoutSection => Boolean(section));
+
+    if (!sanitizedSections.length) return fallback;
+
+    const listedSlugs = new Set<string>();
+    for (const section of sanitizedSections) {
+      for (const icon of section.icons) {
+        listedSlugs.add(icon.slug);
+      }
+    }
+
+    const missingIcons = plan.requests.filter((request) => !listedSlugs.has(request.slug));
+    if (missingIcons.length) {
+      sanitizedSections.push({
+        title: 'Ungrouped Icons',
+        description: 'Automatically added icons to ensure the printable layout includes every magnet.',
+        icons: missingIcons.map((icon) => ({ slug: icon.slug, label: icon.label, isBlank: icon.isBlank })),
+      });
+    }
+
+    const layout: MagnetBundleLayout = {
+      id: fallback.id,
+      title: response.title?.trim() || fallback.title,
+      summary: response.summary?.trim() || fallback.summary,
+      format: plan.format,
+      sections: sanitizedSections,
+      notes: response.notes?.trim() || fallback.notes,
+    };
+
+    if (plan.placeholders.length && !layout.notes) {
+      layout.notes = 'Remember to include blank magnet placeholders when exporting the printable sheet.';
+    }
+
+    return layout;
+  } catch (err) {
+    console.warn('[magnet-bundles] failed to generate bundle layout:', err);
+    return fallback;
+  }
 }
 
 async function loadBundleLibrary(libraryPath: string): Promise<BundleLibraryStore> {
@@ -669,11 +1108,18 @@ function buildHelperTasks(plan: {
   keywords: string[];
   bundleName: string;
   iconCount: number;
+  blankCount?: number;
 }): HelperBotTask[] {
   const helpers: HelperBotTask[] = [];
+  const blankNote =
+    plan.blankCount && plan.blankCount > 0
+      ? ` (includes ${plan.blankCount} blank placeholder${plan.blankCount > 1 ? 's' : ''})`
+      : '';
   helpers.push({
     name: 'bundle-sorter',
-    instructions: `Tag ${plan.iconCount} icons for ${plan.bundleName} with persona keywords ${plan.personaTags.join(', ') || 'general'}.`,
+    instructions: `Tag ${plan.iconCount} icons${blankNote} for ${plan.bundleName} with persona keywords ${
+      plan.personaTags.join(', ') || 'general'
+    }.`,
     payload: { keywords: plan.keywords, personaTags: plan.personaTags },
   });
   if (plan.format === 'svg' || plan.format === 'svg-sheet') {
@@ -712,6 +1158,17 @@ function toRequests(
       tags: icon.tags || [],
       tone: icon.tone || 'soft',
     }));
+}
+
+function dedupeRequests(requests: MagnetIconRequest[]): MagnetIconRequest[] {
+  const seen = new Set<string>();
+  return requests.filter((request) => {
+    const key = request.slug?.toLowerCase();
+    if (!key) return false;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 export function buildFallbackIconRequests(intake: NormalizedIntake): MagnetIconRequest[] {
@@ -969,27 +1426,40 @@ export async function resolveMagnetBundlePlan(
     householdSummary: personalization.householdSummary,
   });
 
-  const requests = toRequests(personalizedBundle, personalization);
+  const placeholders = normalizeBlankConfig(intake.prefs || {}, {
+    defaultLabel: personalization.familyName ? `${personalization.familyName} Blank Magnet` : 'Blank Magnet',
+    defaultDescription: personalization.householdSummary
+      ? `Blank magnet reserved for ${personalization.householdSummary}.`
+      : 'Intentionally left blank so the household can write in custom rhythms.',
+  });
+  const blankRequests = expandBlankRequests(placeholders);
+  const personalizedRequests = toRequests(personalizedBundle, personalization);
+  const baseRequests = personalizedRequests.length ? personalizedRequests : buildFallbackIconRequests(intake);
+  const combinedRequests = dedupeRequests([...baseRequests, ...blankRequests]);
   const format = personalization.preferredFormat;
   const helpers = buildHelperTasks({
     format,
     personaTags: personalization.personaTags,
     keywords: personalization.keywords,
     bundleName: personalizedBundle.name,
-    iconCount: requests.length,
+    iconCount: combinedRequests.length,
+    blankCount: blankRequests.length,
   });
 
   const bundleWithSource = { ...personalizedBundle, source };
 
   const plan: MagnetBundlePlan = {
     bundle: bundleWithSource,
-    requests: requests.length ? requests : buildFallbackIconRequests(intake),
+    requests: combinedRequests,
     helpers,
     personalization,
     keywords: personalization.keywords,
     format,
     source,
+    placeholders,
   };
+
+  plan.layout = await generateBundleLayout(intake, plan, opts);
 
   await trackBundleLibraryVersion(bundleWithSource, personalization, opts);
 

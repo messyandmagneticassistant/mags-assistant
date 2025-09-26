@@ -104,6 +104,27 @@ describe('magnet bundle plan', () => {
     expect(labels.some((label) => label.includes('garcia'))).toBe(true);
   });
 
+  it('includes blank magnet placeholders when requested', async () => {
+    const intake: NormalizedIntake = {
+      ...baseIntake(),
+      prefs: {
+        blank_magnets: 2,
+      },
+    };
+
+    const plan = await resolveMagnetBundlePlan(intake, {
+      runtimePath,
+      allowPersistence: false,
+      libraryPath,
+    });
+
+    const blanks = plan.requests.filter((req) => req.isBlank);
+    expect(blanks.length).toBe(2);
+    expect(plan.placeholders.length).toBeGreaterThan(0);
+    expect(plan.layout).toBeDefined();
+    expect(plan.layout?.sections.some((section) => /blank/i.test(section.title))).toBe(true);
+  });
+
   it('personalizes a bundle name with soul traits and household summary', () => {
     const bundle = {
       id: 'morning-reset',

@@ -20,6 +20,7 @@ interface LibraryMatch {
 }
 
 function findLibraryMatch(request: MagnetIconRequest, library: LibraryMatch[]): LibraryMatch | null {
+  if (request.isBlank) return null;
   const slugMatch = library.find((icon) => icon.slug === request.slug);
   if (slugMatch) return slugMatch;
   const tagMatch = library.find((icon) => {
@@ -89,6 +90,7 @@ function buildManifest(
       fileId: icon.fileId,
       url: icon.url,
       origin: icon.origin,
+      isBlank: icon.isBlank || false,
     })),
   };
 }
@@ -115,6 +117,19 @@ export async function buildIconBundle(
   const icons: IconAsset[] = [];
 
   for (const request of requests) {
+    if (request.isBlank) {
+      icons.push({
+        slug: request.slug,
+        name: request.label,
+        description: request.description,
+        url: '',
+        fileId: '',
+        origin: 'blank',
+        isBlank: true,
+      });
+      continue;
+    }
+
     const match = findLibraryMatch(request, library);
     if (match?.fileId) {
       const copy = await drive.files.copy({
@@ -132,6 +147,7 @@ export async function buildIconBundle(
         url: copy.data.webViewLink || match.url || '',
         fileId: copy.data.id || '',
         origin: 'library',
+        isBlank: false,
       });
       continue;
     }
@@ -153,6 +169,7 @@ export async function buildIconBundle(
       url: created.data.webViewLink || '',
       fileId: created.data.id || '',
       origin: 'generated',
+      isBlank: false,
     });
   }
 
