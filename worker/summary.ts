@@ -103,6 +103,79 @@ function formatPercent(value: number | null | undefined): string {
   return `${clamped}%`;
 }
 
+function mapHealthState(state: unknown): string {
+  if (typeof state !== 'string') return '❔';
+  const normalized = state.toLowerCase();
+  if (normalized === 'ok' || normalized === 'pass' || normalized === 'healthy') return '✅';
+  if (normalized === 'fail' || normalized === 'error' || normalized === 'critical') return '❌';
+  if (normalized === 'warn' || normalized === 'warning') return '⚠️';
+  return '❔';
+}
+
+function summarizeHealth(state: any): { tally: string; stripe: string } {
+  const result = { tally: '❔', stripe: '❔' };
+  if (!state || typeof state !== 'object') {
+    return result;
+  }
+
+  const autonomy = (state as any).autonomy;
+  const sources: unknown[] = [];
+  if (autonomy && typeof autonomy === 'object') {
+    if (Array.isArray((autonomy as any).checks)) {
+      sources.push((autonomy as any).checks);
+    }
+    if (Array.isArray((autonomy as any).history)) {
+      for (const entry of (autonomy as any).history as any[]) {
+        if (entry && typeof entry === 'object' && Array.isArray((entry as any).checks)) {
+          sources.push((entry as any).checks);
+        }
+      }
+    }
+  }
+
+  for (const source of sources) {
+    if (!Array.isArray(source)) continue;
+    for (const check of source) {
+      if (!check || typeof check !== 'object') continue;
+      const key = typeof (check as any).key === 'string' ? (check as any).key.toLowerCase() : '';
+      if (key !== 'tally' && key !== 'stripe') continue;
+      const symbol = mapHealthState((check as any).state);
+      if (key === 'tally' && result.tally === '❔') {
+        result.tally = symbol;
+      } else if (key === 'stripe' && result.stripe === '❔') {
+        result.stripe = symbol;
+      }
+    }
+    if (result.tally !== '❔' && result.stripe !== '❔') {
+      break;
+    }
+  }
+
+  return result;
+}
+
+function summarizeFlopRecoveries(state: any): number {
+  const autonomy = state && typeof state === 'object' ? (state as any).autonomy : undefined;
+  const history = autonomy && typeof autonomy === 'object' && Array.isArray((autonomy as any).history)
+    ? ((autonomy as any).history as any[])
+    : [];
+  for (const entry of history) {
+    if (!entry || typeof entry !== 'object') continue;
+    const actions = Array.isArray((entry as any).actions) ? ((entry as any).actions as any[]) : [];
+    for (const action of actions) {
+      if (typeof action !== 'string') continue;
+      const match = action.match(/flops?\s+recovered\s*[:\-]?\s*(\d+)/i);
+      if (match) {
+        const value = Number(match[1]);
+        if (Number.isFinite(value)) {
+          return value;
+        }
+      }
+    }
+  }
+  return 0;
+}
+
 function findWebsiteProgress(projects: OpenProjectSummary[]): number | null {
   for (const project of projects) {
     const name = project.name.toLowerCase();
@@ -132,12 +205,18 @@ export async function maybeSendDailySummary(env: Env, now = new Date()): Promise
   const trends = summarizeTrends(scheduler.topTrends);
   const taskLines = buildTaskLines(scheduler.currentTasks);
   const backfillLine = describeBackfill((scheduler.runtime as any).backfill, now);
+  const health = summarizeHealth(state);
+  const recoveredFlops = summarizeFlopRecoveries(state);
 
   const websiteProgress = findWebsiteProgress(projects);
   const messageLines = [
     '🌆 Daily Recap',
     `🕕 6pm Mountain (${now.toISOString()})`,
-    `🔥 Top trends: ${trends}`,
+    `🧠 Tally quiz: ${health.tally}`,
+    `💸 Stripe: ${health.stripe}`,
+    `🎵 TikTok: ${scheduler.scheduledPosts} scheduled`,
+    `♻️ Flops recovered: ${recoveredFlops}`,
+    `🔥 Trends: ${trends}`,
     `📬 Post queue: ${scheduler.scheduledPosts} scheduled, ${scheduler.retryQueue} retries`,
     `🌐 Website build: ${formatPercent(websiteProgress)}`,
     `📋 Open projects: ${projects.length}`,
