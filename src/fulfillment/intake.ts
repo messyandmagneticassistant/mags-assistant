@@ -1,11 +1,16 @@
 import Stripe from 'stripe';
-import { loadSkuMap, validateEmail, splitName, loadFulfillmentConfig } from './common';
-import type { NormalizedIntake, CustomerProfile, FulfillmentTier } from './types';
+import { loadSkuMap, validateEmail, splitName, loadFulfillmentConfig, type SkuDefinition } from './common';
+import type { NormalizedIntake, CustomerProfile, FulfillmentTier, FulfillmentMode } from './types';
 import { sendEmail } from '../../utils/email';
 
 type StripeSession = Stripe.Checkout.Session & {
   line_items?: Stripe.ApiList<Stripe.LineItem>;
 };
+
+const ADD_ON_KEYWORDS: Array<{ key: string; patterns: RegExp[] }> = [
+  { key: 'extra_icons', patterns: [/extra\s*icon/, /icon\s*pack/, /extra\s*icons?\s*pack/] },
+  { key: 'bonus system', patterns: [/bonus\s*system/, /bonus\s*routine/, /bonus\s*kit/, /bonus\s*pack/] },
+];
 
 interface MissingFieldNotice {
   email?: string;
@@ -20,6 +25,59 @@ function normalizeTier(input?: string | null): FulfillmentTier | undefined {
   if (value.includes('lite')) return 'lite';
   if (value.includes('full')) return 'full';
   return undefined;
+}
+
+function normalizeFulfillmentType(value?: unknown): FulfillmentMode | undefined {
+  if (!value) return undefined;
+  if (Array.isArray(value)) {
+    for (const part of value) {
+      const normalized = normalizeFulfillmentType(part);
+      if (normalized) return normalized;
+    }
+    return undefined;
+  }
+  const text = String(value).toLowerCase();
+  if (!text.trim()) return undefined;
+  if (text.includes('cricut')) return 'cricut-ready';
+  if (text.includes('physical') || text.includes('magnet') || text.includes('mail')) return 'physical';
+  if (text.includes('print') || text.includes('download') || text.includes('digital')) return 'digital';
+  return undefined;
+}
+
+function isTruthy(value: unknown): boolean {
+  if (value === true) return true;
+  if (value === false || value === null || value === undefined) return false;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    return ['true', 'yes', 'y', '1', 'on', 'selected', 'checked'].includes(normalized);
+  }
+  return false;
+}
+
+function collectAddOnsFromValue(value: unknown, addOns: Set<string>): void {
+  if (value === undefined || value === null) return;
+  if (Array.isArray(value)) {
+    for (const part of value) collectAddOnsFromValue(part, addOns);
+    return;
+  }
+  const text = String(value).toLowerCase();
+  for (const def of ADD_ON_KEYWORDS) {
+    if (def.patterns.some((pattern) => pattern.test(text))) {
+      addOns.add(def.key);
+    }
+  }
+}
+
+function collectAddOnsFromHint(key: string, value: unknown, addOns: Set<string>): void {
+  const lowerKey = key.toLowerCase();
+  if (lowerKey.includes('extra_icon') || lowerKey.includes('icon_pack')) {
+    if (isTruthy(value) || typeof value === 'string') addOns.add('extra_icons');
+  }
+  if (lowerKey.includes('bonus') || lowerKey.includes('system_addon') || lowerKey.includes('bonus_system')) {
+    if (isTruthy(value) || typeof value === 'string') addOns.add('bonus system');
+  }
+  collectAddOnsFromValue(value, addOns);
 }
 
 async function requestMissingInfo(intake: MissingFieldNotice, configEmail?: { fromEmail?: string; fromName?: string }) {
@@ -104,18 +162,60 @@ function buildCustomerProfile(session: StripeSession): CustomerProfile {
   return profile;
 }
 
-function deriveTierFromLineItems(lineItems: Stripe.LineItem[], skuMap: Record<string, { tier?: string; addOns?: string[] }>) {
+function detectAddOnsFromMetadata(
+  metadata: Stripe.Metadata | Record<string, any> | undefined | null,
+  addOns: Set<string>
+): void {
+  if (!metadata) return;
+  for (const [key, value] of Object.entries(metadata)) {
+    collectAddOnsFromHint(key, value, addOns);
+  }
+}
+
+function resolveSkuMapping(key: string | undefined, skuMap: Record<string, SkuDefinition>): SkuDefinition | undefined {
+  if (!key) return undefined;
+  return skuMap[key] || skuMap[key.toLowerCase()] || skuMap[key.toUpperCase()];
+}
+
+function deriveTierFromLineItems(lineItems: Stripe.LineItem[], skuMap: Record<string, SkuDefinition>) {
   let tier: FulfillmentTier | undefined;
+  let fulfillmentType: FulfillmentMode | undefined;
   const addOns = new Set<string>();
+
   for (const item of lineItems) {
     const priceId = item.price?.id;
-    if (!priceId) continue;
-    const mapping = skuMap[priceId];
-    if (!mapping) continue;
-    if (!tier && mapping.tier) tier = normalizeTier(mapping.tier) || tier;
-    for (const addOn of mapping.addOns || []) addOns.add(addOn);
+    const product = item.price?.product;
+    const productId = typeof product === 'string' ? product : product?.id;
+
+    const mappings: Array<SkuDefinition | undefined> = [
+      resolveSkuMapping(priceId, skuMap),
+      resolveSkuMapping(productId, skuMap),
+    ];
+    for (const mapping of mappings) {
+      if (!mapping) continue;
+      if (!tier && mapping.tier) tier = normalizeTier(mapping.tier) || tier;
+      for (const addOn of mapping.addOns || []) addOns.add(addOn);
+      if (!fulfillmentType && mapping.fulfillmentType) fulfillmentType = mapping.fulfillmentType;
+    }
+
+    if (!fulfillmentType) {
+      const metadataType =
+        (typeof product === 'object' && product
+          ? normalizeFulfillmentType((product as Stripe.Product).metadata?.fulfillment_type || product.name)
+          : undefined) ||
+        normalizeFulfillmentType(item.price?.nickname) ||
+        normalizeFulfillmentType(item.description);
+      if (metadataType) fulfillmentType = metadataType;
+    }
+
+    detectAddOnsFromMetadata(item.price?.metadata, addOns);
+    detectAddOnsFromMetadata((item as any)?.metadata, addOns);
+    if (typeof product === 'object' && product) {
+      detectAddOnsFromMetadata((product as Stripe.Product).metadata, addOns);
+    }
   }
-  return { tier, addOns: Array.from(addOns) };
+
+  return { tier, addOns: Array.from(addOns), fulfillmentType };
 }
 
 function buildPrefsFromMetadata(metadata: Stripe.Metadata | null | undefined): Record<string, any> {
@@ -127,6 +227,68 @@ function buildPrefsFromMetadata(metadata: Stripe.Metadata | null | undefined): R
     prefs[normalizedKey] = value;
   }
   return prefs;
+}
+
+function detectFulfillmentFromPrefs(
+  prefs: Record<string, any>,
+  addOns: Set<string>
+): { fulfillmentType?: FulfillmentMode } {
+  let fulfillmentType: FulfillmentMode | undefined;
+  const fulfillmentKeys = [
+    'fulfillment_type',
+    'delivery_preference',
+    'delivery_option',
+    'magnet_kit_type',
+    'kit_type',
+    'format_choice',
+    'bundle_type',
+    'magnet_delivery',
+  ];
+  for (const key of fulfillmentKeys) {
+    if (fulfillmentType) break;
+    if (prefs[key] !== undefined) {
+      fulfillmentType = normalizeFulfillmentType(prefs[key]);
+    }
+  }
+  for (const [key, value] of Object.entries(prefs)) {
+    collectAddOnsFromHint(key, value, addOns);
+  }
+  return { fulfillmentType };
+}
+
+function detectFulfillmentFromAnswers(
+  data: Record<string, any>,
+  mapping?: SkuDefinition
+): { fulfillmentType?: FulfillmentMode; addOns: string[] } {
+  const addOns = new Set<string>();
+  let fulfillmentType = mapping?.fulfillmentType;
+  if (mapping?.addOns) {
+    for (const addOn of mapping.addOns) addOns.add(addOn);
+  }
+
+  const candidateKeys = [
+    'fulfillment_type',
+    'delivery_preference',
+    'delivery_option',
+    'magnet_kit_type',
+    'kit_type',
+    'format',
+    'format_choice',
+    'magnet_delivery',
+    'bundle_type',
+  ];
+  for (const key of candidateKeys) {
+    if (fulfillmentType) break;
+    if (data[key] !== undefined) {
+      fulfillmentType = normalizeFulfillmentType(data[key]);
+    }
+  }
+
+  for (const [key, value] of Object.entries(data)) {
+    collectAddOnsFromHint(key, value, addOns);
+  }
+
+  return { fulfillmentType, addOns: Array.from(addOns) };
 }
 
 async function loadStripeClient(stripe?: Stripe): Promise<Stripe> {
@@ -153,7 +315,11 @@ export async function normalizeFromStripe(
   })) as StripeSession;
 
   const lineItems = session.line_items?.data || [];
-  const { tier: mappedTier, addOns } = deriveTierFromLineItems(lineItems, skuMap);
+  const {
+    tier: mappedTier,
+    addOns: lineAddOns,
+    fulfillmentType: lineFulfillment,
+  } = deriveTierFromLineItems(lineItems, skuMap);
 
   const metadataTier = normalizeTier((session.metadata?.tier as string) || session.metadata?.package || '');
   const tier = mappedTier || metadataTier;
@@ -162,6 +328,15 @@ export async function normalizeFromStripe(
   const prefs = buildPrefsFromMetadata(session.metadata);
   if (session.customer_details?.phone) prefs.phone = session.customer_details.phone;
   if (session.customer_details?.address) prefs.address = session.customer_details.address;
+
+  const addOns = new Set<string>(lineAddOns);
+  detectAddOnsFromMetadata(session.metadata, addOns);
+  const { fulfillmentType: prefsFulfillment } = detectFulfillmentFromPrefs(prefs, addOns);
+  const metadataFulfillment =
+    normalizeFulfillmentType(session.metadata?.fulfillment_type) ||
+    normalizeFulfillmentType(session.metadata?.delivery_preference) ||
+    normalizeFulfillmentType(session.metadata?.bundle_type);
+  const fulfillmentType = lineFulfillment || metadataFulfillment || prefsFulfillment || 'digital';
 
   const customer = buildCustomerProfile(session);
   const ageCohort = deriveAgeCohortFromData({
@@ -173,7 +348,8 @@ export async function normalizeFromStripe(
     source: 'stripe',
     email,
     tier: tier || 'lite',
-    addOns,
+    addOns: Array.from(addOns),
+    fulfillmentType,
     prefs,
     customer,
     referenceId: session.id,
@@ -305,8 +481,8 @@ export async function normalizeFromTally(
   const productId = data.productId || data.product_id || data.price_id;
   const mapping = productId ? skuMap[String(productId)] : undefined;
   const tier = tierFromField || normalizeTier(mapping?.tier || '');
-  const addOns = new Set<string>();
-  for (const addOn of mapping?.addOns || []) addOns.add(addOn);
+  const fulfillmentHints = detectFulfillmentFromAnswers(data, mapping);
+  const addOns = new Set<string>(fulfillmentHints.addOns);
   const schedulePrefs = parseHousehold(data);
 
   const name = data.name || `${data.first_name || ''} ${data.last_name || ''}`.trim();
@@ -326,6 +502,9 @@ export async function normalizeFromTally(
     prefs[key] = value;
   }
 
+  const { fulfillmentType: prefsFulfillment } = detectFulfillmentFromPrefs(prefs, addOns);
+  const fulfillmentType = fulfillmentHints.fulfillmentType || prefsFulfillment || 'digital';
+
   const ageCohort = deriveAgeCohortFromData(data);
   const expansions = tier === 'full' ? ['advanced-esoteric'] : [];
 
@@ -334,6 +513,7 @@ export async function normalizeFromTally(
     email,
     tier: tier || 'lite',
     addOns: Array.from(addOns),
+    fulfillmentType,
     prefs,
     customer,
     referenceId: payload?.submissionId || payload?.eventId,

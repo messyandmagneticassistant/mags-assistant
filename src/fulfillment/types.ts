@@ -19,11 +19,14 @@ export interface CustomerProfile {
   householdMembers?: string[];
 }
 
+export type FulfillmentMode = 'digital' | 'physical' | 'cricut-ready';
+
 export interface NormalizedIntake {
   source: 'stripe' | 'tally';
   email: string;
   tier: FulfillmentTier;
   addOns: string[];
+  fulfillmentType?: FulfillmentMode;
   prefs: Record<string, any>;
   customer: CustomerProfile;
   /**
@@ -98,8 +101,17 @@ export interface ScheduleResult {
 }
 
 export interface DeliveryReceipt {
-  channel: 'email' | 'zoho';
+  channel: 'email' | 'zoho' | 'telegram';
   id?: string;
+  target?: string;
+}
+
+export type FulfillmentOutputType = 'document' | 'pdf' | 'icons' | 'schedule' | 'asset';
+
+export interface FulfillmentOutput {
+  label: string;
+  url: string;
+  type: FulfillmentOutputType;
 }
 
 export interface FulfillmentWorkspace {
@@ -137,6 +149,7 @@ export interface FulfillmentRecord {
   icons: IconBundleResult;
   schedule: ScheduleResult;
   delivery: DeliveryReceipt[];
+  outputs: FulfillmentOutput[];
   workspace: FulfillmentWorkspace;
 }
 
@@ -147,4 +160,5 @@ export interface OrderSummary {
   message: string;
   completedAt: string;
   files: string[];
+  metadata?: Record<string, any>;
 }

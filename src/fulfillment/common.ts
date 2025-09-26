@@ -4,11 +4,23 @@ import type { drive_v3 } from 'googleapis';
 import { getDrive, getDocs, getSheets } from '../../lib/google';
 import { getSecrets } from '../config';
 import { appendRows } from '../../lib/google';
-import { NormalizedIntake, FulfillmentConfig, FulfillmentWorkspace, OrderSummary } from './types';
+import {
+  NormalizedIntake,
+  FulfillmentConfig,
+  FulfillmentWorkspace,
+  OrderSummary,
+  FulfillmentMode,
+} from './types';
 import { tgSend } from '../lib/telegram';
 
 let cachedConfig: FulfillmentConfig | null = null;
-let cachedSkuMap: Record<string, { tier?: string; addOns?: string[] }> | null = null;
+export interface SkuDefinition {
+  tier?: string;
+  addOns?: string[];
+  fulfillmentType?: FulfillmentMode;
+}
+
+let cachedSkuMap: Record<string, SkuDefinition> | null = null;
 let cachedIconLibrary: IconLibraryEntry[] | null = null;
 
 interface IconLibraryEntry {
@@ -78,7 +90,7 @@ export async function loadFulfillmentConfig(opts: LoadOptions = {}): Promise<Ful
   return config;
 }
 
-export async function loadSkuMap(): Promise<Record<string, { tier?: string; addOns?: string[] }>> {
+export async function loadSkuMap(): Promise<Record<string, SkuDefinition>> {
   if (cachedSkuMap) return cachedSkuMap;
   const filePath = path.resolve(process.cwd(), 'config', 'sku-map.json');
   try {
@@ -193,8 +205,25 @@ export async function appendFulfillmentLog(
     const utc = new Date(summary.completedAt).toISOString();
     const local = new Date(summary.completedAt).toLocaleString('en-US', { timeZone: 'America/Denver' });
     const files = summary.files.join('\n');
-    await appendRows(config.sheetId, 'Fulfillment!A2:G', [
-      [utc, local, intake.email, intake.tier, summary.message, files, summary.status],
+    const fulfillmentType = summary.metadata?.fulfillment_type || intake.fulfillmentType || '';
+    const metadataAddOns = summary.metadata?.add_ons;
+    const addOns = Array.isArray(metadataAddOns)
+      ? metadataAddOns.join(', ')
+      : (intake.addOns || []).join(', ');
+    const fulfillmentStatus = summary.metadata?.bundle_fulfillment || '';
+    await appendRows(config.sheetId, 'Fulfillment!A2:J', [
+      [
+        utc,
+        local,
+        intake.email,
+        intake.tier,
+        summary.message,
+        files,
+        summary.status,
+        fulfillmentType,
+        addOns,
+        fulfillmentStatus,
+      ],
     ]);
   } catch (err) {
     console.warn('[fulfillment.log] failed to append to sheet:', err);
@@ -225,4 +254,4 @@ export async function recordOrderSummary(summary: OrderSummary): Promise<void> {
   } catch {}
 }
 
-export type { IconLibraryEntry };
+export type { IconLibraryEntry, SkuDefinition };
