@@ -1,6 +1,7 @@
 import type { Env } from './lib/env';
 import { loadState, saveState, sendTelegram } from './lib/state';
 import { getSchedulerSnapshot, stopSchedulers, wakeSchedulers, tickScheduler } from './scheduler';
+import { getOpenProjects } from './progress';
 
 interface TelegramChat {
   id?: number | string;
@@ -168,9 +169,40 @@ async function handleHelp(env: Env): Promise<void> {
       '/status – JSON summary of tasks + trends',
       '/wake – restart automation loop',
       '/stop – pause schedulers (Telegram stays live)',
+      '/projects – list active project pipelines',
       '/help – show this help',
     ].join('\n')
   );
+}
+
+function formatTimestamp(value?: string): string {
+  if (!value) return 'unknown';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  const hours = String(date.getUTCHours()).padStart(2, '0');
+  const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day} ${hours}:${minutes} UTC`;
+}
+
+async function handleProjects(env: Env): Promise<void> {
+  const projects = await getOpenProjects(env);
+  if (!projects.length) {
+    await sendTelegram(env, 'No active projects right now.');
+    return;
+  }
+  const lines: string[] = ['📋 Active Projects:'];
+  for (const project of projects) {
+    const currentStep = project.currentStep?.trim() || 'Not started yet';
+    const started = formatTimestamp(project.startedAt);
+    lines.push(`• ${project.name}`);
+    lines.push(`  • Current: ${currentStep}`);
+    lines.push(`  • Started: ${started}`);
+    lines.push(`  • Steps completed: ${project.stepsCompleted}`);
+  }
+  await sendTelegram(env, lines.join('\n'));
 }
 
 async function acknowledgeText(env: Env, text: string): Promise<void> {
@@ -199,6 +231,8 @@ export async function handleTelegramUpdate(update: TelegramUpdate, env: Env, ori
       await handleStop(env);
     } else if (command === '/help') {
       await handleHelp(env);
+    } else if (command === '/projects') {
+      await handleProjects(env);
     } else if (command === '/summary') {
       await handleStatus(env);
     } else {

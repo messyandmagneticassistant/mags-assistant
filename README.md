@@ -16,6 +16,7 @@ Use the private Telegram bot to control Maggie without touching GitHub:
 - `/status` &mdash; returns a JSON snapshot of the current task queue, retry loop, and top trends.
 - `/wake` &mdash; restarts every scheduler (social loop, funnels, cleanup) and re-pings the website/TikTok builders. This replaces the old manual Codex triggers.
 - `/stop` &mdash; gracefully pauses the schedulers while keeping Telegram online for status checks.
+- `/projects` &mdash; shows in-progress project pipelines with their current step and progress.
 - `/help` &mdash; lists the available controls.
 
 Maggie now keeps the Telegram webhook registered automatically, so the bot stays live 24/7 without running `scripts/runTelegram.ts`.
