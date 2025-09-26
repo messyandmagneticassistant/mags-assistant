@@ -10,7 +10,7 @@
   "scripts": {
     "lint": "eslint . --fix || echo lint ok",
     "format": "prettier --write .",
-    "test": "node -e \"const fs=require('fs');fs.mkdirSync('docs',{recursive:true});const p='docs/.brain.md';if(!fs.existsSync(p))fs.writeFileSync(p,'');\" && eslint src/fundraising --no-error-on-unmatched-pattern && vitest run tests/testBrain.test.ts tests/brain-watch.test.ts tests/fundraising.test.ts",
+    "test": "node -e \"const fs=require('fs');fs.mkdirSync('docs',{recursive:true});const p='docs/.brain.md';if(!fs.existsSync(p))fs.writeFileSync(p,'');\" && eslint src/fundraising --no-error-on-unmatched-pattern && vitest run tests/testBrain.test.ts tests/brain-watch.test.ts tests/fundraising.test.ts tests/magnet-bundles.test.ts",
     "build": "echo build ok",
     "typecheck": "tsc -v || echo ok",
     "ci:build": "pnpm install --no-frozen-lockfile && pnpm run build",

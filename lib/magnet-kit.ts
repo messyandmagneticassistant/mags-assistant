@@ -2,7 +2,14 @@ import path from 'path';
 import { promises as fs } from 'fs';
 import { createCustomIconSheet } from '../utils/icon-generator';
 
-export type MagnetFormat = 'pdf' | 'svg' | 'vinyl';
+export type MagnetFormat =
+  | 'pdf'
+  | 'svg'
+  | 'vinyl'
+  | 'printable'
+  | 'cling'
+  | 'digital'
+  | 'svg-sheet';
 
 interface MagnetKitOptions {
   userId: string;
@@ -20,7 +27,7 @@ export async function createMagnetKit(opts: MagnetKitOptions) {
   await fs.mkdir(baseDir, { recursive: true });
 
   const sheetLink = await createCustomIconSheet(userId, icons);
-  const ext = format === 'pdf' ? 'pdf' : 'svg';
+  const ext = format === 'pdf' || format === 'printable' ? 'pdf' : 'svg';
   const file = path.join(baseDir, `magnet-kit.${ext}`);
   await fs.writeFile(file, `Generated from ${sheetLink}`);
 
