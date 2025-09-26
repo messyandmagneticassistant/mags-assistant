@@ -5,8 +5,71 @@ export interface OpenProjectSummary {
   name: string;
   startedAt?: string;
   stepsCompleted: number;
+  totalSteps: number;
   currentStep?: string;
+  percentComplete: number;
+  id?: string;
 }
+
+export type MilestoneKey = 'website' | 'tally' | 'stripe' | 'social';
+
+type ProgressEventMap = {
+  'project-update': {
+    env: Env;
+    project: OpenProjectSummary;
+    previous?: OpenProjectSummary;
+  };
+  'step-advanced': {
+    env: Env;
+    project: OpenProjectSummary;
+    previous: OpenProjectSummary;
+  };
+  'milestone-complete': {
+    env: Env;
+    project: OpenProjectSummary;
+    previous?: OpenProjectSummary;
+    milestone: MilestoneKey;
+  };
+};
+
+type Listener<T> = (payload: T) => void | Promise<void>;
+
+class ProgressEventEmitter {
+  private listeners = new Map<keyof ProgressEventMap, Set<Listener<any>>>();
+
+  on<K extends keyof ProgressEventMap>(event: K, listener: Listener<ProgressEventMap[K]>): void {
+    if (!this.listeners.has(event)) {
+      this.listeners.set(event, new Set());
+    }
+    this.listeners.get(event)!.add(listener as Listener<any>);
+  }
+
+  off<K extends keyof ProgressEventMap>(event: K, listener: Listener<ProgressEventMap[K]>): void {
+    const bucket = this.listeners.get(event);
+    if (!bucket) return;
+    bucket.delete(listener as Listener<any>);
+    if (!bucket.size) {
+      this.listeners.delete(event);
+    }
+  }
+
+  emit<K extends keyof ProgressEventMap>(event: K, payload: ProgressEventMap[K]): void {
+    const bucket = this.listeners.get(event);
+    if (!bucket || !bucket.size) return;
+    for (const listener of bucket) {
+      try {
+        const result = listener(payload);
+        if (result && typeof (result as Promise<void>).then === 'function') {
+          (result as Promise<void>).catch((err) => console.warn('[progress] listener failed', err));
+        }
+      } catch (err) {
+        console.warn('[progress] listener threw', err);
+      }
+    }
+  }
+}
+
+export const progressEvents = new ProgressEventEmitter();
 
 type RawProject = Record<string, unknown>;
 
@@ -37,12 +100,23 @@ function coerceISO(value: unknown): string | undefined {
 }
 
 function coerceName(project: RawProject): string | undefined {
-  const fields = ['name', 'title', 'id', 'slug'];
+  const fields = ['name', 'title', 'label'];
   for (const key of fields) {
     const raw = project[key];
     if (typeof raw === 'string') {
       const trimmed = raw.trim();
       if (trimmed) return trimmed;
+    }
+  }
+  return undefined;
+}
+
+function coerceId(project: RawProject): string | undefined {
+  const fields = ['id', 'slug', 'key', 'identifier'];
+  for (const key of fields) {
+    const raw = project[key];
+    if (typeof raw === 'string' && raw.trim()) {
+      return raw.trim();
     }
   }
   return undefined;
@@ -124,8 +198,25 @@ function normalizeProject(project: RawProject): OpenProjectSummary | undefined {
   const startedAt = coerceISO(project.startedAt ?? project.createdAt ?? project.openedAt);
   const steps = normalizeSteps(project);
   const explicitCount = typeof project.stepsCompleted === 'number' ? project.stepsCompleted : undefined;
+  const explicitTotal =
+    typeof project.totalSteps === 'number'
+      ? project.totalSteps
+      : typeof project.stepsTotal === 'number'
+      ? project.stepsTotal
+      : typeof project.total === 'number'
+      ? project.total
+      : undefined;
   let stepsCompleted = explicitCount ?? 0;
+  let totalSteps = typeof explicitTotal === 'number' && Number.isFinite(explicitTotal) ? explicitTotal : 0;
   let currentStep: string | undefined = typeof project.currentStep === 'string' ? project.currentStep.trim() || undefined : undefined;
+  let percentComplete =
+    typeof project.percentComplete === 'number'
+      ? project.percentComplete
+      : typeof project.percent === 'number'
+      ? project.percent
+      : typeof project.progress === 'number'
+      ? project.progress
+      : 0;
   if (steps.length) {
     let counted = 0;
     let lastLabel: string | undefined;
@@ -137,16 +228,37 @@ function normalizeProject(project: RawProject): OpenProjectSummary | undefined {
     if (!stepsCompleted) {
       stepsCompleted = counted || steps.length;
     }
+    if (!totalSteps) {
+      totalSteps = steps.length;
+    }
     if (!currentStep) {
       currentStep = lastLabel;
     }
   }
+  if (!totalSteps) {
+    totalSteps = typeof project.steps === 'number' ? project.steps : 0;
+  }
   if (!stepsCompleted) stepsCompleted = 0;
+  if (totalSteps && stepsCompleted > totalSteps) {
+    totalSteps = stepsCompleted;
+  }
+  if (!Number.isFinite(percentComplete) || percentComplete < 0) {
+    percentComplete = 0;
+  }
+  if (percentComplete > 100) {
+    percentComplete = 100;
+  }
+  if (!percentComplete && totalSteps > 0) {
+    percentComplete = Math.min(100, Math.round((stepsCompleted / totalSteps) * 100));
+  }
   return {
     name,
     startedAt,
     stepsCompleted,
+    totalSteps,
     currentStep,
+    percentComplete,
+    id: coerceId(project),
   };
 }
 
@@ -157,6 +269,52 @@ function collectProjects(progress: MaybeProjects): RawProject[] {
     return toArray(progress);
   }
   return [];
+}
+
+const SNAPSHOTS = new WeakMap<Env, Map<string, OpenProjectSummary>>();
+
+function snapshotKey(project: OpenProjectSummary): string {
+  return `${project.id ?? project.name}|${project.startedAt ?? ''}`;
+}
+
+function detectMilestone(project: OpenProjectSummary): MilestoneKey | undefined {
+  const text = `${project.name} ${project.currentStep ?? ''}`.toLowerCase();
+  if (text.includes('stripe')) return 'stripe';
+  if (text.includes('tally')) return 'tally';
+  if (text.includes('website') || text.includes('site build') || text.includes('web build')) return 'website';
+  if (text.includes('social') || text.includes('content batch') || text.includes('social push')) return 'social';
+  return undefined;
+}
+
+function trackProgress(env: Env, projects: OpenProjectSummary[]): void {
+  const previous = SNAPSHOTS.get(env);
+  const nextSnapshot = new Map<string, OpenProjectSummary>();
+  for (const project of projects) {
+    nextSnapshot.set(snapshotKey(project), project);
+  }
+  if (!previous) {
+    SNAPSHOTS.set(env, nextSnapshot);
+    return;
+  }
+  for (const [key, project] of nextSnapshot) {
+    const prev = previous.get(key);
+    if (!prev) continue;
+    if (project.stepsCompleted !== prev.stepsCompleted || project.percentComplete !== prev.percentComplete) {
+      progressEvents.emit('project-update', { env, project, previous: prev });
+      if (project.stepsCompleted > prev.stepsCompleted) {
+        progressEvents.emit('step-advanced', { env, project, previous: prev });
+      }
+      const milestone = detectMilestone(project);
+      if (milestone) {
+        const completed = prev.percentComplete < 100 && project.percentComplete >= 100;
+        const advanced = project.stepsCompleted > prev.stepsCompleted;
+        if (completed || (milestone === 'social' && advanced)) {
+          progressEvents.emit('milestone-complete', { env, project, previous: prev, milestone });
+        }
+      }
+    }
+  }
+  SNAPSHOTS.set(env, nextSnapshot);
 }
 
 export async function getOpenProjects(env: Env): Promise<OpenProjectSummary[]> {
@@ -193,5 +351,6 @@ export async function getOpenProjects(env: Env): Promise<OpenProjectSummary[]> {
     const bTime = b.startedAt ? new Date(b.startedAt).getTime() : 0;
     return aTime - bTime;
   });
+  trackProgress(env, normalized);
   return normalized;
 }

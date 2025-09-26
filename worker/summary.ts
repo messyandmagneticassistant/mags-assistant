@@ -2,6 +2,7 @@ import type { Env } from './lib/env';
 import { loadState, saveState, sendTelegram, normalizeTrends } from './lib/state';
 import type { SchedulerSnapshot } from './scheduler';
 import { getSchedulerSnapshot } from './scheduler';
+import { getOpenProjects, type OpenProjectSummary } from './progress';
 
 interface SummaryMeta {
   lastSentAt?: string;
@@ -9,7 +10,19 @@ interface SummaryMeta {
 }
 
 const SUMMARY_KEY = 'summaryMeta';
-const TARGET_UTC_HOUR = 23; // 5pm Albuquerque
+
+function isSixPmMountain(date: Date): boolean {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Denver',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(date);
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value || '0');
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value || '0');
+  return hour === 18 && minute === 0;
+}
 
 function getDayKey(date: Date): string {
   return new Intl.DateTimeFormat('en-CA', {
@@ -84,6 +97,22 @@ function summarizeTrends(trends: ReturnType<typeof normalizeTrends>): string {
     .join(', ');
 }
 
+function formatPercent(value: number | null | undefined): string {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 'n/a';
+  const clamped = Math.min(100, Math.max(0, Math.round(value)));
+  return `${clamped}%`;
+}
+
+function findWebsiteProgress(projects: OpenProjectSummary[]): number | null {
+  for (const project of projects) {
+    const name = project.name.toLowerCase();
+    if (name.includes('website') || name.includes('site build') || name.includes('web build')) {
+      return project.percentComplete;
+    }
+  }
+  return null;
+}
+
 export async function maybeSendDailySummary(env: Env, now = new Date()): Promise<boolean> {
   const state = await loadState(env);
   const meta = (state as any)[SUMMARY_KEY] as SummaryMeta | undefined;
@@ -93,33 +122,31 @@ export async function maybeSendDailySummary(env: Env, now = new Date()): Promise
     return false;
   }
 
-  const hour = now.getUTCHours();
-  if (hour !== TARGET_UTC_HOUR) {
+  if (!isSixPmMountain(now)) {
     return false;
   }
 
   const scheduler: SchedulerSnapshot = await getSchedulerSnapshot(env);
-  const socialQueue = {
-    scheduled: Array.isArray((state as any).scheduledPosts) ? (state as any).scheduledPosts.length : 0,
-    flopsRetry: Array.isArray((state as any).flopRetries) ? (state as any).flopRetries.length : 0,
-    nextPost: Array.isArray((state as any).scheduledPosts) ? (state as any).scheduledPosts[0] : null,
-  };
+  const projects = await getOpenProjects(env);
 
   const trends = summarizeTrends(scheduler.topTrends);
   const taskLines = buildTaskLines(scheduler.currentTasks);
   const backfillLine = describeBackfill((scheduler.runtime as any).backfill, now);
 
-  const message =
-    '📊 Daily Summary\n' +
-    'Live on Telegram ✅\n' +
-    `🕔 5pm Albuquerque (${now.toISOString()})\n` +
-    `🧩 Active tasks:\n${taskLines}\n` +
-    `${backfillLine}\n` +
-    `🌐 Website: ${(state as any).website || 'https://messyandmagnetic.com'}\n` +
-    `📅 Social queue: ${socialQueue.scheduled} scheduled, ${socialQueue.flopsRetry} retries\n` +
-    `🔥 Trends: ${trends}`;
+  const websiteProgress = findWebsiteProgress(projects);
+  const messageLines = [
+    '🌆 Daily Recap',
+    `🕕 6pm Mountain (${now.toISOString()})`,
+    `🔥 Top trends: ${trends}`,
+    `📬 Post queue: ${scheduler.scheduledPosts} scheduled, ${scheduler.retryQueue} retries`,
+    `🌐 Website build: ${formatPercent(websiteProgress)}`,
+    `📋 Open projects: ${projects.length}`,
+    '',
+    `🧩 Active tasks:\n${taskLines}`,
+    backfillLine,
+  ];
 
-  await sendTelegram(env, message);
+  await sendTelegram(env, messageLines.join('\n'));
 
   (state as any)[SUMMARY_KEY] = {
     lastSentAt: now.toISOString(),
