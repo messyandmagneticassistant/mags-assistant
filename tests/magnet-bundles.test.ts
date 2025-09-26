@@ -45,6 +45,8 @@ describe('magnet bundle plan', () => {
     const labels = plan.requests.map((r) => r.label);
     expect(labels.some((label) => /Morning Basket/i.test(label))).toBe(true);
     expect(plan.helpers.some((helper) => helper.name === 'bundle-sorter')).toBe(true);
+    const blankRequests = plan.requests.filter((req) => req.slug.startsWith('blank-fill-in'));
+    expect(blankRequests.length).toBeGreaterThanOrEqual(2);
   });
 
   it('falls back to baseline icons when no bundle matches and AI is unavailable', async () => {
@@ -59,6 +61,7 @@ describe('magnet bundle plan', () => {
 
     expect(plan.requests.length).toBeGreaterThan(0);
     expect(plan.source).toBe('fallback');
+    expect(plan.requests.some((req) => req.slug.startsWith('blank-fill-in'))).toBe(true);
   });
 
   it('personalizes labels when family name is provided', async () => {

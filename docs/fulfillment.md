@@ -17,6 +17,7 @@ This module automates readings and rhythm kits from intake through delivery. It 
 3. **Icon bundle (`src/fulfillment/icons.ts`)**
    - Reads `config/icon-library.json` to reuse existing icons whenever possible.
    - For missing slots, generates a simple SVG icon aligned to the requested tone and saves it to `/icons/` in the Drive workspace.
+   - Adds 2–3 "Write Your Own" blank magnets (up to 10 when configured) with dashed borders whenever the bundle's `include_blanks` toggle is enabled.
    - Produces a `manifest.json` that lists every icon, origin (library vs generated), and Drive links.
 
 4. **Schedule kit (`src/fulfillment/schedule.ts`)**
@@ -28,7 +29,7 @@ This module automates readings and rhythm kits from intake through delivery. It 
    - Exports PDFs for each doc into `/schedule/`.
 
 5. **Delivery (`src/fulfillment/deliver.ts`)**
-   - Sends a human email via Resend/Zoho that links to the doc, PDF, schedule folder, and icon bundle. Tone stays warm and simple (no AI tells).
+   - Sends a human email via Resend/Zoho that links to the doc, PDF, schedule folder, and icon bundle (highlighting the included blank magnets). Tone stays warm and simple (no AI tells).
 
 6. **Runner (`src/fulfillment/runner.ts`)**
    - `runOrder(orderRef)` orchestrates intake → blueprint → icons → schedule → deliver.

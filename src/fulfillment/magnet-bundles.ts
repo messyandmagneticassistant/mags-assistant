@@ -45,6 +45,14 @@ export interface BundleIconDefinition {
   templates?: Record<string, string>;
 }
 
+export interface BlankIconConfig {
+  enabled?: boolean;
+  count?: number;
+  defaultCount?: number;
+  minCount?: number;
+  maxCount?: number;
+}
+
 export interface StoredMagnetBundle {
   id: string;
   name: string;
@@ -54,6 +62,7 @@ export interface StoredMagnetBundle {
   personaTags?: MagnetPersonaTag[];
   keywords?: string[];
   icons: BundleIconDefinition[];
+  includeBlanks?: BlankIconConfig;
   source?: 'stored' | 'generated';
 }
 
@@ -103,6 +112,36 @@ const RUNTIME_BUNDLE_PATH = path.resolve(process.cwd(), 'data', 'generated-magne
 
 interface BundleStoreShape {
   bundles?: StoredMagnetBundle[];
+}
+
+interface RawStoredBundle extends Record<string, any> {
+  include_blanks?: Record<string, any>;
+  includeBlanks?: Record<string, any>;
+}
+
+function normalizeBlankConfig(config: any): BlankIconConfig | undefined {
+  if (!config || typeof config !== 'object') return undefined;
+  const normalized: BlankIconConfig = {
+    enabled: config.enabled !== false,
+  };
+  if (typeof config.count === 'number') normalized.count = config.count;
+  if (typeof config.defaultCount === 'number') normalized.defaultCount = config.defaultCount;
+  if (typeof config.default_count === 'number') normalized.defaultCount = config.default_count;
+  if (typeof config.minCount === 'number') normalized.minCount = config.minCount;
+  if (typeof config.min_count === 'number') normalized.minCount = config.min_count;
+  if (typeof config.maxCount === 'number') normalized.maxCount = config.maxCount;
+  if (typeof config.max_count === 'number') normalized.maxCount = config.max_count;
+  return normalized;
+}
+
+function normalizeStoredBundle(bundle: RawStoredBundle): StoredMagnetBundle {
+  const { include_blanks, includeBlanks, ...rest } = bundle || {};
+  const normalized = { ...rest } as StoredMagnetBundle;
+  const blanks = normalizeBlankConfig(includeBlanks ?? include_blanks);
+  if (blanks) {
+    normalized.includeBlanks = blanks;
+  }
+  return normalized;
 }
 
 function readField(data: Record<string, any>, keys: string[]): string | undefined {
@@ -223,8 +262,8 @@ async function loadBundles(opts: BundleModuleOptions = {}): Promise<StoredMagnet
   try {
     const raw = await fs.readFile(staticPath, 'utf8');
     const parsed: BundleStoreShape = JSON.parse(raw || '{}');
-    staticBundles = Array.isArray(parsed.bundles) ? parsed.bundles : [];
-    staticBundles = staticBundles.map((bundle) => ({ ...bundle, source: 'stored' }));
+    const rawBundles = Array.isArray(parsed.bundles) ? parsed.bundles : [];
+    staticBundles = rawBundles.map((bundle) => normalizeStoredBundle({ ...bundle, source: 'stored' }));
   } catch (err) {
     console.warn('[magnet-bundles] failed to read static bundle store:', err);
   }
@@ -232,10 +271,10 @@ async function loadBundles(opts: BundleModuleOptions = {}): Promise<StoredMagnet
   try {
     const raw = await fs.readFile(runtimePath, 'utf8');
     const parsed = JSON.parse(raw || '[]');
-    runtimeBundles = (Array.isArray(parsed) ? parsed : parsed.bundles || []).map((bundle) => ({
-      ...bundle,
-      source: bundle.source || 'generated',
-    }));
+    const rawBundles = Array.isArray(parsed) ? parsed : parsed.bundles || [];
+    runtimeBundles = rawBundles.map((bundle: RawStoredBundle) =>
+      normalizeStoredBundle({ ...bundle, source: bundle.source || 'generated' })
+    );
   } catch (err) {
     // runtime store optional
   }
@@ -479,6 +518,36 @@ export function buildFallbackIconRequests(intake: NormalizedIntake): MagnetIconR
   return requests;
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function buildBlankIconRequests(config?: BlankIconConfig): MagnetIconRequest[] {
+  if (config?.enabled === false) return [];
+  const min = typeof config?.minCount === 'number' ? Math.max(0, Math.floor(config.minCount)) : 2;
+  const maxBase = typeof config?.maxCount === 'number' ? Math.max(min, Math.floor(config.maxCount)) : 10;
+  const max = maxBase > 10 ? 10 : maxBase;
+  const hasExplicitCount = typeof config?.count === 'number';
+  const desired = hasExplicitCount
+    ? Math.floor(config!.count!)
+    : Math.floor(config?.defaultCount ?? (min > 3 ? min : 3));
+  const bounded = hasExplicitCount ? clamp(desired, 0, max) : clamp(Math.max(desired, min), min, max);
+  if (bounded <= 0) return [];
+  const count = bounded;
+  const requests: MagnetIconRequest[] = [];
+  for (let i = 1; i <= count; i += 1) {
+    const multiple = count > 1;
+    requests.push({
+      slug: multiple ? `blank-fill-in-${i}` : 'blank-fill-in',
+      label: multiple ? `Write Your Own ${i}` : 'Write Your Own',
+      description: 'Intentionally blank magnet so you can add your own routine or reminder.',
+      tags: ['blank', 'custom'],
+      tone: 'soft',
+    });
+  }
+  return requests;
+}
+
 async function generateBundleWithAI(
   intake: NormalizedIntake,
   personalization: PersonalizationContext,
@@ -593,6 +662,7 @@ export async function resolveMagnetBundlePlan(
       personaTags: personalization.personaTags,
       keywords: personalization.keywords,
       formats: [personalization.preferredFormat, 'svg'],
+      includeBlanks: { enabled: true },
       source: 'stored',
     };
     best = bundle;
@@ -600,7 +670,14 @@ export async function resolveMagnetBundlePlan(
     bestScore = 5;
   }
 
-  const requests = toRequests(best, personalization);
+  const iconRequests = toRequests(best, personalization);
+  const blankRequests = buildBlankIconRequests(best.includeBlanks);
+  const combinedRequests = [...iconRequests, ...blankRequests];
+  const fallbackWithBlanks = [
+    ...buildFallbackIconRequests(intake),
+    ...(!iconRequests.length ? buildBlankIconRequests(best.includeBlanks) : []),
+  ];
+  const requests = combinedRequests.length ? combinedRequests : fallbackWithBlanks;
   const format = personalization.preferredFormat;
   const helpers = buildHelperTasks({
     format,
@@ -612,7 +689,7 @@ export async function resolveMagnetBundlePlan(
 
   return {
     bundle: { ...best, source },
-    requests: requests.length ? requests : buildFallbackIconRequests(intake),
+    requests,
     helpers,
     personalization,
     keywords: personalization.keywords,

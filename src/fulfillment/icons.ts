@@ -42,7 +42,25 @@ function paletteForTone(tone: MagnetIconRequest['tone']) {
   }
 }
 
+function isBlankRequest(request: MagnetIconRequest): boolean {
+  return request.slug.startsWith('blank-fill-in') || /write your own/i.test(request.label);
+}
+
+function generateBlankSvgIcon(): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <rect x="24" y="24" width="464" height="464" rx="48" fill="#ffffff" stroke="#9aa3b1" stroke-width="16" stroke-dasharray="28 20" fill-opacity="0.92" />
+  <g>
+    <text x="256" y="230" font-family="'Poppins', 'Arial', sans-serif" font-size="48" fill="#6b7280" text-anchor="middle" font-weight="600">Write</text>
+    <text x="256" y="300" font-family="'Poppins', 'Arial', sans-serif" font-size="48" fill="#6b7280" text-anchor="middle" font-weight="600">Your Own</text>
+  </g>
+</svg>`;
+}
+
 function generateSvgIcon(request: MagnetIconRequest): string {
+  if (isBlankRequest(request)) {
+    return generateBlankSvgIcon();
+  }
   const palette = paletteForTone(request.tone);
   const text = request.label.replace(/[^a-zA-Z0-9 ]/g, '').slice(0, 18);
   return `<?xml version="1.0" encoding="UTF-8"?>

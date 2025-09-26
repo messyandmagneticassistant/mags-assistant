@@ -8,6 +8,12 @@
       "formats": ["svg", "printable", "cling", "digital"],
       "personaTags": ["solo mom", "adhd support", "household"],
       "keywords": ["laundry", "kitchen", "reset", "evening"],
+      "include_blanks": {
+        "enabled": true,
+        "default_count": 3,
+        "min_count": 2,
+        "max_count": 10
+      },
       "icons": [
         {
           "slug": "sunrise-anchor",
@@ -47,6 +53,12 @@
       "formats": ["svg", "printable", "vinyl", "digital"],
       "personaTags": ["neurodivergent child", "sensory", "calm"],
       "keywords": ["breath", "body", "hydrate"],
+      "include_blanks": {
+        "enabled": true,
+        "default_count": 3,
+        "min_count": 2,
+        "max_count": 10
+      },
       "icons": [
         {
           "slug": "sunrise-anchor",
@@ -82,6 +94,12 @@
       "formats": ["svg", "printable", "cling", "digital"],
       "personaTags": ["family", "homeschool", "toddler"],
       "keywords": ["morning basket", "play", "cleanup"],
+      "include_blanks": {
+        "enabled": true,
+        "default_count": 3,
+        "min_count": 2,
+        "max_count": 10
+      },
       "icons": [
         {
           "slug": "family-circle",
@@ -117,6 +135,12 @@
       "formats": ["svg", "printable", "vinyl", "digital"],
       "personaTags": ["premium", "full", "deep"],
       "keywords": ["all-in-one", "full kit", "deep dive"],
+      "include_blanks": {
+        "enabled": true,
+        "default_count": 3,
+        "min_count": 2,
+        "max_count": 10
+      },
       "icons": [
         {
           "slug": "sunrise-anchor",
