@@ -93,7 +93,15 @@ export interface BundleBotLayoutRequest {
   instructions: string;
 }
 
-export interface BundleBotFeedbackPrep {
+export interface BlankMagnetPlaceholder {
+  slug: string;
+  label: string;
+  description: string;
+  tone?: 'bright' | 'soft' | 'earthy';
+  tags?: string[];
+}
+
+export interface BundleBotFeedbackRequest {
   createQr: boolean;
   headline?: string;
   prompt?: string;
@@ -104,7 +112,7 @@ export interface BundleBotResponse {
   bundle: StoredMagnetBundle;
   layoutRequest: BundleBotLayoutRequest;
   suggestedName: string;
-  feedback?: BundleBotFeedbackPrep;
+  feedback?: BundleBotFeedbackRequest;
   helperNotes?: string;
 }
 
@@ -120,6 +128,10 @@ export interface PersonalizationContext {
   genderIdentity?: string;
   pronouns?: string;
   householdSummary?: string;
+  includeBlankMagnets?: boolean;
+  defaultLabel?: string;
+  defaultDescription?: string;
+  blankPlaceholders?: Array<Partial<BlankMagnetPlaceholder>>;
 }
 
 export interface PersonalizationProfile {
@@ -144,8 +156,9 @@ export interface MagnetBundlePlan {
   keywords: string[];
   format: MagnetFormat;
   source: 'stored' | 'generated' | 'fallback';
+  placeholders?: BlankMagnetPlaceholder[];
   layoutRequest?: BundleBotLayoutRequest;
-  feedbackRequest?: BundleBotFeedbackPrep;
+  feedbackRequest?: BundleBotFeedbackRequest;
   helperNotes?: string;
 }
 
@@ -616,20 +629,37 @@ function summarizeLibraries(bundles: StoredMagnetBundle[]) {
   }));
 }
 
-function normalizeLayoutResponse(layout?: Partial<BundleBotLayoutRequest>): BundleBotLayoutRequest {
-  const rawFormat = typeof layout?.format === 'string' ? layout.format.toLowerCase() : undefined;
-  const format = rawFormat === 'pdf' ? 'pdf' : 'svg';
+function normalizeLayoutRequest(
+  layout?: Partial<BundleBotLayoutRequest> | MagnetFormat,
+): BundleBotLayoutRequest {
+  if (!layout) {
+    return {
+      format: 'svg',
+      instructions: 'Prepare Cricut-ready SVG sheet (12x12) with bleed-safe margins and 0.125in spacing.',
+    };
+  }
+
+  if (typeof layout === 'string') {
+    return normalizeLayoutRequest({ format: layout });
+  }
+
+  const rawFormat = typeof layout.format === 'string' ? layout.format.toLowerCase() : undefined;
+  const format: BundleBotLayoutRequest['format'] =
+    rawFormat === 'pdf' || rawFormat === 'printable' ? 'pdf' : 'svg';
   const defaultInstructions =
     format === 'pdf'
       ? 'Lay out printable PDF sheet in US Letter and A4 with crop marks and bundle title header.'
       : 'Prepare Cricut-ready SVG sheet (12x12) with bleed-safe margins and 0.125in spacing.';
+
   return {
     format,
-    instructions: layout?.instructions?.trim() || defaultInstructions,
+    instructions: layout.instructions?.trim() || defaultInstructions,
   };
 }
 
-function toFeedbackPrep(feedback?: BundleBotFeedbackPrep | null): BundleBotFeedbackPrep | undefined {
+function toFeedbackPrep(
+  feedback?: BundleBotFeedbackRequest | null,
+): BundleBotFeedbackRequest | undefined {
   if (!feedback) return undefined;
   return {
     createQr: !!feedback.createQr,
@@ -670,7 +700,7 @@ export async function spawnBundleBot(
     };
     layout?: BundleBotLayoutRequest;
     suggestedName?: string;
-    feedback?: BundleBotFeedbackPrep;
+    feedback?: BundleBotFeedbackRequest;
     helperNotes?: string;
   }>(systemPrompt, `Context:${JSON.stringify(payload)}`, {
     temperature: 0.25,
@@ -693,7 +723,7 @@ export async function spawnBundleBot(
     tone: icon.tone || 'soft',
   }));
 
-  const layoutRequest = normalizeLayoutResponse(response.layout);
+  const layoutRequest = normalizeLayoutRequest(response.layout);
   const formatCandidates: MagnetFormat[] = [];
   if (request.preferredFormat) formatCandidates.push(request.preferredFormat);
   if (layoutRequest.format === 'pdf') {
@@ -850,12 +880,24 @@ function buildHelperTasks(plan: {
   keywords: string[];
   bundleName: string;
   iconCount: number;
+  blankCount: number;
 }): HelperBotTask[] {
   const helpers: HelperBotTask[] = [];
+  const blankNote =
+    plan.blankCount > 0
+      ? ` (includes ${plan.blankCount} blank${plan.blankCount === 1 ? '' : 's'})`
+      : '';
   helpers.push({
     name: 'bundle-sorter',
-    instructions: `Tag ${plan.iconCount} icons for ${plan.bundleName} with persona keywords ${plan.personaTags.join(', ') || 'general'}.`,
-    payload: { keywords: plan.keywords, personaTags: plan.personaTags },
+    instructions: `Tag ${plan.iconCount} icons${blankNote} for ${plan.bundleName} with persona keywords ${
+      plan.personaTags.join(', ') || 'general'
+    }.`,
+    payload: {
+      keywords: plan.keywords,
+      personaTags: plan.personaTags,
+      iconCount: plan.iconCount,
+      blankCount: plan.blankCount,
+    },
   });
   if (plan.format === 'svg' || plan.format === 'svg-sheet') {
     helpers.push({
@@ -1013,7 +1055,7 @@ export function buildFallbackIconRequests(intake: NormalizedIntake): MagnetIconR
   return requests;
 }
 
-function shouldIncludeBlankMagnets(intake: NormalizedIntake): boolean {
+function detectBlankMagnetPreference(intake: NormalizedIntake): boolean {
   const addOns = intake.addOns || [];
   if (addOns.some((addon) => addon.toLowerCase().includes('blank'))) {
     return true;
@@ -1040,17 +1082,141 @@ function shouldIncludeBlankMagnets(intake: NormalizedIntake): boolean {
   return false;
 }
 
-function buildBlankMagnetRequests(personalization: PersonalizationContext): MagnetIconRequest[] {
-  const householdLabel = personalization.familyName ? `${titleCase(personalization.familyName)} family` : 'Household';
-  return [
-    {
-      slug: 'blank-rhythm-magnet',
-      label: 'Blank rhythm magnet',
-      description: `Open space magnet so the ${householdLabel} can write their own rhythm reminder.`,
-      tags: ['blank', 'custom'],
-      tone: 'soft',
-    },
+function parseBlankPlaceholderSource(
+  source: unknown,
+): Array<Partial<BlankMagnetPlaceholder>> {
+  if (!source) return [];
+  if (Array.isArray(source)) {
+    return source
+      .map((entry) => {
+        if (!entry) return null;
+        if (typeof entry === 'string') {
+          const label = entry.trim();
+          return label ? { label } : null;
+        }
+        if (typeof entry === 'object') {
+          return entry as Partial<BlankMagnetPlaceholder>;
+        }
+        return null;
+      })
+      .filter((entry): entry is Partial<BlankMagnetPlaceholder> => Boolean(entry));
+  }
+
+  if (typeof source === 'string') {
+    const trimmed = source.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      return parseBlankPlaceholderSource(parsed);
+    } catch (err) {
+      /* noop */
+    }
+    return trimmed
+      .split(/[\n,]/)
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((label) => ({ label }));
+  }
+
+  if (typeof source === 'object') {
+    return Object.entries(source as Record<string, any>)
+      .map(([slug, value]) => {
+        if (!value) return null;
+        if (typeof value === 'string') {
+          return { slug, label: value };
+        }
+        if (typeof value === 'object') {
+          return { slug, ...(value as Partial<BlankMagnetPlaceholder>) };
+        }
+        return null;
+      })
+      .filter((entry): entry is Partial<BlankMagnetPlaceholder> => Boolean(entry));
+  }
+
+  return [];
+}
+
+function collectBlankPlaceholderInputs(
+  intake: NormalizedIntake,
+): Array<Partial<BlankMagnetPlaceholder>> {
+  const prefs = intake.prefs || {};
+  const sources = [
+    (prefs as any).blankPlaceholders,
+    (prefs as any).blank_placeholders,
+    (prefs as any).blankMagnets,
+    (prefs as any).blank_magnets,
   ];
+  const placeholders: Array<Partial<BlankMagnetPlaceholder>> = [];
+  for (const source of sources) {
+    placeholders.push(...parseBlankPlaceholderSource(source));
+  }
+  const seen = new Set<string>();
+  return placeholders.filter((placeholder) => {
+    const key = `${placeholder.slug || ''}:${placeholder.label || ''}`.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function normalizeBlankPlaceholders(options: {
+  placeholders?: Array<Partial<BlankMagnetPlaceholder>>;
+  defaultLabel: string;
+  defaultDescription: string;
+}): BlankMagnetPlaceholder[] {
+  const provided = options.placeholders?.length ? options.placeholders : [{}];
+  const seen = new Set<string>();
+  return provided.map((placeholder, index) => {
+    const label = placeholder.label?.toString().trim() || options.defaultLabel;
+    const description = placeholder.description?.toString().trim() || options.defaultDescription;
+    const slugSeed = placeholder.slug?.toString().trim() || (label ? slugify(label) : '');
+    let baseSlug = slugSeed || `blank-${index + 1}`;
+    if (!baseSlug.startsWith('blank-')) {
+      const trimmedSeed = slugSeed.replace(/^blank-?/, '');
+      baseSlug = trimmedSeed ? `blank-${trimmedSeed}` : `blank-${index + 1}`;
+    }
+    let slug = baseSlug || `blank-${index + 1}`;
+    let attempt = 1;
+    while (seen.has(slug)) {
+      slug = `${baseSlug}-${attempt++}`;
+    }
+    seen.add(slug);
+    const tags = new Set<string>(['blank']);
+    for (const tag of placeholder.tags || []) {
+      if (typeof tag === 'string' && tag.trim()) {
+        tags.add(tag.trim());
+      }
+    }
+    return {
+      slug,
+      label,
+      description,
+      tone: placeholder.tone || 'soft',
+      tags: Array.from(tags),
+    };
+  });
+}
+
+export function buildBlankRequests(
+  placeholders: BlankMagnetPlaceholder[],
+  include?: (placeholder: BlankMagnetPlaceholder) => boolean,
+): MagnetIconRequest[] {
+  return placeholders
+    .filter((placeholder) => (include ? include(placeholder) : true))
+    .map((placeholder) => ({
+      slug: placeholder.slug,
+      label: placeholder.label,
+      description: placeholder.description,
+      tags: placeholder.tags?.length ? placeholder.tags : ['blank'],
+      tone: placeholder.tone || 'soft',
+    }));
+}
+
+function shouldIncludeBlanks(personalization: PersonalizationContext): boolean {
+  if (typeof personalization.includeBlankMagnets === 'boolean') {
+    return personalization.includeBlankMagnets;
+  }
+  return false;
 }
 
 async function generateBundleWithAI(
@@ -1133,6 +1299,13 @@ function buildPersonalization(intake: NormalizedIntake): PersonalizationContext 
   const genderIdentity = readField(intake.prefs || {}, ['gender_identity', 'gender']);
   const pronouns = intake.customer?.pronouns;
   const householdSummary = describeHousehold(intake);
+  const defaultLabel =
+    readField(intake.prefs || {}, ['blank_label', 'blank_default_label', 'default_blank_label']) || undefined;
+  const defaultDescription =
+    readField(intake.prefs || {}, ['blank_description', 'blank_default_description', 'default_blank_description']) ||
+    undefined;
+  const blankPlaceholders = collectBlankPlaceholderInputs(intake);
+  const includeBlankMagnets = detectBlankMagnetPreference(intake);
   return {
     familyName,
     childName,
@@ -1145,10 +1318,14 @@ function buildPersonalization(intake: NormalizedIntake): PersonalizationContext 
     genderIdentity,
     pronouns,
     householdSummary,
+    includeBlankMagnets,
+    defaultLabel,
+    defaultDescription,
+    blankPlaceholders,
   };
 }
 
-export async function resolveMagnetBundlePlan(
+export async function generateMagnetBundlePlan(
   intake: NormalizedIntake,
   opts: BundleModuleOptions = {}
 ): Promise<MagnetBundlePlan> {
@@ -1158,7 +1335,7 @@ export async function resolveMagnetBundlePlan(
   let best: StoredMagnetBundle | null = null;
   let bestScore = 0;
   let layoutRequest: BundleBotLayoutRequest | undefined;
-  let feedbackRequest: BundleBotFeedbackPrep | undefined;
+  let feedbackRequest: BundleBotFeedbackRequest | undefined;
   let helperNotes: string | undefined;
   for (const bundle of bundles) {
     const score = scoreBundle(
@@ -1221,28 +1398,38 @@ export async function resolveMagnetBundlePlan(
     householdSummary: personalization.householdSummary,
   });
 
+  const placeholders = normalizeBlankPlaceholders({
+    placeholders: personalization.blankPlaceholders,
+    defaultLabel: personalization.defaultLabel || 'Blank',
+    defaultDescription: personalization.defaultDescription || 'Blank magnet reserved',
+  });
+
   const baseRequests = toRequests(personalizedBundle, personalization);
   const fallbackRequests = baseRequests.length ? baseRequests : buildFallbackIconRequests(intake);
-  const includeBlankMagnets = shouldIncludeBlankMagnets(intake);
+  const includeBlankMagnets = shouldIncludeBlanks(personalization);
   const requests = [...fallbackRequests];
   if (includeBlankMagnets) {
-    const blankRequests = buildBlankMagnetRequests(personalization).filter(
-      (blank) => !requests.some((existing) => existing.slug === blank.slug)
+    const blankRequests = buildBlankRequests(
+      placeholders,
+      (blank) => !requests.some((existing) => existing.slug === blank.slug),
     );
     requests.push(...blankRequests);
   }
   const format = personalization.preferredFormat;
+  const iconCount = requests.length;
+  const blankCount = requests.filter((request) => request.slug.startsWith('blank-')).length;
   const helpers = buildHelperTasks({
     format,
     personaTags: personalization.personaTags,
     keywords: personalization.keywords,
     bundleName: personalizedBundle.name,
-    iconCount: requests.length,
+    iconCount,
+    blankCount,
   });
 
   if (!layoutRequest) {
-    const defaultFormat = format === 'printable' || format === 'pdf' ? 'pdf' : 'svg';
-    layoutRequest = normalizeLayoutResponse({ format: defaultFormat });
+    const defaultFormat = format;
+    layoutRequest = normalizeLayoutRequest(defaultFormat);
   }
 
   const bundleWithSource = { ...personalizedBundle, source };
@@ -1258,12 +1445,15 @@ export async function resolveMagnetBundlePlan(
     layoutRequest,
     feedbackRequest,
     helperNotes,
+    placeholders,
   };
 
   await trackBundleLibraryVersion(bundleWithSource, personalization, opts);
 
   return plan;
 }
+
+export const resolveMagnetBundlePlan = generateMagnetBundlePlan;
 
 export async function persistBundlePlanArtifacts(
   plan: MagnetBundlePlan,
