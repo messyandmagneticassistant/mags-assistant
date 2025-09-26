@@ -88,6 +88,7 @@ function buildManifest(
       fileId: icon.fileId,
       url: icon.url,
       origin: icon.origin,
+      section: (plan.requests.find((req) => req.slug === icon.slug)?.section) || undefined,
     })),
   };
 }

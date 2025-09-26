@@ -66,6 +66,7 @@ export interface IconAsset {
   url: string;
   fileId: string;
   origin: 'library' | 'generated';
+  section?: string;
 }
 
 export interface IconBundleResult {
