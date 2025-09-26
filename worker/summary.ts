@@ -33,6 +33,49 @@ function buildTaskLines(tasks: string[]): string {
     .join('\n');
 }
 
+function formatRelativeDuration(ms: number): string {
+  const totalMinutes = Math.floor(ms / 60000);
+  if (totalMinutes <= 0) return '<1m';
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) {
+    return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+  }
+  if (hours > 0) {
+    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  }
+  return `${minutes}m`;
+}
+
+function describeBackfill(meta: any, now: Date): string {
+  const prefix = '🧹 Backfill';
+  if (meta && typeof meta === 'object') {
+    if (meta.running) {
+      return `${prefix}: running now`;
+    }
+    const lastRunAt = typeof meta.lastRunAt === 'string' ? new Date(meta.lastRunAt) : null;
+    const lastError = typeof meta.lastError === 'string' ? meta.lastError : '';
+    if (lastRunAt && !Number.isNaN(lastRunAt.getTime())) {
+      const diff = now.getTime() - lastRunAt.getTime();
+      const rel = formatRelativeDuration(diff);
+      if (diff <= 24 * 60 * 60 * 1000) {
+        return lastError
+          ? `${prefix}: ✅ ran ${rel} ago (last warning: ${lastError.slice(0, 96)})`
+          : `${prefix}: ✅ ran ${rel} ago`;
+      }
+      const iso = lastRunAt.toISOString();
+      return lastError
+        ? `${prefix}: ⚠️ overdue — last run ${iso} (error: ${lastError.slice(0, 96)})`
+        : `${prefix}: ⚠️ overdue — last run ${iso}`;
+    }
+    if (lastError) {
+      return `${prefix}: ⚠️ pending (${lastError.slice(0, 96)})`;
+    }
+  }
+  return `${prefix}: not yet run`;
+}
+
 function summarizeTrends(trends: ReturnType<typeof normalizeTrends>): string {
   if (!Array.isArray(trends) || !trends.length) return 'n/a';
   return trends
@@ -64,12 +107,14 @@ export async function maybeSendDailySummary(env: Env, now = new Date()): Promise
 
   const trends = summarizeTrends(scheduler.topTrends);
   const taskLines = buildTaskLines(scheduler.currentTasks);
+  const backfillLine = describeBackfill((scheduler.runtime as any).backfill, now);
 
   const message =
     '📊 Daily Summary\n' +
     'Live on Telegram ✅\n' +
     `🕔 5pm Albuquerque (${now.toISOString()})\n` +
     `🧩 Active tasks:\n${taskLines}\n` +
+    `${backfillLine}\n` +
     `🌐 Website: ${(state as any).website || 'https://messyandmagnetic.com'}\n` +
     `📅 Social queue: ${socialQueue.scheduled} scheduled, ${socialQueue.flopsRetry} retries\n` +
     `🔥 Trends: ${trends}`;
