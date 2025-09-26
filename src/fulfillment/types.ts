@@ -68,6 +68,19 @@ export interface IconAsset {
   origin: 'library' | 'generated';
 }
 
+export interface BundleLayoutResult {
+  pdfId: string;
+  pdfUrl: string;
+  svgId: string;
+  svgUrl: string;
+  pngId?: string;
+  pngUrl?: string;
+  folderId: string;
+  folderUrl: string;
+  fileBaseName: string;
+  pageCount: number;
+}
+
 export interface IconBundleResult {
   bundleFolderId: string;
   bundleFolderUrl: string;
@@ -79,6 +92,7 @@ export interface IconBundleResult {
   bundleSource?: 'stored' | 'generated' | 'fallback';
   helperBots?: { name: string; instructions: string; payload?: Record<string, any> }[];
   keywords?: string[];
+  layout?: BundleLayoutResult;
   icons: IconAsset[];
 }
 

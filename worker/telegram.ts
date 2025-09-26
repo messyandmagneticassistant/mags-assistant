@@ -243,6 +243,7 @@ async function handleHelp(env: Env): Promise<void> {
       '/wake – restart automation loop',
       '/stop – pause schedulers (Telegram stays live)',
       '/projects – show active project pipelines',
+      '/print <household[:bundle]> – generate printable magnet layout',
       '/help – show this help',
     ].join('\n')
   );
@@ -258,6 +259,40 @@ function formatTimestamp(value?: string): string {
   const hours = String(date.getUTCHours()).padStart(2, '0');
   const minutes = String(date.getUTCMinutes()).padStart(2, '0');
   return `${year}-${month}-${day} ${hours}:${minutes} UTC`;
+}
+
+async function handlePrintCommand(env: Env, text: string): Promise<void> {
+  const raw = text.replace(/^\/print(@[\w_]+)?/i, '').trim();
+  if (!raw) {
+    await sendTelegram(env, 'Usage: /print Household[:Bundle]');
+    return;
+  }
+
+  const [householdSegment, bundleSegment] = raw.split(':', 2);
+  const household = (householdSegment || '').trim() || raw;
+  const bundleQuery = (bundleSegment || householdSegment || raw).trim();
+  await sendTelegram(env, `🖨️ Creating printable layout for ${bundleQuery || 'selected bundle'}…`);
+
+  try {
+    const mod: any = await import('../../src/fulfillment/print-bundle');
+    if (typeof mod.printBundle !== 'function') {
+      throw new Error('Layout engine unavailable');
+    }
+    const result = await mod.printBundle({ household, bundleName: bundleQuery }, env);
+    const lines = [
+      `✅ Printable layout ready for ${result.bundleName}.`,
+      `PDF: ${result.layout.pdfUrl}`,
+      `SVG: ${result.layout.svgUrl}`,
+    ];
+    if (result.layout.pngUrl) {
+      lines.push(`PNG: ${result.layout.pngUrl}`);
+    }
+    lines.push(`Folder: ${result.layout.folderUrl}`);
+    await sendTelegram(env, lines.join('\n'));
+  } catch (err: any) {
+    const message = err?.message || String(err);
+    await sendTelegram(env, `⚠️ Print failed: ${message}`);
+  }
 }
 
 async function handleProjects(env: Env): Promise<void> {
@@ -401,6 +436,8 @@ export async function handleTelegramUpdate(update: TelegramUpdate, env: Env, ori
       await handleProjects(env);
     } else if (command === '/summary') {
       await handleStatus(env);
+    } else if (command === '/print') {
+      await handlePrintCommand(env, text);
     } else {
       await handleHelp(env);
     }

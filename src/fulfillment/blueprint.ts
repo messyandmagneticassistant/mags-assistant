@@ -1,7 +1,13 @@
 import { Buffer } from 'buffer';
 import type { docs_v1 } from 'googleapis';
 import { ensureOrderWorkspace, ensureFolder, summarizeStory, notifyOpsChannel } from './common';
-import type { NormalizedIntake, BlueprintResult, FulfillmentWorkspace, ModelAttempt } from './types';
+import type {
+  NormalizedIntake,
+  BlueprintResult,
+  FulfillmentWorkspace,
+  ModelAttempt,
+  BundleLayoutResult,
+} from './types';
 import {
   loadAdvancedEsotericConfig,
   resolveCohortFromIntake,
@@ -382,4 +388,39 @@ export async function generateBlueprint(
     folderId: blueprintFolder.id!,
     folderUrl: blueprintFolder.webViewLink || '',
   };
+}
+
+export async function appendBundleLayoutSection(
+  workspace: FulfillmentWorkspace,
+  blueprint: BlueprintResult,
+  layout: BundleLayoutResult,
+  bundleName?: string
+): Promise<void> {
+  const docs = workspace.docs;
+  const lines: string[] = ['\nPrintable Magnet Kit Layout'];
+  if (bundleName) {
+    lines.push(`Bundle: ${bundleName}`);
+  }
+  lines.push(`• PDF layout: ${layout.pdfUrl}`);
+  lines.push(`• SVG cut file: ${layout.svgUrl}`);
+  if (layout.pngUrl) {
+    lines.push(`• PNG fallback: ${layout.pngUrl}`);
+  }
+  lines.push(`• Printable kit folder: ${layout.folderUrl}`);
+  lines.push('');
+
+  const text = `${lines.join('\n')}`;
+  await docs.documents.batchUpdate({
+    documentId: blueprint.docId,
+    requestBody: {
+      requests: [
+        {
+          insertText: {
+            endOfSegmentLocation: { segmentId: '' },
+            text,
+          },
+        },
+      ],
+    },
+  });
 }

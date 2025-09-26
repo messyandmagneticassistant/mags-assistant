@@ -1,6 +1,12 @@
 import { Buffer } from 'buffer';
 import { ensureOrderWorkspace, ensureFolder, loadIconLibrary } from './common';
-import type { NormalizedIntake, IconBundleResult, IconAsset, FulfillmentWorkspace } from './types';
+import type {
+  NormalizedIntake,
+  IconBundleResult,
+  IconAsset,
+  FulfillmentWorkspace,
+  BundleLayoutResult,
+} from './types';
 import {
   resolveMagnetBundlePlan,
   persistBundlePlanArtifacts,
@@ -8,6 +14,7 @@ import {
   type MagnetIconRequest,
   type MagnetBundlePlan,
 } from './magnet-bundles';
+import { generateBundleLayout } from './layouts';
 
 interface LibraryMatch {
   slug: string;
@@ -173,6 +180,35 @@ export async function buildIconBundle(
     workspace
   );
 
+  let layout: BundleLayoutResult | undefined;
+  try {
+    const slugMap = new Map(icons.map((icon) => [icon.slug, icon]));
+    const layoutIcons = plan.requests.map((request) => ({
+      label: slugMap.get(request.slug)?.name || request.label,
+      tags: request.tags,
+      slug: request.slug,
+    }));
+
+    const householdName =
+      (intake.prefs?.household_name as string) ||
+      (intake.prefs?.family_name as string) ||
+      (intake.prefs?.household as string) ||
+      (intake.prefs?.home_name as string) ||
+      (intake.customer?.lastName ? `${intake.customer.lastName} household` : intake.customer?.name || 'Household');
+
+    layout = await generateBundleLayout(
+      {
+        bundleName: plan.bundle.name,
+        category: plan.bundle.category,
+        householdName: householdName || plan.bundle.name,
+        icons: layoutIcons,
+      },
+      { drive, config: workspace.config, timestamp: workspace.timestamp }
+    );
+  } catch (err) {
+    console.warn('[icons] failed to create printable layout:', err);
+  }
+
   return {
     bundleFolderId: iconFolder.id!,
     bundleFolderUrl: iconFolder.webViewLink || '',
@@ -184,6 +220,7 @@ export async function buildIconBundle(
     bundleSource: plan.source,
     helperBots: plan.helpers,
     keywords: plan.keywords,
+    layout,
     icons,
   };
 }

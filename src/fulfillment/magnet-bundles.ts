@@ -243,6 +243,18 @@ async function loadBundles(opts: BundleModuleOptions = {}): Promise<StoredMagnet
   return [...staticBundles, ...runtimeBundles];
 }
 
+export async function findBundleByName(name: string, opts: BundleModuleOptions = {}): Promise<StoredMagnetBundle | null> {
+  const query = name.trim().toLowerCase();
+  if (!query) return null;
+  const bundles = await loadBundles(opts);
+  const exact = bundles.find((bundle) => bundle.name.toLowerCase() === query);
+  if (exact) return exact;
+  const partial = bundles.find((bundle) => bundle.name.toLowerCase().includes(query));
+  if (partial) return partial;
+  const category = bundles.find((bundle) => bundle.category.toLowerCase().includes(query));
+  return category || null;
+}
+
 async function saveGeneratedBundle(bundle: StoredMagnetBundle, opts: BundleModuleOptions = {}): Promise<void> {
   if (opts.allowPersistence === false) return;
   const runtimePath = opts.runtimePath || RUNTIME_BUNDLE_PATH;

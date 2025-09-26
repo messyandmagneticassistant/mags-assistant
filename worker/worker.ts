@@ -335,6 +335,12 @@ export default {
         if (r && r.status !== 404) return r;
       }
 
+      // Printable bundle layouts
+      {
+        const r = await tryRoute("/print-bundle", "./routes/print-bundle", null, req, env, ctx);
+        if (r && r.status !== 404) return r;
+      }
+
       // Planner / Compose / Schedule
       {
         const r = await tryRoute("/planner", "./routes/planner", null, req, env, ctx);

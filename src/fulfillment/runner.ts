@@ -1,6 +1,6 @@
 import type { NormalizedIntake, FulfillmentRecord, OrderSummary } from './types';
 import { normalizeFromStripe, normalizeFromTally } from './intake';
-import { generateBlueprint } from './blueprint';
+import { generateBlueprint, appendBundleLayoutSection } from './blueprint';
 import { buildIconBundle } from './icons';
 import { makeScheduleKit } from './schedule';
 import { deliverFulfillment } from './deliver';
@@ -24,12 +24,17 @@ interface RunOptions {
 }
 
 function formatFiles(record: FulfillmentRecord): string[] {
-  return [
+  const files = [
     record.blueprint.docUrl,
     record.blueprint.pdfUrl,
     record.icons.bundleFolderUrl,
     record.schedule.scheduleFolderUrl,
-  ].filter(Boolean);
+  ];
+  if (record.icons.layout) {
+    files.push(record.icons.layout.pdfUrl, record.icons.layout.svgUrl);
+    if (record.icons.layout.pngUrl) files.push(record.icons.layout.pngUrl);
+  }
+  return files.filter(Boolean);
 }
 
 async function updateNotion(record: FulfillmentRecord, env?: any) {
@@ -50,6 +55,13 @@ async function updateNotion(record: FulfillmentRecord, env?: any) {
       Icons: { url: record.icons.bundleFolderUrl },
       Schedule: { url: record.schedule.scheduleFolderUrl },
     };
+    if (record.icons.layout) {
+      properties['Printable Layout (PDF)'] = { url: record.icons.layout.pdfUrl };
+      properties['Printable Layout (SVG)'] = { url: record.icons.layout.svgUrl };
+      if (record.icons.layout.pngUrl) {
+        properties['Printable Layout (PNG)'] = { url: record.icons.layout.pngUrl };
+      }
+    }
     await notion.pages.create({
       parent: { database_id: databaseId },
       properties,
@@ -84,6 +96,9 @@ export async function runOrder(ref: OrderReference, opts: RunOptions = {}): Prom
       const workspace = await ensureOrderWorkspace(intake, opts);
       const blueprint = await generateBlueprint(intake, { workspace });
       const icons = await buildIconBundle(intake, { workspace });
+      if (icons.layout) {
+        await appendBundleLayoutSection(workspace, blueprint, icons.layout, icons.bundleName);
+      }
       const schedule = await makeScheduleKit(intake, { workspace });
       const delivery = await deliverFulfillment(intake, blueprint, icons, schedule, opts.env);
       record = { intake, blueprint, icons, schedule, delivery, workspace };
