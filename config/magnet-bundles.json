@@ -1,0 +1,159 @@
+{
+  "bundles": [
+    {
+      "id": "household-core",
+      "name": "Household Core Flow",
+      "category": "Household",
+      "description": "Foundational anchors for solo moms or busy households juggling chores and energy resets.",
+      "formats": ["svg", "printable", "cling", "digital"],
+      "personaTags": ["solo mom", "adhd support", "household"],
+      "keywords": ["laundry", "kitchen", "reset", "evening"],
+      "icons": [
+        {
+          "slug": "sunrise-anchor",
+          "label": "Kitchen Sunrise",
+          "description": "Morning check-in around breakfast and the first energy sweep.",
+          "tags": ["morning", "kitchen", "reset"],
+          "tone": "soft"
+        },
+        {
+          "slug": "midday-spark",
+          "label": "Chore Spark",
+          "description": "Midday momentum icon to keep chores light and playful.",
+          "tags": ["midday", "chores"],
+          "tone": "bright"
+        },
+        {
+          "slug": "weekly-reset",
+          "label": "Sunday Sweep",
+          "description": "Weekly tidy + donation pile reminder.",
+          "tags": ["weekly", "reset"],
+          "tone": "earthy"
+        },
+        {
+          "slug": "evening-soften",
+          "label": "Lights Down",
+          "description": "Evening soften cue for quiet clean-up and cozying the house.",
+          "tags": ["evening", "rest"],
+          "tone": "soft"
+        }
+      ]
+    },
+    {
+      "id": "wellness-reset",
+      "name": "Wellness Reset",
+      "category": "Wellness",
+      "description": "Nervous-system friendly flow for neurodivergent kiddos or caretakers needing sensory gentleness.",
+      "formats": ["svg", "printable", "vinyl", "digital"],
+      "personaTags": ["neurodivergent child", "sensory", "calm"],
+      "keywords": ["breath", "body", "hydrate"],
+      "icons": [
+        {
+          "slug": "sunrise-anchor",
+          "label": "Gentle Wake",
+          "description": "Soft morning start with pressure-free check-ins.",
+          "tags": ["morning", "breath"],
+          "tone": "soft",
+          "age": ["child", "teen"]
+        },
+        {
+          "slug": "midday-spark",
+          "label": "Body Break",
+          "description": "Midday regulation moment – stretch, dance, or stomp.",
+          "tags": ["movement", "midday"],
+          "tone": "bright",
+          "age": ["child", "teen"]
+        },
+        {
+          "slug": "evening-soften",
+          "label": "Cozy Down",
+          "description": "Wind-down cues with dim lights and soft textures.",
+          "tags": ["evening", "rest"],
+          "tone": "soft",
+          "age": ["child", "teen", "adult"]
+        }
+      ]
+    },
+    {
+      "id": "family-rhythm",
+      "name": "Family Rhythm Balancer",
+      "category": "Family",
+      "description": "Blends homeschool, play, and shared resets so everyone has a visual cue.",
+      "formats": ["svg", "printable", "cling", "digital"],
+      "personaTags": ["family", "homeschool", "toddler"],
+      "keywords": ["morning basket", "play", "cleanup"],
+      "icons": [
+        {
+          "slug": "family-circle",
+          "label": "Family Huddle",
+          "description": "Gather everyone to name the day's wins and plan.",
+          "tags": ["family", "connection"],
+          "tone": "bright",
+          "age": ["child", "adult"]
+        },
+        {
+          "slug": "sunrise-anchor",
+          "label": "Morning Basket",
+          "description": "Story, scripture, or sensory basket start.",
+          "tags": ["morning", "homeschool"],
+          "tone": "soft",
+          "age": ["child", "adult"]
+        },
+        {
+          "slug": "weekly-reset",
+          "label": "Saturday Reset",
+          "description": "Whole family reset + prep for next adventures.",
+          "tags": ["weekly", "family"],
+          "tone": "earthy",
+          "age": ["child", "adult"]
+        }
+      ]
+    },
+    {
+      "id": "complete-all-in-one",
+      "name": "Complete All-in-One",
+      "category": "Complete All-in-One",
+      "description": "Full rhythm stack for premium readings covering household, wellness, and soul care.",
+      "formats": ["svg", "printable", "vinyl", "digital"],
+      "personaTags": ["premium", "full", "deep"],
+      "keywords": ["all-in-one", "full kit", "deep dive"],
+      "icons": [
+        {
+          "slug": "sunrise-anchor",
+          "label": "Aura Rise",
+          "description": "Full morning ritual anchor blending breath + devotion.",
+          "tags": ["morning", "soul"],
+          "tone": "bright"
+        },
+        {
+          "slug": "midday-spark",
+          "label": "Creative Spark",
+          "description": "Midday creative ignition for projects or content.",
+          "tags": ["midday", "creative"],
+          "tone": "bright"
+        },
+        {
+          "slug": "evening-soften",
+          "label": "Sacred Close",
+          "description": "Evening sacred rest cue tying back to blueprint themes.",
+          "tags": ["evening", "sacred"],
+          "tone": "soft"
+        },
+        {
+          "slug": "weekly-reset",
+          "label": "Seasonal Reset",
+          "description": "Weekly/seasonal wave check-in.",
+          "tags": ["weekly", "seasonal"],
+          "tone": "earthy"
+        },
+        {
+          "slug": "family-circle",
+          "label": "Community Touchpoint",
+          "description": "Connection circle for clients, family, or team.",
+          "tags": ["community", "connection"],
+          "tone": "bright"
+        }
+      ]
+    }
+  ]
+}

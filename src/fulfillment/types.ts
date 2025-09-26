@@ -73,6 +73,12 @@ export interface IconBundleResult {
   bundleFolderUrl: string;
   manifestId: string;
   manifestUrl: string;
+  bundleId?: string;
+  bundleName?: string;
+  bundleCategory?: string;
+  bundleSource?: 'stored' | 'generated' | 'fallback';
+  helperBots?: { name: string; instructions: string; payload?: Record<string, any> }[];
+  keywords?: string[];
   icons: IconAsset[];
 }
 

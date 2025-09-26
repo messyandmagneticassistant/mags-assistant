@@ -2,136 +2,12 @@ import { Buffer } from 'buffer';
 import { ensureOrderWorkspace, ensureFolder, loadIconLibrary } from './common';
 import type { NormalizedIntake, IconBundleResult, IconAsset, FulfillmentWorkspace } from './types';
 import {
-  loadAdvancedEsotericConfig,
-  resolveCohortFromIntake,
-  getActiveSystems,
-} from './advanced-esoteric';
-
-interface IconRequest {
-  slug: string;
-  label: string;
-  description: string;
-  tags: string[];
-  tone: 'bright' | 'soft' | 'earthy';
-}
-
-function deriveIconRequests(intake: NormalizedIntake): IconRequest[] {
-  const tone = (intake.prefs?.tone || '').toLowerCase();
-  const baseTone: IconRequest['tone'] = tone.includes('earth')
-    ? 'earthy'
-    : tone.includes('bold')
-    ? 'bright'
-    : 'soft';
-
-  const requests: IconRequest[] = [
-    {
-      slug: 'sunrise-anchor',
-      label: 'Sunrise anchor',
-      description: 'Gentle start to welcome the day with breath and intention.',
-      tags: ['morning', 'calm'],
-      tone: baseTone,
-    },
-    {
-      slug: 'midday-spark',
-      label: 'Midday spark',
-      description: 'Creative activation icon for the heart of the day.',
-      tags: ['midday', 'creative'],
-      tone: baseTone,
-    },
-    {
-      slug: 'evening-soften',
-      label: 'Evening soften',
-      description: 'Wind-down reminder with candlelight energy.',
-      tags: ['evening', 'rest'],
-      tone: 'soft',
-    },
-    {
-      slug: 'weekly-reset',
-      label: 'Weekly reset',
-      description: 'Sunday reset / reset altar icon for planning and gratitude.',
-      tags: ['weekly', 'reset'],
-      tone: 'earthy',
-    },
-  ];
-
-  if (intake.tier !== 'mini') {
-    requests.push({
-      slug: 'seasonal-wave',
-      label: 'Seasonal wave',
-      description: 'Icon to mark monthly or seasonal pulse checks.',
-      tags: ['seasonal', 'cycle'],
-      tone: baseTone,
-    });
-  }
-
-  if (intake.tier === 'full') {
-    requests.push(
-      {
-        slug: 'daily-flow',
-        label: 'Daily flow',
-        description: 'Visual for detailed daily rhythm prompts.',
-        tags: ['daily', 'flow'],
-        tone: 'bright',
-      },
-      {
-        slug: 'sacred-rest',
-        label: 'Sacred rest',
-        description: 'Cue for sabbath or full reset days.',
-        tags: ['rest', 'sacred'],
-        tone: 'soft',
-      }
-    );
-  }
-
-  const prefThemes = (intake.prefs?.themes || intake.prefs?.focus || '').toString().toLowerCase();
-  if (prefThemes.includes('kid') || prefThemes.includes('family')) {
-    requests.push({
-      slug: 'family-circle',
-      label: 'Family circle',
-      description: 'Icon to signal shared family rhythm moments.',
-      tags: ['family', 'connection'],
-      tone: 'bright',
-    });
-  }
-
-  if (intake.expansions?.includes('advanced-esoteric')) {
-    const advanced = loadAdvancedEsotericConfig();
-    if (advanced) {
-      const cohort = resolveCohortFromIntake(intake);
-      const activeSystems = getActiveSystems(advanced, { cohort });
-      const activeIds = new Set(activeSystems.map((system) => system.id));
-      const iconMatches: Array<{ match: string; id: string }> = [
-        { match: 'enneagram', id: 'enneagram' },
-        { match: 'akashic', id: 'akashic' },
-        { match: 'chakra', id: 'chakras' },
-        { match: 'soul urge', id: 'soul-urge' },
-        { match: 'progressed', id: 'progressed' },
-        { match: 'sabian', id: 'sabian' },
-        { match: 'i ching', id: 'iching' },
-        { match: 'archetype', id: 'archetype' },
-      ];
-      const used = new Set<string>();
-      for (const icon of advanced.magicCodes.icons) {
-        const labelLower = icon.label.toLowerCase();
-        const mapping = iconMatches.find((entry) => labelLower.includes(entry.match));
-        if (!mapping) continue;
-        if (!activeIds.has(mapping.id)) continue;
-        const slug = `magic-code-${mapping.id}`;
-        if (used.has(slug)) continue;
-        used.add(slug);
-        requests.push({
-          slug,
-          label: `${icon.label} magic code`,
-          description: icon.meaning,
-          tags: ['magic', 'code', mapping.id],
-          tone: 'bright',
-        });
-      }
-    }
-  }
-
-  return requests;
-}
+  resolveMagnetBundlePlan,
+  persistBundlePlanArtifacts,
+  buildFallbackIconRequests,
+  type MagnetIconRequest,
+  type MagnetBundlePlan,
+} from './magnet-bundles';
 
 interface LibraryMatch {
   slug: string;
@@ -142,7 +18,7 @@ interface LibraryMatch {
   url?: string;
 }
 
-function findLibraryMatch(request: IconRequest, library: LibraryMatch[]): LibraryMatch | null {
+function findLibraryMatch(request: MagnetIconRequest, library: LibraryMatch[]): LibraryMatch | null {
   const slugMatch = library.find((icon) => icon.slug === request.slug);
   if (slugMatch) return slugMatch;
   const tagMatch = library.find((icon) => {
@@ -155,7 +31,7 @@ function findLibraryMatch(request: IconRequest, library: LibraryMatch[]): Librar
   return looseMatch || null;
 }
 
-function paletteForTone(tone: IconRequest['tone']) {
+function paletteForTone(tone: MagnetIconRequest['tone']) {
   switch (tone) {
     case 'bright':
       return { bg: '#ffd8e5', accent: '#f26d9d', detail: '#8a3ffc' };
@@ -166,7 +42,7 @@ function paletteForTone(tone: IconRequest['tone']) {
   }
 }
 
-function generateSvgIcon(request: IconRequest): string {
+function generateSvgIcon(request: MagnetIconRequest): string {
   const palette = paletteForTone(request.tone);
   const text = request.label.replace(/[^a-zA-Z0-9 ]/g, '').slice(0, 18);
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -186,11 +62,25 @@ function generateSvgIcon(request: IconRequest): string {
 </svg>`;
 }
 
-function buildManifest(intake: NormalizedIntake, icons: IconAsset[]) {
+function buildManifest(
+  intake: NormalizedIntake,
+  icons: IconAsset[],
+  plan: MagnetBundlePlan
+) {
   return {
     generatedAt: new Date().toISOString(),
     email: intake.email,
     tier: intake.tier,
+    bundle: {
+      id: plan.bundle.id,
+      name: plan.bundle.name,
+      category: plan.bundle.category,
+      source: plan.source,
+      personalization: plan.personalization,
+      helperBots: plan.helpers,
+      keywords: plan.keywords,
+      format: plan.format,
+    },
     icons: icons.map((icon) => ({
       slug: icon.slug,
       name: icon.name,
@@ -219,7 +109,8 @@ export async function buildIconBundle(
     url: entry.folderUrl,
   }));
 
-  const requests = deriveIconRequests(intake);
+  const plan = await resolveMagnetBundlePlan(intake, { workspace });
+  const requests = plan.requests.length ? plan.requests : buildFallbackIconRequests(intake);
   const icons: IconAsset[] = [];
 
   for (const request of requests) {
@@ -264,7 +155,7 @@ export async function buildIconBundle(
     });
   }
 
-  const manifest = buildManifest(intake, icons);
+  const manifest = buildManifest(intake, icons, plan);
   const manifestFile = await drive.files.create({
     requestBody: {
       name: 'manifest.json',
@@ -275,11 +166,24 @@ export async function buildIconBundle(
     fields: 'id, webViewLink',
   });
 
+  await persistBundlePlanArtifacts(
+    plan,
+    icons.map((icon) => ({ fileId: icon.fileId, origin: icon.origin })),
+    manifest,
+    workspace
+  );
+
   return {
     bundleFolderId: iconFolder.id!,
     bundleFolderUrl: iconFolder.webViewLink || '',
     manifestId: manifestFile.data.id || '',
     manifestUrl: manifestFile.data.webViewLink || '',
+    bundleId: plan.bundle.id,
+    bundleName: plan.bundle.name,
+    bundleCategory: plan.bundle.category,
+    bundleSource: plan.source,
+    helperBots: plan.helpers,
+    keywords: plan.keywords,
     icons,
   };
 }
