@@ -80,6 +80,9 @@ export interface IconBundleResult {
   helperBots?: { name: string; instructions: string; payload?: Record<string, any> }[];
   keywords?: string[];
   icons: IconAsset[];
+  bundleFileId?: string;
+  bundleFileUrl?: string;
+  deliveryChannels?: string[];
 }
 
 export interface ScheduleFile {
