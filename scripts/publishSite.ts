@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import process from 'node:process';
 import { sendTelegramMessage } from './lib/telegramClient';
+import { sendCompletionPing } from '../lib/telegram';
 
 const SITE_PREFIX = 'site:';
 const RESERVED_KEYS = new Set([`${SITE_PREFIX}manifest`]);
@@ -311,6 +312,7 @@ export async function publishSite(options: PublishSiteOptions = {}): Promise<Pub
   const summary = `🚀 <b>Site deployed</b>\n• Files: <code>${records.length}</code>\n• Removed: <code>${removed.length}</code>\n• Triggered by: <b>${options.triggeredBy || 'manual'}</b>`;
   if (options.notify !== false) {
     await sendTelegramMessage(summary).catch(() => undefined);
+    await sendCompletionPing('Website deploy');
   }
 
   return { manifest, removedKeys: removed };

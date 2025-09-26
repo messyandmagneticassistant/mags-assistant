@@ -95,12 +95,17 @@ export async function runOrder(ref: OrderReference, opts: RunOptions = {}): Prom
         message: 'Delivered',
         completedAt: new Date().toISOString(),
         files: formatFiles(record),
+        source: intake.source,
       };
 
       await appendFulfillmentLog(intake, summary, workspace.config);
       await recordOrderSummary(summary);
       await setLastOrderSummary(summary, opts.env);
       await updateNotion(record, opts.env);
+      await notifyOpsChannel(
+        `✅ Task finished: Soul blueprint bundle for ${intake.email} — you can test it now.`,
+        workspace.config,
+      );
       return record;
     } catch (err) {
       lastError = err;
@@ -121,6 +126,7 @@ export async function runOrder(ref: OrderReference, opts: RunOptions = {}): Prom
     message: lastError?.message || 'Unknown failure',
     completedAt: new Date().toISOString(),
     files: [],
+    source: intake.source,
   };
   await appendFulfillmentLog(intake, summary, config);
   await recordOrderSummary(summary);

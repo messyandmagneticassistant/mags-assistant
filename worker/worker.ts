@@ -130,6 +130,8 @@ export default {
           topTrends: snapshot.topTrends,
           paused: snapshot.paused,
           scheduler: snapshot.runtime,
+          health: (state as any).health || {},
+          metrics: (state as any).metrics || {},
         };
         return new Response(JSON.stringify(status, null, 2), {
           headers: { 'Content-Type': 'application/json' },
@@ -151,6 +153,8 @@ export default {
           socialQueue,
           topTrends: snapshot.topTrends,
           paused: snapshot.paused,
+          health: (state as any).health || {},
+          metrics: (state as any).metrics || {},
         };
         return new Response(JSON.stringify(summary, null, 2), {
           headers: { 'Content-Type': 'application/json' },
@@ -283,6 +287,11 @@ export default {
       }
       if (url.pathname === "/webhooks/tally") {
         const r = await tryRoute("/webhooks/tally", "./orders/tally", null, req, env, ctx);
+        if (r && r.status !== 404) return r;
+      }
+
+      if (url.pathname === "/ops/health") {
+        const r = await tryRoute("/ops/health", "./routes/opsHealth", null, req, env, ctx);
         if (r && r.status !== 404) return r;
       }
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { checkAuth } from '../../../../../lib/auth';
 import { runStripeSync } from '../../../../../lib/stripe-sync';
 import { env } from '../../../../../lib/env.js';
+import { sendCompletionPing } from '../../../../../lib/telegram';
 
 function checkWorker(req: NextRequest) {
   const key = req.headers.get('x-worker-key');
@@ -20,6 +21,9 @@ export async function POST(req: NextRequest) {
   } catch {}
   try {
     const result = await runStripeSync({ dry, names: body.names });
+    if (!dry) {
+      await sendCompletionPing('Stripe product sync');
+    }
     return NextResponse.json(result);
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message || 'run-failed' }, { status: 500 });

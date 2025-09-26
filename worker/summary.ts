@@ -84,6 +84,18 @@ function summarizeTrends(trends: ReturnType<typeof normalizeTrends>): string {
     .join(', ');
 }
 
+function summarizeHealth(entry: any): string {
+  if (!entry || typeof entry !== 'object') return '⚪️ pending';
+  const ok = entry.ok;
+  const icon = ok === true ? '✅' : ok === false ? '❌' : '⚪️';
+  const issue = Array.isArray(entry.issues) && entry.issues.length ? entry.issues[0] : null;
+  const warning = Array.isArray(entry.warnings) && entry.warnings.length ? entry.warnings[0] : null;
+  const detail = typeof entry.detail === 'string' && entry.detail.trim() ? entry.detail.trim() : null;
+  const checkedAt = typeof entry.checkedAt === 'string' && entry.checkedAt.trim() ? entry.checkedAt.trim() : null;
+  const note = issue || warning || detail || (checkedAt ? `checked ${checkedAt}` : 'pending');
+  return `${icon} ${note}`;
+}
+
 export async function maybeSendDailySummary(env: Env, now = new Date()): Promise<boolean> {
   const state = await loadState(env);
   const meta = (state as any)[SUMMARY_KEY] as SummaryMeta | undefined;
@@ -105,6 +117,16 @@ export async function maybeSendDailySummary(env: Env, now = new Date()): Promise
     nextPost: Array.isArray((state as any).scheduledPosts) ? (state as any).scheduledPosts[0] : null,
   };
 
+  const health = (state as any)?.health || {};
+  const metrics = (state as any)?.metrics || {};
+  const websiteStatus = summarizeHealth((health as any).website);
+  const tallyStatus = summarizeHealth((health as any).tally);
+  const stripeStatus = summarizeHealth((health as any).stripe);
+  const flopsRecovered =
+    typeof metrics?.flopsRecovered === 'number' && Number.isFinite(metrics.flopsRecovered)
+      ? metrics.flopsRecovered
+      : 0;
+
   const trends = summarizeTrends(scheduler.topTrends);
   const taskLines = buildTaskLines(scheduler.currentTasks);
   const backfillLine = describeBackfill((scheduler.runtime as any).backfill, now);
@@ -115,8 +137,11 @@ export async function maybeSendDailySummary(env: Env, now = new Date()): Promise
     `🕔 5pm Albuquerque (${now.toISOString()})\n` +
     `🧩 Active tasks:\n${taskLines}\n` +
     `${backfillLine}\n` +
-    `🌐 Website: ${(state as any).website || 'https://messyandmagnetic.com'}\n` +
-    `📅 Social queue: ${socialQueue.scheduled} scheduled, ${socialQueue.flopsRetry} retries\n` +
+    `🌐 Website: ${websiteStatus}\n` +
+    `🧠 Tally quiz: ${tallyStatus}\n` +
+    `💸 Stripe: ${stripeStatus}\n` +
+    `🎵 TikTok: ${socialQueue.scheduled} scheduled | ${socialQueue.flopsRetry} retries\n` +
+    `♻️ Flops recovered: ${flopsRecovered}\n` +
     `🔥 Trends: ${trends}`;
 
   await sendTelegram(env, message);

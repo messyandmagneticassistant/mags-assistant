@@ -140,4 +140,5 @@ export interface OrderSummary {
   message: string;
   completedAt: string;
   files: string[];
+  source?: 'stripe' | 'tally';
 }

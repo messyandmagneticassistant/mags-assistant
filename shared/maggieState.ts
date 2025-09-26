@@ -49,6 +49,19 @@ export interface AutonomyMetadata {
   lastQuietWindow?: AutonomyRunLogEntry['quiet'];
 }
 
+export interface HealthCheckStatus {
+  ok?: boolean;
+  checkedAt?: string;
+  detail?: string;
+  issues?: string[];
+  warnings?: string[];
+}
+
+export interface MaggieMetrics {
+  flopsRecovered?: number;
+  [key: string]: unknown;
+}
+
 export interface MaggieState {
   currentTasks?: string[];
   lastCheck?: string;
@@ -57,6 +70,13 @@ export interface MaggieState {
   topTrends?: MaggieTrend[];
   website?: string;
   autonomy?: AutonomyMetadata;
+  health?: {
+    website?: HealthCheckStatus;
+    stripe?: HealthCheckStatus;
+    tally?: HealthCheckStatus;
+    [key: string]: HealthCheckStatus | undefined;
+  };
+  metrics?: MaggieMetrics;
   [key: string]: unknown;
 }
 

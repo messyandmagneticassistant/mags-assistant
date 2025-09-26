@@ -22,12 +22,23 @@ jobs:
           echo "text<<EOF" >> $GITHUB_OUTPUT
           jq -r '
             def n(x): if x==null then "0" else (x|tostring) end;
+            def status(entry):
+              if entry == null then "⚪️ pending" else
+                (if entry.ok == true then "✅" elif entry.ok == false then "❌" else "⚪️" end) + " " +
+                (if ((entry.issues // []) | length) > 0 then (entry.issues // [])[0]
+                 elif ((entry.warnings // []) | length) > 0 then (entry.warnings // [])[0]
+                 elif (entry.detail//"") != "" then entry.detail
+                 elif (entry.checkedAt//"") != "" then "checked " + entry.checkedAt
+                 else "pending" end)
+              end;
             "📒 Maggie Daily Summary\n" +
             "⏰ " + (.time // "unknown") + "\n" +
             "🧩 Tasks: " + ((.currentTasks // ["idle"]) | join(", ")) + "\n" +
-            "🌐 Website: " + (.website // "https://messyandmagnetic.com") + "\n" +
-            "📅 Scheduled: " + n(.socialQueue.scheduled) + " | 🔁 Retries: " + n(.socialQueue.flopsRetry) + "\n" +
-            "➡️ Next Post: " + ((.socialQueue.nextPost // "none")|tostring) + "\n" +
+            "🌐 Website: " + status(.health.website) + "\n" +
+            "🧠 Tally quiz: " + status(.health.tally) + "\n" +
+            "💸 Stripe: " + status(.health.stripe) + "\n" +
+            "🎵 TikTok: " + n(.socialQueue.scheduled) + " scheduled | " + n(.socialQueue.flopsRetry) + " retries\n" +
+            "♻️ Flops recovered: " + n(.metrics.flopsRecovered) + "\n" +
             (if .topTrends then "🔥 Top Trends: " + (.topTrends | map(.title) | join(", ")) else "" end)
           ' summary.json >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT

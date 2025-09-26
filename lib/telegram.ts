@@ -51,3 +51,11 @@ export async function tgSend(text: string, customChatId?: string) {
 
 // Alias for semantic clarity
 export const sendTelegramMessage = tgSend;
+
+/**
+ * Convenience helper for Maggie task completion pings.
+ */
+export async function sendCompletionPing(taskName: string): Promise<void> {
+  const label = taskName?.trim() || 'Task';
+  await tgSend(`✅ Task finished: ${label} — you can test it now.`);
+}
