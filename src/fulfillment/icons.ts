@@ -80,6 +80,9 @@ function buildManifest(
       helperBots: plan.helpers,
       keywords: plan.keywords,
       format: plan.format,
+      layoutRequest: plan.layoutRequest,
+      feedbackRequest: plan.feedbackRequest,
+      helperNotes: plan.helperNotes,
     },
     icons: icons.map((icon) => ({
       slug: icon.slug,
@@ -184,6 +187,9 @@ export async function buildIconBundle(
     bundleSource: plan.source,
     helperBots: plan.helpers,
     keywords: plan.keywords,
+    layoutRequest: plan.layoutRequest,
+    feedbackRequest: plan.feedbackRequest,
+    helperNotes: plan.helperNotes,
     icons,
   };
 }

@@ -79,6 +79,9 @@ export interface IconBundleResult {
   bundleSource?: 'stored' | 'generated' | 'fallback';
   helperBots?: { name: string; instructions: string; payload?: Record<string, any> }[];
   keywords?: string[];
+  layoutRequest?: import('./magnet-bundles').BundleBotLayoutRequest;
+  feedbackRequest?: import('./magnet-bundles').BundleBotFeedbackPrep;
+  helperNotes?: string;
   icons: IconAsset[];
 }
 
