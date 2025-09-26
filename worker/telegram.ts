@@ -1,5 +1,11 @@
 import type { Env } from './lib/env';
 import { loadState, saveState, sendTelegram } from './lib/state';
+import {
+  generateMagnetBundle,
+  findMagnetBundles,
+  type MagnetBundleProfile,
+  type GeneratedMagnetBundle,
+} from '../maggie/core/generateMagnetBundle';
 import { getSchedulerSnapshot, stopSchedulers, wakeSchedulers, tickScheduler } from './scheduler';
 import { getOpenProjects, progressEvents, type OpenProjectSummary, type MilestoneKey } from './progress';
 
@@ -243,9 +249,181 @@ async function handleHelp(env: Env): Promise<void> {
       '/wake – restart automation loop',
       '/stop – pause schedulers (Telegram stays live)',
       '/projects – show active project pipelines',
+      '/bundle {profile|trait} – recall or generate a magnet bundle',
       '/help – show this help',
     ].join('\n')
   );
+}
+
+function coerceMagnetProfile(input: any): MagnetBundleProfile {
+  if (input && typeof input === 'object' && (input.profile || input.bundleProfile)) {
+    return coerceMagnetProfile(input.profile || input.bundleProfile);
+  }
+  if (!input || typeof input !== 'object') return {} as MagnetBundleProfile;
+  return { ...(input as MagnetBundleProfile) };
+}
+
+function parseBundleProfileFromText(raw: string): MagnetBundleProfile | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      const profile = coerceMagnetProfile(parsed);
+      profile.requestedBy = profile.requestedBy || 'telegram';
+      return profile;
+    } catch {
+      return null;
+    }
+  }
+
+  const lower = trimmed.toLowerCase();
+  const profile: MagnetBundleProfile = {
+    name: trimmed,
+    requestedBy: 'telegram',
+  };
+
+  if (/(solo|single)/.test(lower) && /(mom|mother)/.test(lower)) {
+    profile.householdRole = 'Solo Mom';
+  } else if (/mom|mother|parent/.test(lower)) {
+    profile.householdRole = 'Parent';
+  } else if (/elder/.test(lower)) {
+    profile.householdRole = 'Elder Support';
+  }
+
+  if (/manifesting generator|\bmg\b/.test(lower)) {
+    profile.humanDesignType = 'Manifesting Generator';
+  } else if (/projector/.test(lower)) {
+    profile.humanDesignType = 'Projector';
+  } else if (/reflector/.test(lower)) {
+    profile.humanDesignType = 'Reflector';
+  } else if (/manifestor/.test(lower)) {
+    profile.humanDesignType = 'Manifestor';
+  } else if (/generator/.test(lower)) {
+    profile.humanDesignType = 'Generator';
+  }
+
+  if (/wellness|nervous|regulation/.test(lower)) {
+    profile.lifeType = 'Wellness';
+  } else if (/creative|studio|artist/.test(lower)) {
+    profile.lifeType = 'Creative';
+  } else if (/business|launch|client/.test(lower)) {
+    profile.lifeType = 'Business';
+  } else if (/family|kids|homeschool/.test(lower)) {
+    profile.lifeType = 'Family';
+  } else if (/care|elder|support/.test(lower)) {
+    profile.lifeType = 'Care';
+  }
+
+  const children: NonNullable<MagnetBundleProfile['children']> = [];
+  if (/projector (kid|child|children)/.test(lower)) {
+    children.push({ name: 'Projector Kid', age: 'child', humanDesignType: 'Projector' });
+  }
+  if (/manifestor (kid|child|children)/.test(lower)) {
+    children.push({ name: 'Manifestor Kid', age: 'child', humanDesignType: 'Manifestor' });
+  }
+  if (/toddler/.test(lower)) {
+    children.push({ name: 'Toddler', age: 'toddler' });
+  }
+  if (children.length) {
+    profile.children = children;
+  }
+
+  const quizTags: string[] = [];
+  if (/sensitive|hsp|overwhelm/.test(lower)) quizTags.push('high sensitivity');
+  if (/reset|calm|quiet/.test(lower)) quizTags.push('calm');
+  if (quizTags.length) profile.quizTags = quizTags;
+
+  const needs = new Set<string>(profile.customNeeds || []);
+  if (/adhd|focus/.test(lower)) needs.add('adhd');
+  if (/sensory/.test(lower)) needs.add('sensory');
+  if (/autism|asd/.test(lower)) needs.add('autism');
+  if (/neuro/.test(lower)) needs.add('neurodivergent');
+  if (needs.size) profile.customNeeds = Array.from(needs);
+
+  if (!profile.household) {
+    if (/solo/.test(lower)) profile.household = 'Solo household';
+    else if (/family/.test(lower)) profile.household = 'Family household';
+    else profile.household = 'Household';
+  }
+
+  profile.id = trimmed
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+
+  return profile;
+}
+
+function formatBundleSummary(bundle: GeneratedMagnetBundle): string {
+  const lines: string[] = [];
+  lines.push(`🧲 ${bundle.name}`);
+  if (bundle.description) lines.push(bundle.description);
+  if (bundle.traits.length) {
+    lines.push(`Traits: ${bundle.traits.slice(0, 6).join(', ')}`);
+  }
+  lines.push('');
+  lines.push('Icons:');
+  const iconLines = bundle.icons.slice(0, 10).map((icon) => `• ${icon.label}`);
+  if (bundle.icons.length > 10) {
+    iconLines.push(`... plus ${bundle.icons.length - 10} more`);
+  }
+  lines.push(...iconLines);
+  if (bundle.helpers.length) {
+    lines.push('');
+    lines.push(`Helpers: ${bundle.helpers.map((helper) => helper.name).join(', ')}`);
+  }
+  if (bundle.storage?.driveFileUrl) {
+    lines.push('');
+    lines.push(`Drive: ${bundle.storage.driveFileUrl}`);
+  }
+  return lines.join('\n');
+}
+
+async function handleBundleCommand(env: Env, text: string): Promise<void> {
+  const raw = text.replace(/^\/bundle(@[\w_]+)?/i, '').trim();
+  if (!raw) {
+    await sendTelegram(
+      env,
+      'Send bundle keywords like "/bundle MG solo mom projector kids" or paste JSON to generate a custom magnet bundle.'
+    );
+    return;
+  }
+
+  if (raw.startsWith('{')) {
+    const profile = parseBundleProfileFromText(raw);
+    if (!profile) {
+      await sendTelegram(env, '⚠️ Could not parse the JSON profile.');
+      return;
+    }
+    const bundle = await generateMagnetBundle(profile, { requestedBy: 'telegram', persist: true });
+    await sendTelegram(env, formatBundleSummary(bundle));
+    return;
+  }
+
+  const query = raw;
+  const matches = await findMagnetBundles({
+    name: query,
+    household: query,
+    trait: query,
+    humanDesignType: query,
+  });
+  if (matches.length) {
+    const [first, ...rest] = matches;
+    const appendix = rest.length ? `\n\n(${rest.length} more saved bundle${rest.length > 1 ? 's' : ''})` : '';
+    await sendTelegram(env, `${formatBundleSummary(first)}${appendix}`);
+    return;
+  }
+
+  const profile = parseBundleProfileFromText(query);
+  if (!profile) {
+    await sendTelegram(env, '⚠️ No bundle data found. Try describing the household or send JSON profile data.');
+    return;
+  }
+
+  const bundle = await generateMagnetBundle(profile, { requestedBy: 'telegram', persist: true });
+  await sendTelegram(env, formatBundleSummary(bundle));
 }
 
 function formatTimestamp(value?: string): string {
@@ -401,6 +579,8 @@ export async function handleTelegramUpdate(update: TelegramUpdate, env: Env, ori
       await handleProjects(env);
     } else if (command === '/summary') {
       await handleStatus(env);
+    } else if (command === '/bundle') {
+      await handleBundleCommand(env, text);
     } else {
       await handleHelp(env);
     }

@@ -3,6 +3,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import { resolveMagnetBundlePlan } from '../src/fulfillment/magnet-bundles';
+import { generateMagnetBundle } from '../maggie/core/generateMagnetBundle';
 import type { NormalizedIntake } from '../src/fulfillment/types';
 
 async function tempRuntimeFile(name: string) {
@@ -75,5 +76,72 @@ describe('magnet bundle plan', () => {
 
     const labels = plan.requests.map((req) => req.label.toLowerCase());
     expect(labels.some((label) => label.includes('garcia'))).toBe(true);
+  });
+});
+
+describe('generateMagnetBundle', () => {
+  it('creates an MG solo mom bundle with projector kids cues', async () => {
+    const bundle = await generateMagnetBundle(
+      {
+        id: 'memphis',
+        name: 'Memphis',
+        household: 'Solo household',
+        householdRole: 'Solo Mom',
+        humanDesignType: 'Manifesting Generator',
+        lifeType: 'Wellness',
+        children: [{ name: 'River', age: 'child', humanDesignType: 'Projector' }],
+        quizTags: ['high sensitivity'],
+        customNeeds: ['adhd'],
+      },
+      { persist: false }
+    );
+
+    expect(bundle.name).toMatch(/MG/i);
+    expect(bundle.name).toMatch(/Solo Mom/i);
+    const iconLabels = bundle.icons.map((icon) => icon.label);
+    expect(iconLabels).toContain('Water Intake');
+    expect(iconLabels).toContain('Temple Time');
+    expect(iconLabels).toContain('Quiet Reset');
+    expect(iconLabels.some((label) => /bedtime/i.test(label))).toBe(true);
+  });
+
+  it('honors soul blueprint traits like Virgo Moon and Life Path 3', async () => {
+    const bundle = await generateMagnetBundle(
+      {
+        id: 'virgo-moon',
+        name: 'Atlas',
+        household: 'Creative household',
+        householdRole: 'Parent',
+        humanDesignType: 'Projector',
+        soulBlueprint: {
+          moon: 'Virgo Moon',
+          lifePath: 'Life Path 3',
+        },
+        lifeType: 'Creative Studio',
+      },
+      { persist: false }
+    );
+
+    const labels = bundle.icons.map((icon) => icon.label);
+    expect(labels).toContain('Tidy Space');
+    expect(labels).toContain('Creative Time');
+  });
+
+  it('adds helper directives when the icon list is short', async () => {
+    const bundle = await generateMagnetBundle(
+      {
+        id: 'minimal',
+        name: 'Nova',
+        householdRole: 'Elder Support',
+        humanDesignType: 'Reflector',
+        lifeType: 'Care',
+        customNeeds: ['sensory'],
+      },
+      { persist: false, minIcons: 3 }
+    );
+
+    expect(bundle.icons.length).toBeGreaterThanOrEqual(3);
+    expect(bundle.helpers.length).toBeGreaterThan(0);
+    expect(bundle.helpers[0].instructions).toMatch(/Bundle "/);
   });
 });

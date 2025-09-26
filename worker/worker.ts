@@ -335,6 +335,11 @@ export default {
         if (r && r.status !== 404) return r;
       }
 
+      {
+        const r = await tryRoute("/bundle", "./routes/bundle", null, req, env, ctx);
+        if (r && r.status !== 404) return r;
+      }
+
       // Planner / Compose / Schedule
       {
         const r = await tryRoute("/planner", "./routes/planner", null, req, env, ctx);
