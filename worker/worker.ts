@@ -4,9 +4,13 @@ import { handleDiagConfig } from './diag';
 import type { Env } from './lib/env';
 import { syncThreadStateFromGitHub } from './lib/threadStateSync';
 import { serveStaticSite } from './lib/site';
-import { loadState } from './lib/state';
-type Ctx = { env: Env; request: Request; ctx: ExecutionContext };
-
+import {
+  bootstrapWorker,
+  gatherStatus,
+  gatherSummary,
+  handleScheduled as handleAutomationScheduled,
+} from './index';
+import * as cronRoutes from './routes/cron';
 // ---------------- CORS helpers ----------------
 const CORS_BASE: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -78,6 +82,7 @@ export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
     try {
+      await bootstrapWorker(env, req, ctx);
       const siteResponse = await serveStaticSite(req, env);
       if (siteResponse) {
         return siteResponse;
@@ -91,12 +96,7 @@ export default {
       }
 
       if (url.pathname === '/status') {
-        const state = await loadState(env);
-        const socialQueue = {
-          scheduled: state.scheduledPosts?.length || 0,
-          flopsRetry: state.flopRetries?.length || 0,
-          nextPost: state.scheduledPosts?.[0] || null,
-        };
+        const { snapshot, state, time } = await gatherStatus(env);
         const autonomy = (typeof state.autonomy === 'object' && state.autonomy !== null
           ? state.autonomy
           : {}) as Record<string, any>;
@@ -104,10 +104,17 @@ export default {
         const errors = Array.isArray(autonomy.lastErrors) ? autonomy.lastErrors : [];
         const warnings = Array.isArray(autonomy.lastWarnings) ? autonomy.lastWarnings : [];
         const history = Array.isArray(autonomy.history) ? autonomy.history.slice(0, 50) : [];
-        const nextRun = typeof autonomy.lastNextRun === 'string' ? autonomy.lastNextRun : null;
+        const socialQueue = {
+          scheduled: snapshot.scheduledPosts,
+          flopsRetry: snapshot.retryQueue,
+          nextPost: Array.isArray(state.scheduledPosts) ? state.scheduledPosts[0] : null,
+        };
+        const nextRun = snapshot.runtime.lastTick
+          ? new Date(new Date(snapshot.runtime.lastTick).getTime() + 10 * 60 * 1000).toISOString()
+          : null;
         const status = {
-          time: new Date().toISOString(),
-          currentTasks: state.currentTasks || ['idle'],
+          time,
+          currentTasks: snapshot.currentTasks,
           lastCheck: state.lastCheck || null,
           website: state.website || 'https://messyandmagnetic.com',
           socialQueue,
@@ -120,6 +127,9 @@ export default {
             ...autonomy,
             history,
           },
+          topTrends: snapshot.topTrends,
+          paused: snapshot.paused,
+          scheduler: snapshot.runtime,
         };
         return new Response(JSON.stringify(status, null, 2), {
           headers: { 'Content-Type': 'application/json' },
@@ -127,20 +137,20 @@ export default {
       }
 
       if (url.pathname === '/summary') {
-        const state = await loadState(env);
-        const topTrends = Array.isArray((state as any).topTrends) ? (state as any).topTrends : [];
+        const { snapshot, state, time } = await gatherSummary(env);
         const socialQueue = {
-          scheduled: state.scheduledPosts?.length || 0,
-          flopsRetry: state.flopRetries?.length || 0,
-          nextPost: state.scheduledPosts?.[0] || null,
+          scheduled: snapshot.scheduledPosts,
+          flopsRetry: snapshot.retryQueue,
+          nextPost: Array.isArray(state.scheduledPosts) ? state.scheduledPosts[0] : null,
         };
         const summary = {
-          time: new Date().toISOString(),
-          currentTasks: state.currentTasks || ['idle'],
+          time,
+          currentTasks: snapshot.currentTasks,
           lastCheck: state.lastCheck || null,
-          website: 'https://messyandmagnetic.com',
+          website: state.website || 'https://messyandmagnetic.com',
           socialQueue,
-          topTrends,
+          topTrends: snapshot.topTrends,
+          paused: snapshot.paused,
         };
         return new Response(JSON.stringify(summary, null, 2), {
           headers: { 'Content-Type': 'application/json' },
@@ -300,9 +310,10 @@ export default {
         if (r && r.status !== 404) return r;
       }
 
-      // Minimal Telegram webhook
-      if (url.pathname === "/telegram-webhook") {
-        const r = await tryRoute("/telegram-webhook", "./routes/telegram", null, req, env, ctx);
+      // Telegram webhook (legacy + canonical)
+      if (url.pathname === "/telegram" || url.pathname === "/telegram-webhook") {
+        const prefix = url.pathname === "/telegram" ? "/telegram" : "/telegram-webhook";
+        const r = await tryRoute(prefix, "./routes/telegram", null, req, env, ctx);
         if (r && r.status !== 404) return r;
       }
 
@@ -402,6 +413,12 @@ export default {
     } catch {}
 
     try {
+      ctx.waitUntil(handleAutomationScheduled(event, env, ctx).then(() => {}));
+    } catch (err) {
+      console.error('[worker.cron] automation tick failed:', err);
+    }
+
+    try {
       ctx.waitUntil(syncThreadStateFromGitHub(env));
     } catch (err) {
       console.error('[worker.cron] failed to enqueue thread-state sync:', err);
@@ -409,9 +426,11 @@ export default {
 
     // Let optional modules hook scheduled if present
     try {
-      const cron: any = await import("./routes/cron");
-      if (typeof cron.runScheduled === "function") ctx.waitUntil(cron.runScheduled(event, env));
-      else if (typeof cron.onScheduled === "function") ctx.waitUntil(cron.onScheduled(event, env));
+      if (typeof (cronRoutes as any).runScheduled === 'function') {
+        ctx.waitUntil((cronRoutes as any).runScheduled(event, env));
+      } else if (typeof (cronRoutes as any).onScheduled === 'function') {
+        ctx.waitUntil((cronRoutes as any).onScheduled(event, env));
+      }
     } catch {}
     try {
       const tasks: any = await import("./routes/tasks");
