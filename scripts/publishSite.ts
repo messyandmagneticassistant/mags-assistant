@@ -1,11 +1,20 @@
 import { promises as fs } from 'node:fs';
+import { exec as cpExec } from 'node:child_process';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import process from 'node:process';
+import { promisify } from 'node:util';
 import { sendTelegramMessage } from './lib/telegramClient';
 
 const SITE_PREFIX = 'site:';
 const RESERVED_KEYS = new Set([`${SITE_PREFIX}manifest`]);
+const exec = promisify(cpExec);
+
+const DEFAULT_BUILD_COMMAND = 'pnpm --filter assistant-ui build';
+const FALLBACK_HTML_PATH = path.resolve('public', 'index.html');
+const FALLBACK_SOURCE_LABEL = 'public/index.html';
+const FALLBACK_COPY_PATH = 'fallback/index.html';
+const BUILD_DIR_CANDIDATES = ['ui/dist', 'landing/dist', 'landing', 'site'];
 
 interface PublishSiteOptions {
   triggeredBy?: string;
@@ -39,13 +48,74 @@ interface PublishSiteResult {
       contentType: string;
       deployedAt: string;
     }>;
+    fallbackDeployed?: boolean;
+    fallbackSource?: string;
   };
   removedKeys: string[];
 }
 
-function ensureSiteDir(): string {
-  const dir = path.resolve('site');
-  return dir;
+function normalizePathInput(candidate: string): string {
+  return path.isAbsolute(candidate) ? candidate : path.resolve(candidate);
+}
+
+function resolveBuildCommand(): string | null {
+  const raw = process.env.SITE_BUILD_COMMAND;
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    const lowered = trimmed.toLowerCase();
+    if (['skip', 'false', '0', 'no', 'none'].includes(lowered)) {
+      return null;
+    }
+    return trimmed;
+  }
+  return DEFAULT_BUILD_COMMAND;
+}
+
+async function runSiteBuild(): Promise<void> {
+  const command = resolveBuildCommand();
+  if (!command) {
+    console.log('[publishSite] build step skipped (no command provided).');
+    return;
+  }
+
+  console.log(`[publishSite] running build command: ${command}`);
+  const { stdout, stderr } = await exec(command, { cwd: process.cwd(), env: process.env });
+  if (stdout?.trim()) {
+    console.log(stdout.trim());
+  }
+  if (stderr?.trim()) {
+    console.error(stderr.trim());
+  }
+}
+
+async function resolveSiteDir(): Promise<string | null> {
+  const candidates: string[] = [];
+  if (process.env.SITE_BUILD_DIR) {
+    candidates.push(process.env.SITE_BUILD_DIR);
+  }
+  candidates.push(...BUILD_DIR_CANDIDATES);
+
+  for (const candidate of candidates) {
+    const absolute = normalizePathInput(candidate);
+    if (!(await pathExists(absolute))) continue;
+    const indexCandidates = ['index.html', 'index.htm'];
+    for (const index of indexCandidates) {
+      if (await pathExists(path.join(absolute, index))) {
+        return absolute;
+      }
+    }
+    try {
+      const files = await readSiteFiles(absolute);
+      if (files.length) {
+        return absolute;
+      }
+    } catch (err) {
+      console.warn('[publishSite] failed to read candidate dir', absolute, err);
+    }
+  }
+
+  return null;
 }
 
 async function pathExists(target: string): Promise<boolean> {
@@ -121,6 +191,30 @@ function toBase64(buffer: Buffer): string {
 
 function sha256(buffer: Buffer): string {
   return crypto.createHash('sha256').update(buffer).digest('hex');
+}
+
+function dedupeRecords(records: SiteAssetRecord[]): SiteAssetRecord[] {
+  const map = new Map<string, SiteAssetRecord>();
+  for (const record of records) {
+    map.set(record.path, record);
+  }
+  return [...map.values()].sort((a, b) => a.path.localeCompare(b.path));
+}
+
+async function buildFallbackRecord(deployedAt: string, pathName: string): Promise<SiteAssetRecord> {
+  if (!(await pathExists(FALLBACK_HTML_PATH))) {
+    throw new Error(`Fallback HTML missing at ${FALLBACK_HTML_PATH}`);
+  }
+  const buffer = await fs.readFile(FALLBACK_HTML_PATH);
+  return {
+    path: pathName,
+    contentType: 'text/html; charset=utf-8',
+    encoding: 'base64',
+    content: toBase64(buffer),
+    hash: sha256(buffer),
+    size: buffer.byteLength,
+    deployedAt,
+  } satisfies SiteAssetRecord;
 }
 
 function getCloudflareCredentials(): CloudflareCredentials {
@@ -246,27 +340,58 @@ async function buildAssetRecords(baseDir: string, files: string[], deployedAt: s
 }
 
 export async function publishSite(options: PublishSiteOptions = {}): Promise<PublishSiteResult> {
-  const siteDir = ensureSiteDir();
-  const exists = await pathExists(siteDir);
-  if (!exists) {
-    throw new Error(`Site directory not found at ${siteDir}`);
-  }
-
-  const files = await readSiteFiles(siteDir);
-  if (!files.length) {
-    throw new Error('No files found in site/. Nothing to publish.');
-  }
-
   const deployedAt = new Date().toISOString();
-  const records = await buildAssetRecords(siteDir, files, deployedAt);
-  const creds = getCloudflareCredentials();
+  const records: SiteAssetRecord[] = [];
+  let siteDir: string | null = null;
+  let usedFallbackOnly = false;
 
-  console.log(`📦 Publishing ${records.length} assets to Cloudflare KV...`);
+  try {
+    await runSiteBuild();
+  } catch (err) {
+    console.warn('[publishSite] build command failed, will try fallback:', err);
+  }
+
+  try {
+    siteDir = await resolveSiteDir();
+    if (siteDir) {
+      console.log(`[publishSite] Using build output from ${siteDir}`);
+      const files = await readSiteFiles(siteDir);
+      if (files.length) {
+        const builtRecords = await buildAssetRecords(siteDir, files, deployedAt);
+        records.push(...builtRecords);
+        const hasFallbackCopy = builtRecords.some((record) => record.path === FALLBACK_COPY_PATH);
+        if (!hasFallbackCopy) {
+          try {
+            const fallbackCopy = await buildFallbackRecord(deployedAt, FALLBACK_COPY_PATH);
+            records.push(fallbackCopy);
+          } catch (err) {
+            console.warn('[publishSite] fallback copy could not be prepared:', err);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[publishSite] failed to gather build output:', err);
+  }
+
+  if (!records.length) {
+    usedFallbackOnly = true;
+    console.warn('[publishSite] No compiled site assets found. Deploying fallback landing page.');
+    records.push(await buildFallbackRecord(deployedAt, 'index.html'));
+  }
+
+  const assets = dedupeRecords(records);
+  if (!assets.length) {
+    throw new Error('No site assets available to deploy (build + fallback both failed).');
+  }
+
+  const creds = getCloudflareCredentials();
+  console.log(`📦 Publishing ${assets.length} assets to Cloudflare KV...`);
 
   const existingKeys = await listExistingSiteKeys(creds);
   const writtenKeys = new Set<string>();
 
-  for (const record of records) {
+  for (const record of assets) {
     const key = `${SITE_PREFIX}${record.path}`;
     writtenKeys.add(key);
     const payload = JSON.stringify(record);
@@ -275,7 +400,7 @@ export async function publishSite(options: PublishSiteOptions = {}): Promise<Pub
   }
 
   const manifestEntries: PublishSiteResult['manifest']['assets'] = {};
-  for (const record of records) {
+  for (const record of assets) {
     manifestEntries[record.path] = {
       hash: record.hash,
       size: record.size,
@@ -287,9 +412,11 @@ export async function publishSite(options: PublishSiteOptions = {}): Promise<Pub
   const manifest = {
     generatedAt: deployedAt,
     triggeredBy: options.triggeredBy,
-    assetCount: records.length,
+    assetCount: assets.length,
     assets: manifestEntries,
-  };
+    fallbackDeployed: usedFallbackOnly,
+    fallbackSource: usedFallbackOnly ? FALLBACK_SOURCE_LABEL : undefined,
+  } satisfies PublishSiteResult['manifest'];
 
   await putKvValue(
     creds,
@@ -308,7 +435,16 @@ export async function publishSite(options: PublishSiteOptions = {}): Promise<Pub
     }
   }
 
-  const summary = `🚀 <b>Site deployed</b>\n• Files: <code>${records.length}</code>\n• Removed: <code>${removed.length}</code>\n• Triggered by: <b>${options.triggeredBy || 'manual'}</b>`;
+  const modeLine = usedFallbackOnly
+    ? `• Mode: <b>fallback</b> (${FALLBACK_SOURCE_LABEL})`
+    : '• Mode: <b>build</b> with fallback copy';
+  const summary = [
+    '🚀 <b>Site deployed</b>',
+    `• Files: <code>${assets.length}</code>`,
+    `• Removed: <code>${removed.length}</code>`,
+    modeLine,
+    `• Triggered by: <b>${options.triggeredBy || 'manual'}</b>`,
+  ].join('\n');
   if (options.notify !== false) {
     await sendTelegramMessage(summary).catch(() => undefined);
   }

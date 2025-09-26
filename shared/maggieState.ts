@@ -5,6 +5,14 @@ export interface MaggieTrend {
   [key: string]: unknown;
 }
 
+export interface BrainInboxMessage {
+  id: string;
+  text: string;
+  receivedAt: string;
+  from?: string;
+  chatId?: string;
+}
+
 export interface AutonomyRunIssue {
   key: string;
   label?: string;
@@ -47,6 +55,8 @@ export interface AutonomyMetadata {
   lastErrors?: AutonomyRunIssue[];
   lastWarnings?: AutonomyRunIssue[];
   lastQuietWindow?: AutonomyRunLogEntry['quiet'];
+  pendingNotes?: BrainInboxMessage[];
+  inbox?: BrainInboxMessage[];
 }
 
 export interface MaggieState {
@@ -57,6 +67,8 @@ export interface MaggieState {
   topTrends?: MaggieTrend[];
   website?: string;
   autonomy?: AutonomyMetadata;
+  brainInbox?: BrainInboxMessage[];
+  lastTelegramAt?: string;
   [key: string]: unknown;
 }
 

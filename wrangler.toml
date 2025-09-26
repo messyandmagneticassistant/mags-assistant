@@ -44,3 +44,4 @@ crons = ["*/5 * * * *"]
 [pages]
 project_name = "mags-site"
 build_output_dir = "ui/dist"
+build_command = "pnpm --filter assistant-ui build"
