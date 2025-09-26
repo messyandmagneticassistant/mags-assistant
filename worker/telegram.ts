@@ -57,6 +57,22 @@ function commandFromText(text: string): string {
   return first.split('@')[0] || '';
 }
 
+function readMessageText(message: TelegramMessage | undefined): string {
+  if (!message) return '';
+  const text = typeof message.text === 'string' ? message.text.trim() : '';
+  if (text) return text;
+  const caption = typeof message.caption === 'string' ? message.caption.trim() : '';
+  return caption;
+}
+
+function stripCommandPrefix(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('/')) return trimmed;
+  const segments = trimmed.split(/\s+/);
+  segments.shift();
+  return segments.join(' ').trim();
+}
+
 function resolveWebhookUrl(env: Env, origin?: string): string | undefined {
   if ((env as any).TELEGRAM_WEBHOOK_URL) {
     return String((env as any).TELEGRAM_WEBHOOK_URL);
@@ -320,8 +336,20 @@ async function registerTaskStart(env: Env, label: string): Promise<void> {
   await sendTelegram(env, `✅ started ${trimmed}`);
 }
 
-async function respondToFreeText(env: Env, text: string): Promise<void> {
-  const intent = detectIntent(text);
+async function handleFreeformMessage(env: Env, message: TelegramMessage): Promise<void> {
+  const text = readMessageText(message);
+  if (!text) return;
+
+  const command = commandFromText(text);
+  const content = command ? stripCommandPrefix(text) : text;
+  if (!content) {
+    if (command) {
+      await sendTelegram(env, "Share what you'd like me to note or ask for /help.");
+    }
+    return;
+  }
+
+  const intent = detectIntent(content);
   if (intent.kind === 'status') {
     await handleStatus(env);
     return;
@@ -334,7 +362,7 @@ async function respondToFreeText(env: Env, text: string): Promise<void> {
     await registerTaskStart(env, intent.label);
     return;
   }
-  const clipped = text.trim().replace(/\s+/g, ' ').slice(0, 120);
+  const clipped = content.trim().replace(/\s+/g, ' ').slice(0, 120);
   const prefix = clipped ? `Noted “${clipped}.”` : 'Noted.';
   await sendTelegram(env, `${prefix} Say “status” for the system pulse or “projects” for the active builds.`);
 }
@@ -382,11 +410,10 @@ progressEvents.on('milestone-complete', (payload) => {
 export async function handleTelegramUpdate(update: TelegramUpdate, env: Env, origin?: string): Promise<void> {
   await ensureTelegramWebhook(env, origin);
   const message = extractMessage(update);
-  const text = (message?.text || message?.caption || '').trim();
-  if (!text) return;
   if (message?.from?.is_bot) return;
 
-  const command = commandFromText(text);
+  const text = readMessageText(message);
+  const command = text ? commandFromText(text) : '';
   if (command) {
     if (command === '/status') {
       await handleStatus(env);
@@ -400,11 +427,15 @@ export async function handleTelegramUpdate(update: TelegramUpdate, env: Env, ori
       await handleProjects(env);
     } else if (command === '/summary') {
       await handleStatus(env);
+    } else if (command === '/message') {
+      if (!message) return;
+      await handleFreeformMessage(env, message);
     } else {
       await handleHelp(env);
     }
     return;
   }
 
-  await respondToFreeText(env, text);
+  if (!message) return;
+  await handleFreeformMessage(env, message);
 }
