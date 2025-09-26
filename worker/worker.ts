@@ -341,6 +341,10 @@ export default {
         if (r && r.status !== 404) return r;
       }
       {
+        const r = await tryRoute("/cricut", "./routes/cricut", null, req, env, ctx);
+        if (r && r.status !== 404) return r;
+      }
+      {
         const r = await tryRoute("/compose", "./routes/planner", null, req, env, ctx);
         if (r && r.status !== 404) return r;
       }
