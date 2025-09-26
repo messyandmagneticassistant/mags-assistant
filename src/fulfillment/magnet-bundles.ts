@@ -832,6 +832,46 @@ export function buildFallbackIconRequests(intake: NormalizedIntake): MagnetIconR
   return requests;
 }
 
+function shouldIncludeBlankMagnets(intake: NormalizedIntake): boolean {
+  const addOns = intake.addOns || [];
+  if (addOns.some((addon) => addon.toLowerCase().includes('blank'))) {
+    return true;
+  }
+
+  const prefKeys = ['include_blank_magnets', 'blank_magnets', 'blank_icons', 'blank_tiles'];
+  for (const key of prefKeys) {
+    const value = intake.prefs?.[key];
+    if (typeof value === 'boolean') {
+      return value;
+    }
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (!normalized) continue;
+      if (['yes', 'y', 'true', '1', 'include', 'please', 'sure', 'affirmative'].includes(normalized)) {
+        return true;
+      }
+      if (['no', 'n', 'false', '0', 'skip'].includes(normalized)) {
+        return false;
+      }
+    }
+  }
+
+  return false;
+}
+
+function buildBlankMagnetRequests(personalization: PersonalizationContext): MagnetIconRequest[] {
+  const householdLabel = personalization.familyName ? `${titleCase(personalization.familyName)} family` : 'Household';
+  return [
+    {
+      slug: 'blank-rhythm-magnet',
+      label: 'Blank rhythm magnet',
+      description: `Open space magnet so the ${householdLabel} can write their own rhythm reminder.`,
+      tags: ['blank', 'custom'],
+      tone: 'soft',
+    },
+  ];
+}
+
 async function generateBundleWithAI(
   intake: NormalizedIntake,
   personalization: PersonalizationContext,
@@ -969,7 +1009,16 @@ export async function resolveMagnetBundlePlan(
     householdSummary: personalization.householdSummary,
   });
 
-  const requests = toRequests(personalizedBundle, personalization);
+  const baseRequests = toRequests(personalizedBundle, personalization);
+  const fallbackRequests = baseRequests.length ? baseRequests : buildFallbackIconRequests(intake);
+  const includeBlankMagnets = shouldIncludeBlankMagnets(intake);
+  const requests = [...fallbackRequests];
+  if (includeBlankMagnets) {
+    const blankRequests = buildBlankMagnetRequests(personalization).filter(
+      (blank) => !requests.some((existing) => existing.slug === blank.slug)
+    );
+    requests.push(...blankRequests);
+  }
   const format = personalization.preferredFormat;
   const helpers = buildHelperTasks({
     format,
@@ -983,7 +1032,7 @@ export async function resolveMagnetBundlePlan(
 
   const plan: MagnetBundlePlan = {
     bundle: bundleWithSource,
-    requests: requests.length ? requests : buildFallbackIconRequests(intake),
+    requests,
     helpers,
     personalization,
     keywords: personalization.keywords,
