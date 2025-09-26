@@ -71,6 +71,43 @@ export interface HelperBotTask {
   payload?: Record<string, any>;
 }
 
+export interface BundleBotPerson {
+  name: string;
+  role?: string;
+  age?: string;
+}
+
+export interface BundleBotRequest {
+  householdName?: string;
+  persons?: BundleBotPerson[];
+  goalOrVibe: string;
+  personaTags?: MagnetPersonaTag[];
+  keywords?: string[];
+  spiritualFocus?: string;
+  preferredFormat?: MagnetFormat;
+  blueprintSummary?: string;
+}
+
+export interface BundleBotLayoutRequest {
+  format: 'pdf' | 'svg';
+  instructions: string;
+}
+
+export interface BundleBotFeedbackPrep {
+  createQr: boolean;
+  headline?: string;
+  prompt?: string;
+  link?: string;
+}
+
+export interface BundleBotResponse {
+  bundle: StoredMagnetBundle;
+  layoutRequest: BundleBotLayoutRequest;
+  suggestedName: string;
+  feedback?: BundleBotFeedbackPrep;
+  helperNotes?: string;
+}
+
 export interface PersonalizationContext {
   familyName?: string;
   childName?: string;
@@ -107,6 +144,9 @@ export interface MagnetBundlePlan {
   keywords: string[];
   format: MagnetFormat;
   source: 'stored' | 'generated' | 'fallback';
+  layoutRequest?: BundleBotLayoutRequest;
+  feedbackRequest?: BundleBotFeedbackPrep;
+  helperNotes?: string;
 }
 
 interface BundleModuleOptions {
@@ -544,6 +584,147 @@ async function loadBundles(opts: BundleModuleOptions = {}): Promise<StoredMagnet
   return [...staticBundles, ...runtimeBundles];
 }
 
+function summarizeLibraries(bundles: StoredMagnetBundle[]) {
+  const summary = new Map<
+    string,
+    { icons: string[]; keywords: Set<string>; personaTags: Set<MagnetPersonaTag> }
+  >();
+  for (const bundle of bundles) {
+    const entry = summary.get(bundle.category) || {
+      icons: [],
+      keywords: new Set<string>(),
+      personaTags: new Set<MagnetPersonaTag>(),
+    };
+    for (const icon of bundle.icons.slice(0, 6)) {
+      if (icon.label && !entry.icons.includes(icon.label)) {
+        entry.icons.push(icon.label);
+      }
+    }
+    for (const keyword of bundle.keywords || []) {
+      if (keyword) entry.keywords.add(keyword);
+    }
+    for (const tag of bundle.personaTags || []) {
+      if (tag) entry.personaTags.add(tag);
+    }
+    summary.set(bundle.category, entry);
+  }
+  return Array.from(summary.entries()).map(([category, info]) => ({
+    category,
+    sampleIcons: info.icons.slice(0, 8),
+    keywords: Array.from(info.keywords),
+    personaTags: Array.from(info.personaTags),
+  }));
+}
+
+function normalizeLayoutResponse(layout?: Partial<BundleBotLayoutRequest>): BundleBotLayoutRequest {
+  const rawFormat = typeof layout?.format === 'string' ? layout.format.toLowerCase() : undefined;
+  const format = rawFormat === 'pdf' ? 'pdf' : 'svg';
+  const defaultInstructions =
+    format === 'pdf'
+      ? 'Lay out printable PDF sheet in US Letter and A4 with crop marks and bundle title header.'
+      : 'Prepare Cricut-ready SVG sheet (12x12) with bleed-safe margins and 0.125in spacing.';
+  return {
+    format,
+    instructions: layout?.instructions?.trim() || defaultInstructions,
+  };
+}
+
+function toFeedbackPrep(feedback?: BundleBotFeedbackPrep | null): BundleBotFeedbackPrep | undefined {
+  if (!feedback) return undefined;
+  return {
+    createQr: !!feedback.createQr,
+    headline: feedback.headline?.trim() || undefined,
+    prompt: feedback.prompt?.trim() || undefined,
+    link: feedback.link?.trim() || undefined,
+  };
+}
+
+export async function spawnBundleBot(
+  request: BundleBotRequest,
+  opts: BundleModuleOptions = {},
+): Promise<BundleBotResponse> {
+  const bundles = await loadBundles(opts);
+  const libraries = summarizeLibraries(bundles);
+  const payload = {
+    request,
+    libraries,
+  };
+
+  const systemPrompt =
+    "You are BundleBot, Maggie's helper who assembles magnet bundles when she is busy. " +
+    'Study the soul blueprint cues, pick fitting icons from existing category libraries, and respond with structured JSON.';
+
+  const response = await chatJSON<{
+    bundle: {
+      name?: string;
+      category?: string;
+      description?: string;
+      icons?: Array<{
+        slug?: string;
+        label?: string;
+        description?: string;
+        tags?: string[];
+        tone?: 'bright' | 'soft' | 'earthy';
+      }>;
+      keywords?: string[];
+    };
+    layout?: BundleBotLayoutRequest;
+    suggestedName?: string;
+    feedback?: BundleBotFeedbackPrep;
+    helperNotes?: string;
+  }>(systemPrompt, `Context:${JSON.stringify(payload)}`, {
+    temperature: 0.25,
+    openaiModel: 'gpt-4.1-mini',
+  });
+
+  const suggestedName =
+    response.suggestedName?.trim() ||
+    response.bundle.name?.trim() ||
+    `${request.goalOrVibe || 'Custom'} Rhythm Bundle`;
+  const category = response.bundle.category?.trim() || 'Custom';
+  const description =
+    response.bundle.description?.trim() ||
+    `${request.goalOrVibe || 'Personalized'} magnet bundle.`;
+  const icons = (response.bundle.icons || []).map((icon, index) => ({
+    slug: icon.slug?.trim() ? slugify(icon.slug.trim()) : slugify(`${suggestedName}-${index + 1}`),
+    label: icon.label?.trim() || `Icon ${index + 1}`,
+    description: icon.description?.trim() || '',
+    tags: icon.tags?.filter(Boolean) || [],
+    tone: icon.tone || 'soft',
+  }));
+
+  const layoutRequest = normalizeLayoutResponse(response.layout);
+  const formatCandidates: MagnetFormat[] = [];
+  if (request.preferredFormat) formatCandidates.push(request.preferredFormat);
+  if (layoutRequest.format === 'pdf') {
+    formatCandidates.push('pdf', 'printable');
+  } else {
+    formatCandidates.push('svg');
+  }
+  formatCandidates.push('digital');
+  const formats = Array.from(new Set(formatCandidates)) as MagnetFormat[];
+
+  const bundle: StoredMagnetBundle = {
+    id: `bundlebot-${slugify(`${suggestedName}-${Date.now()}`)}`,
+    name: suggestedName,
+    category,
+    description,
+    formats,
+    personaTags: request.personaTags,
+    keywords: response.bundle.keywords?.length ? response.bundle.keywords : request.keywords,
+    icons,
+    source: 'generated',
+  };
+
+  return {
+    bundle,
+    layoutRequest,
+    suggestedName,
+    feedback: toFeedbackPrep(response.feedback),
+    helperNotes: response.helperNotes?.trim() || undefined,
+  };
+}
+
 async function saveGeneratedBundle(bundle: StoredMagnetBundle, opts: BundleModuleOptions = {}): Promise<void> {
   if (opts.allowPersistence === false) return;
   const runtimePath = opts.runtimePath || RUNTIME_BUNDLE_PATH;
@@ -835,47 +1016,66 @@ export function buildFallbackIconRequests(intake: NormalizedIntake): MagnetIconR
 async function generateBundleWithAI(
   intake: NormalizedIntake,
   personalization: PersonalizationContext,
-  opts: BundleModuleOptions
-): Promise<StoredMagnetBundle | null> {
+  opts: BundleModuleOptions,
+): Promise<BundleBotResponse | null> {
   try {
-    const personaSummary = personalization.personaTags.join(', ') || 'general household';
-    const promptInput = {
-      personaSummary,
-      keywords: personalization.keywords,
-      preferredFormat: personalization.preferredFormat,
-      cohort: personalization.cohort,
-      tier: intake.tier,
-      goals: collectKeywords(intake.prefs || {}),
-    };
-    const system = `You are Maggie the icon librarian. Create tailored magnet bundles that feel cozy, spiritual, and regulated.`;
-    const user = `Generate a magnet icon bundle as JSON with fields {"name","category","description","icons":[{"slug","label","description","tags","tone"}],"keywords"}. Persona tags: ${personaSummary}. Keywords: ${personalization.keywords.join(', ')}. Preferred format: ${personalization.preferredFormat}.`;
-    const response = await chatJSON<{ name: string; category: string; description: string; icons: BundleIconDefinition[]; keywords?: string[] }>(
-      system,
-      `${user}\nRaw context:${JSON.stringify(promptInput)}`,
-      { temperature: 0.3, openaiModel: 'gpt-4.1-mini' }
+    const goalOrVibe =
+      readField(intake.prefs || {}, ['focus', 'themes', 'routine_keywords', 'goals', 'vibe']) ||
+      personalization.rhythmStyle ||
+      personalization.keywords[0] ||
+      'Daily reset';
+    const householdName =
+      personalization.familyName ||
+      intake.customer?.lastName ||
+      intake.customer?.name;
+    const persons: BundleBotPerson[] = [];
+    if (intake.customer?.firstName || intake.customer?.name) {
+      persons.push({ name: intake.customer.firstName || intake.customer.name || 'Primary' });
+    }
+    for (const member of intake.customer?.householdMembers || []) {
+      if (typeof member === 'string' && member.trim()) {
+        persons.push({ name: member.trim() });
+      }
+    }
+    const spiritualFocus =
+      readField(intake.prefs || {}, ['spiritual_focus', 'magic_focus', 'healing_focus', 'soul_focus']) ||
+      undefined;
+
+    const helper = await spawnBundleBot(
+      {
+        householdName,
+        persons,
+        goalOrVibe,
+        personaTags: personalization.personaTags,
+        keywords: personalization.keywords,
+        spiritualFocus,
+        preferredFormat: personalization.preferredFormat,
+        blueprintSummary: intake.raw?.blueprintSummary || intake.raw?.blueprint_summary,
+      },
+      opts,
     );
-    if (!response?.icons?.length) return null;
-    const name = response.name?.trim() || `${personalization.personaTags[0] || 'Custom'} Rhythm`;
-    const id = `generated-${slugify(`${name}-${Date.now()}`)}`;
+
+    if (!helper.bundle.icons.length) return null;
+
     const bundle: StoredMagnetBundle = {
-      id,
-      name,
-      category: response.category?.trim() || 'Custom',
-      description: response.description?.trim() || '',
-      formats: [personalization.preferredFormat, 'svg', 'digital'],
+      ...helper.bundle,
       personaTags: personalization.personaTags,
-      keywords: response.keywords && response.keywords.length ? response.keywords : personalization.keywords,
-      icons: response.icons.map((icon) => ({
-        slug: icon.slug || slugify(icon.label || 'icon'),
-        label: icon.label?.trim() || 'Custom Icon',
-        description: icon.description?.trim() || '',
-        tags: icon.tags || [],
-        tone: icon.tone || 'soft',
-      })),
-      source: 'generated',
+      keywords: helper.bundle.keywords?.length ? helper.bundle.keywords : personalization.keywords,
+      formats:
+        helper.bundle.formats?.length && helper.bundle.formats.length > 0
+          ? helper.bundle.formats
+          : [personalization.preferredFormat, 'svg', 'digital'],
     };
+
     await saveGeneratedBundle(bundle, opts);
-    return bundle;
+
+    return {
+      bundle,
+      layoutRequest: helper.layoutRequest,
+      suggestedName: helper.suggestedName,
+      feedback: helper.feedback,
+      helperNotes: helper.helperNotes,
+    };
   } catch (err) {
     console.warn('[magnet-bundles] AI generation failed, falling back:', err);
     return null;
@@ -917,8 +1117,17 @@ export async function resolveMagnetBundlePlan(
   const preferredCategory = resolvePreferredCategory(intake, personalization.personaTags, personalization.keywords);
   let best: StoredMagnetBundle | null = null;
   let bestScore = 0;
+  let layoutRequest: BundleBotLayoutRequest | undefined;
+  let feedbackRequest: BundleBotFeedbackPrep | undefined;
+  let helperNotes: string | undefined;
   for (const bundle of bundles) {
-    const score = scoreBundle(bundle, preferredCategory, personalization.personaTags, personalization.keywords, personalization.preferredFormat);
+    const score = scoreBundle(
+      bundle,
+      preferredCategory,
+      personalization.personaTags,
+      personalization.keywords,
+      personalization.preferredFormat,
+    );
     if (score > bestScore) {
       best = bundle;
       bestScore = score;
@@ -929,9 +1138,12 @@ export async function resolveMagnetBundlePlan(
   if (!best || bestScore < 4) {
     const generated = await generateBundleWithAI(intake, personalization, opts);
     if (generated) {
-      best = generated;
+      best = generated.bundle;
       source = 'generated';
       bestScore = 10;
+      layoutRequest = generated.layoutRequest;
+      feedbackRequest = generated.feedback;
+      helperNotes = generated.helperNotes;
     } else if (!best || bestScore < 4) {
       best = null;
     }
@@ -979,6 +1191,11 @@ export async function resolveMagnetBundlePlan(
     iconCount: requests.length,
   });
 
+  if (!layoutRequest) {
+    const defaultFormat = format === 'printable' || format === 'pdf' ? 'pdf' : 'svg';
+    layoutRequest = normalizeLayoutResponse({ format: defaultFormat });
+  }
+
   const bundleWithSource = { ...personalizedBundle, source };
 
   const plan: MagnetBundlePlan = {
@@ -989,6 +1206,9 @@ export async function resolveMagnetBundlePlan(
     keywords: personalization.keywords,
     format,
     source,
+    layoutRequest,
+    feedbackRequest,
+    helperNotes,
   };
 
   await trackBundleLibraryVersion(bundleWithSource, personalization, opts);
