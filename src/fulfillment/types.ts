@@ -2,6 +2,30 @@ import type { drive_v3, docs_v1 } from 'googleapis';
 
 export type FulfillmentTier = 'mini' | 'lite' | 'full';
 
+export type IconStyleLevel = 'kid_friendly' | 'elder_accessible' | 'standard' | 'neurodivergent_support';
+
+export interface IconAudienceProfile {
+  name: string;
+  cohort: 'child' | 'teen' | 'adult' | 'elder';
+  iconSize: string;
+  styleLevel: IconStyleLevel;
+  simplifyText: boolean;
+  highContrast: boolean;
+  needsRepetition: boolean;
+  emphasizeCategories: boolean;
+  creativeTone?: boolean;
+  version: number;
+}
+
+export interface IconBundlePdfVariant {
+  name: string;
+  version: number;
+  fileId: string;
+  url: string;
+  iconSize: string;
+  styleLevel: IconStyleLevel;
+}
+
 export interface BirthData {
   date?: string;
   time?: string;
@@ -66,6 +90,11 @@ export interface IconAsset {
   url: string;
   fileId: string;
   origin: 'library' | 'generated';
+  iconSize?: string;
+  styleLevel?: IconStyleLevel;
+  audience?: string;
+  highContrast?: boolean;
+  needsRepetition?: boolean;
 }
 
 export interface IconBundleResult {
@@ -80,6 +109,7 @@ export interface IconBundleResult {
   helperBots?: { name: string; instructions: string; payload?: Record<string, any> }[];
   keywords?: string[];
   icons: IconAsset[];
+  pdfVersions?: IconBundlePdfVariant[];
 }
 
 export interface ScheduleFile {

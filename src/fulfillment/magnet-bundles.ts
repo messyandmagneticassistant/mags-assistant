@@ -3,7 +3,7 @@ import { Buffer } from 'buffer';
 import { promises as fs } from 'fs';
 import { chatJSON } from '../../lib/ai';
 import { slugify } from '../../utils/slugify';
-import type { NormalizedIntake, FulfillmentWorkspace } from './types';
+import type { NormalizedIntake, FulfillmentWorkspace, IconAudienceProfile, IconStyleLevel } from './types';
 import { ensureFolder } from './common';
 import {
   loadAdvancedEsotericConfig,
@@ -54,7 +54,9 @@ export interface StoredMagnetBundle {
   personaTags?: MagnetPersonaTag[];
   keywords?: string[];
   icons: BundleIconDefinition[];
-  source?: 'stored' | 'generated';
+  iconSize?: string;
+  styleLevel?: IconStyleLevel;
+  source?: 'stored' | 'generated' | 'fallback';
 }
 
 export interface MagnetIconRequest {
@@ -63,6 +65,13 @@ export interface MagnetIconRequest {
   description: string;
   tags: string[];
   tone: 'bright' | 'soft' | 'earthy';
+  iconSize?: string;
+  styleLevel?: IconStyleLevel;
+  highContrast?: boolean;
+  emphasizeCategories?: boolean;
+  audienceName?: string;
+  category?: string;
+  creativeTone?: boolean;
 }
 
 export interface HelperBotTask {
@@ -79,6 +88,15 @@ export interface PersonalizationContext {
   preferredFormat: MagnetFormat;
   personaTags: MagnetPersonaTag[];
   keywords: string[];
+  styleLevel: IconStyleLevel;
+  iconSize: string;
+  simplifyText: boolean;
+  highContrast: boolean;
+  needsRepetition: boolean;
+  emphasizeCategories: boolean;
+  creativeTone?: boolean;
+  primaryAudienceName?: string;
+  audiences: IconAudienceProfile[];
 }
 
 export interface MagnetBundlePlan {
@@ -103,6 +121,160 @@ const RUNTIME_BUNDLE_PATH = path.resolve(process.cwd(), 'data', 'generated-magne
 
 interface BundleStoreShape {
   bundles?: StoredMagnetBundle[];
+}
+
+function normalizeStyleLevel(raw: any): IconStyleLevel | undefined {
+  if (!raw) return undefined;
+  const value = String(raw).toLowerCase();
+  if (value.includes('kid')) return 'kid_friendly';
+  if (value.includes('elder')) return 'elder_accessible';
+  if (value.includes('neuro') || value.includes('sensory')) return 'neurodivergent_support';
+  if (value.includes('standard')) return 'standard';
+  return undefined;
+}
+
+function defaultIconSizeForStyle(style?: IconStyleLevel): string {
+  switch (style) {
+    case 'kid_friendly':
+    case 'elder_accessible':
+      return '1.25in';
+    case 'neurodivergent_support':
+      return '1.1in';
+    default:
+      return '0.95in';
+  }
+}
+
+function parseIconSize(value?: string): number | null {
+  if (!value) return null;
+  const match = String(value).match(/([0-9]+(?:\.[0-9]+)?)/);
+  if (!match) return null;
+  const parsed = parseFloat(match[1]);
+  if (!Number.isFinite(parsed)) return null;
+  return parsed;
+}
+
+function resolveAudienceVersion(map: Record<string, any> | undefined, name: string): number {
+  if (!map) return 1;
+  const normalizedName = name.toLowerCase();
+  const sanitized = normalizedName.replace(/[^a-z0-9]/g, '');
+  const raw = map[normalizedName] ?? map[sanitized] ?? map[name];
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 1;
+}
+
+interface AudienceProfileOptions {
+  baseCohort?: 'child' | 'teen' | 'adult' | 'elder';
+  personaTags: MagnetPersonaTag[];
+  defaultStyle: IconStyleLevel;
+  defaultIconSize?: string;
+  versionMap?: Record<string, any>;
+  keywords: string[];
+}
+
+function createAudienceProfile(name: string | undefined, opts: AudienceProfileOptions): IconAudienceProfile {
+  const safeName = (name || 'Primary').trim() || 'Primary';
+  const normalized = safeName.toLowerCase();
+  let cohort = opts.baseCohort || 'adult';
+
+  if (opts.personaTags.includes('toddler')) cohort = 'child';
+  if (opts.personaTags.includes('elder support')) cohort = 'elder';
+
+  if (normalized === 'cairo') cohort = 'child';
+  if (normalized === 'enzo') cohort = 'elder';
+  if (normalized === 'chanel') cohort = 'adult';
+
+  const keywordCohort = opts.keywords.find((kw) => kw.includes('kid') || kw.includes('child'));
+  if (keywordCohort && cohort === 'adult') cohort = 'child';
+  const keywordElder = opts.keywords.find((kw) => kw.includes('elder') || kw.includes('grand'));
+  if (keywordElder) cohort = 'elder';
+
+  let styleLevel: IconStyleLevel = opts.defaultStyle;
+  if (cohort === 'child') styleLevel = 'kid_friendly';
+  if (cohort === 'elder') styleLevel = 'elder_accessible';
+
+  let simplifyText = styleLevel === 'kid_friendly';
+  let highContrast = styleLevel === 'elder_accessible';
+  let needsRepetition = false;
+  let emphasizeCategories = styleLevel === 'neurodivergent_support';
+  let creativeTone = normalized === 'chanel';
+
+  if (normalized === 'cairo') {
+    styleLevel = 'kid_friendly';
+    simplifyText = true;
+  }
+
+  if (normalized === 'enzo') {
+    styleLevel = 'elder_accessible';
+    highContrast = true;
+    simplifyText = true;
+    needsRepetition = true;
+  }
+
+  if (opts.personaTags.includes('neurodivergent child') || opts.personaTags.includes('sensory')) {
+    needsRepetition = true;
+    emphasizeCategories = true;
+    if (styleLevel === 'standard') styleLevel = 'neurodivergent_support';
+  }
+
+  if (opts.personaTags.includes('adhd support')) {
+    needsRepetition = true;
+    emphasizeCategories = true;
+  }
+
+  if (opts.keywords.some((kw) => kw.includes('creative') || kw.includes('design') || kw.includes('art'))) {
+    creativeTone = true;
+  }
+
+  if (styleLevel === 'kid_friendly' || styleLevel === 'elder_accessible') {
+    simplifyText = true;
+  }
+
+  const baseIconSize = typeof opts.defaultIconSize === 'string' && opts.defaultIconSize.trim() ? opts.defaultIconSize.trim() : defaultIconSizeForStyle(opts.defaultStyle);
+  let iconSize = baseIconSize || defaultIconSizeForStyle(styleLevel);
+  if (styleLevel === 'kid_friendly' || styleLevel === 'elder_accessible') {
+    iconSize = '1.25in';
+  } else if (styleLevel === 'neurodivergent_support') {
+    iconSize = iconSize || '1.1in';
+  }
+
+  if (!emphasizeCategories && needsRepetition) {
+    emphasizeCategories = true;
+  }
+
+  const version = resolveAudienceVersion(opts.versionMap, safeName);
+
+  return {
+    name: safeName,
+    cohort,
+    iconSize,
+    styleLevel,
+    simplifyText,
+    highContrast,
+    needsRepetition,
+    emphasizeCategories,
+    creativeTone: creativeTone || undefined,
+    version,
+  };
+}
+
+function normalizeBundle(bundle: any, source: StoredMagnetBundle['source']): StoredMagnetBundle {
+  const iconSize =
+    (typeof bundle?.iconSize === 'string' && bundle.iconSize.trim()) ||
+    (typeof bundle?.icon_size === 'string' && bundle.icon_size.trim()) ||
+    undefined;
+  const styleLevel = normalizeStyleLevel(bundle?.styleLevel || bundle?.style_level);
+  const icons = Array.isArray(bundle?.icons) ? bundle.icons.map((icon: BundleIconDefinition) => ({ ...icon })) : [];
+  const normalized: StoredMagnetBundle = {
+    ...(bundle as StoredMagnetBundle),
+    iconSize,
+    styleLevel: styleLevel || bundle?.styleLevel,
+    icons,
+    source,
+  };
+  delete (normalized as any).icon_size;
+  delete (normalized as any).style_level;
+  return normalized;
 }
 
 function readField(data: Record<string, any>, keys: string[]): string | undefined {
@@ -223,8 +395,8 @@ async function loadBundles(opts: BundleModuleOptions = {}): Promise<StoredMagnet
   try {
     const raw = await fs.readFile(staticPath, 'utf8');
     const parsed: BundleStoreShape = JSON.parse(raw || '{}');
-    staticBundles = Array.isArray(parsed.bundles) ? parsed.bundles : [];
-    staticBundles = staticBundles.map((bundle) => ({ ...bundle, source: 'stored' }));
+    const stored = Array.isArray(parsed.bundles) ? parsed.bundles : [];
+    staticBundles = stored.map((bundle) => normalizeBundle(bundle, 'stored'));
   } catch (err) {
     console.warn('[magnet-bundles] failed to read static bundle store:', err);
   }
@@ -232,10 +404,9 @@ async function loadBundles(opts: BundleModuleOptions = {}): Promise<StoredMagnet
   try {
     const raw = await fs.readFile(runtimePath, 'utf8');
     const parsed = JSON.parse(raw || '[]');
-    runtimeBundles = (Array.isArray(parsed) ? parsed : parsed.bundles || []).map((bundle) => ({
-      ...bundle,
-      source: bundle.source || 'generated',
-    }));
+    runtimeBundles = (Array.isArray(parsed) ? parsed : parsed.bundles || []).map((bundle) =>
+      normalizeBundle(bundle, (bundle?.source as StoredMagnetBundle['source']) || 'generated')
+    );
   } catch (err) {
     // runtime store optional
   }
@@ -267,25 +438,123 @@ async function saveGeneratedBundle(bundle: StoredMagnetBundle, opts: BundleModul
 function scoreBundle(
   bundle: StoredMagnetBundle,
   preferredCategory: string | undefined,
-  personaTags: MagnetPersonaTag[],
-  keywords: string[],
-  preferredFormat: MagnetFormat
-): number {
+  personalization: PersonalizationContext
+): {
+  score: number;
+  tagMatches: number;
+  keywordMatches: number;
+  styleMatched: boolean;
+  formatMatched: boolean;
+  sizeAligned: boolean;
+} {
   let score = 0;
   if (preferredCategory && bundle.category.toLowerCase() === preferredCategory.toLowerCase()) score += 6;
-  if (bundle.formats?.includes(preferredFormat)) score += 2;
-  const tagMatches = personaTags.filter((tag) => bundle.personaTags?.includes(tag)).length;
+  const formatMatched = bundle.formats?.includes(personalization.preferredFormat) ?? false;
+  if (formatMatched) score += 1;
+  const tagMatches = personalization.personaTags.filter((tag) => bundle.personaTags?.includes(tag)).length;
   score += tagMatches * 2;
-  const keywordMatches = keywords.filter((kw) => bundle.keywords?.some((k) => k.toLowerCase() === kw.toLowerCase())).length;
+  const keywordMatches = personalization.keywords.filter((kw) =>
+    bundle.keywords?.some((k) => k.toLowerCase() === kw.toLowerCase())
+  ).length;
   score += keywordMatches;
-  return score;
+  const bundleStyle = normalizeStyleLevel(bundle.styleLevel);
+  let styleMatched = false;
+  if (bundleStyle && bundleStyle === personalization.styleLevel) {
+    styleMatched = true;
+    score += 2;
+  } else if (bundleStyle && bundleStyle !== personalization.styleLevel) {
+    score -= 1;
+  }
+  const bundleSize = parseIconSize(bundle.iconSize);
+  const targetSize = parseIconSize(personalization.iconSize);
+  let sizeAligned = false;
+  if (bundleSize !== null && targetSize !== null) {
+    const diff = Math.abs(bundleSize - targetSize);
+    if (diff < 0.05) {
+      score += 2;
+      sizeAligned = true;
+    } else if (diff < 0.15) {
+      score += 1;
+      sizeAligned = true;
+    } else if (diff > 0.3) {
+      score -= 1;
+    }
+  }
+  if (personalization.needsRepetition && bundleStyle === 'neurodivergent_support') {
+    score += 1;
+  }
+  return { score, tagMatches, keywordMatches, styleMatched, formatMatched, sizeAligned };
+}
+
+type PersonalizedIconDefinition = BundleIconDefinition & {
+  iconSize?: string;
+  styleLevel?: IconStyleLevel;
+  audienceName?: string;
+  needsRepetition?: boolean;
+  highContrast?: boolean;
+};
+
+function simplifyLabelForAudience(label: string): string {
+  if (!label) return label;
+  const cleaned = label.replace(/\s+/g, ' ').trim();
+  const words = cleaned.split(' ');
+  if (words.length <= 1) return cleaned;
+  const skipWords = new Set(['the', 'and', 'for', 'with', 'your']);
+  const first = words[0];
+  const second = words[1];
+  const keepSecond = second && second.length <= 4 && !skipWords.has(second.toLowerCase());
+  const simplified = keepSecond ? `${first} ${second}` : first;
+  return simplified.charAt(0).toUpperCase() + simplified.slice(1);
+}
+
+function simplifyDescriptionForAudience(description: string): string {
+  if (!description) return description;
+  const firstSentence = description.split(/(?<=[.!?])\s+/)[0] || description;
+  const words = firstSentence.split(/\s+/).filter(Boolean);
+  if (words.length <= 16) return firstSentence.trim();
+  return `${words.slice(0, 16).join(' ')}…`;
+}
+
+function ensureHighContrastDescription(description: string): string {
+  const note = 'High-contrast text and bold outlines for visibility.';
+  if (!description) return note;
+  if (description.toLowerCase().includes('high-contrast')) return description;
+  return `${description.trim()} ${note}`.trim();
+}
+
+function ensureCategoryDescriptor(description: string, category: string): string {
+  if (!category) return description;
+  const prefix = `Category: ${category}.`;
+  if (!description) return prefix;
+  if (description.toLowerCase().includes(`category: ${category.toLowerCase()}`)) return description;
+  return `${prefix} ${description}`.trim();
+}
+
+function ensureRepeatCueDescription(description: string, label: string): string {
+  const note = `Repeat cue: ${label}.`;
+  if (!description) return note;
+  if (description.toLowerCase().includes('repeat cue')) return description;
+  return `${description.trim()} ${note}`.trim();
+}
+
+function addStyleTag(tags: string[] = [], style: IconStyleLevel): string[] {
+  const tagMap: Record<IconStyleLevel, string> = {
+    kid_friendly: 'kid-friendly',
+    elder_accessible: 'elder-accessible',
+    standard: 'standard-style',
+    neurodivergent_support: 'sensory-support',
+  };
+  const next = new Set(tags.map((tag) => tag.toLowerCase()));
+  next.add(tagMap[style]);
+  return Array.from(next);
 }
 
 function applyPersonalization(
   icon: BundleIconDefinition,
-  personalization: PersonalizationContext
-): BundleIconDefinition {
-  const clone = { ...icon };
+  personalization: PersonalizationContext,
+  bundle: StoredMagnetBundle
+): PersonalizedIconDefinition {
+  const clone: PersonalizedIconDefinition = { ...icon, tags: [...(icon.tags || [])] };
   if (icon.templates) {
     for (const [key, template] of Object.entries(icon.templates)) {
       const value = (personalization as any)[key];
@@ -307,6 +576,43 @@ function applyPersonalization(
       clone.label = `${personalization.familyName} ${clone.label}`.trim();
     }
   }
+
+  if (personalization.simplifyText) {
+    clone.label = simplifyLabelForAudience(clone.label);
+    clone.description = simplifyDescriptionForAudience(clone.description);
+  }
+
+  if (personalization.creativeTone) {
+    clone.tags = [...new Set([...(clone.tags || []), 'creative'])];
+  }
+
+  if (personalization.highContrast) {
+    clone.description = ensureHighContrastDescription(clone.description);
+  }
+
+  if (personalization.emphasizeCategories) {
+    clone.description = ensureCategoryDescriptor(clone.description, bundle.category);
+  }
+
+  if (personalization.needsRepetition) {
+    clone.description = ensureRepeatCueDescription(clone.description, clone.label);
+    clone.tags = [...new Set([...(clone.tags || []), 'repeat'])];
+  }
+
+  if (personalization.styleLevel === 'kid_friendly' && clone.tone !== 'bright') {
+    clone.tone = 'bright';
+  }
+  if (personalization.styleLevel === 'elder_accessible' && clone.tone === 'bright') {
+    clone.tone = 'soft';
+  }
+
+  clone.iconSize = personalization.iconSize;
+  clone.styleLevel = personalization.styleLevel;
+  clone.audienceName = personalization.primaryAudienceName;
+  clone.needsRepetition = personalization.needsRepetition;
+  clone.highContrast = personalization.highContrast;
+  clone.tags = addStyleTag(clone.tags, personalization.styleLevel);
+
   return clone;
 }
 
@@ -350,7 +656,7 @@ function toRequests(
   personalization: PersonalizationContext
 ): MagnetIconRequest[] {
   return bundle.icons
-    .map((icon) => applyPersonalization(icon, personalization))
+    .map((icon) => applyPersonalization(icon, personalization, bundle))
     .filter((icon) => iconMatchesAudience(icon, personalization))
     .map((icon) => ({
       slug: icon.slug,
@@ -358,6 +664,13 @@ function toRequests(
       description: icon.description,
       tags: icon.tags || [],
       tone: icon.tone || 'soft',
+      iconSize: icon.iconSize || personalization.iconSize,
+      styleLevel: icon.styleLevel || personalization.styleLevel,
+      highContrast: icon.highContrast || personalization.highContrast,
+      emphasizeCategories: personalization.emphasizeCategories,
+      audienceName: icon.audienceName,
+      category: bundle.category,
+      creativeTone: personalization.creativeTone,
     }));
 }
 
@@ -479,6 +792,33 @@ export function buildFallbackIconRequests(intake: NormalizedIntake): MagnetIconR
   return requests;
 }
 
+function createFallbackBundle(
+  intake: NormalizedIntake,
+  personalization: PersonalizationContext,
+  category: string | undefined
+): StoredMagnetBundle {
+  const fallbackIcons = buildFallbackIconRequests(intake);
+  return {
+    id: 'fallback-bundle',
+    name: 'Fallback Rhythm Icons',
+    category: category || 'Household',
+    description: 'Baseline icons assembled when no bundle match is found.',
+    icons: fallbackIcons.map((icon) => ({
+      slug: icon.slug,
+      label: icon.label,
+      description: icon.description,
+      tags: icon.tags,
+      tone: icon.tone,
+    })),
+    personaTags: personalization.personaTags,
+    keywords: personalization.keywords,
+    formats: [personalization.preferredFormat, 'svg'],
+    iconSize: personalization.iconSize,
+    styleLevel: personalization.styleLevel,
+    source: 'stored',
+  };
+}
+
 async function generateBundleWithAI(
   intake: NormalizedIntake,
   personalization: PersonalizationContext,
@@ -519,6 +859,8 @@ async function generateBundleWithAI(
         tags: icon.tags || [],
         tone: icon.tone || 'soft',
       })),
+      iconSize: personalization.iconSize,
+      styleLevel: personalization.styleLevel,
       source: 'generated',
     };
     await saveGeneratedBundle(bundle, opts);
@@ -536,14 +878,87 @@ function buildPersonalization(intake: NormalizedIntake): PersonalizationContext 
   const familyName = readField(intake.prefs || {}, ['family_name', 'last_name', 'household_name']) || intake.customer?.lastName;
   const childName = readField(intake.prefs || {}, ['child_name', 'kid_name', 'recipient_name']);
   const rhythmStyle = readField(intake.prefs || {}, ['rhythm_style', 'energy_style', 'vibe']);
+  const defaultStyle =
+    normalizeStyleLevel(readField(intake.prefs || {}, ['style_level', 'magnet_style'])) ||
+    (intake.ageCohort === 'child'
+      ? 'kid_friendly'
+      : intake.ageCohort === 'elder'
+      ? 'elder_accessible'
+      : 'standard');
+  const defaultIconSize =
+    readField(intake.prefs || {}, ['icon_size', 'magnet_icon_size']) || defaultIconSizeForStyle(defaultStyle);
+  const versionMap = (intake.prefs?.magnet_versions || intake.prefs?.icon_versions || intake.prefs?.versions) as
+    | Record<string, any>
+    | undefined;
+
+  const names: string[] = [];
+  const primaryCandidate =
+    intake.customer?.firstName ||
+    (intake.customer?.name ? intake.customer.name.split(' ')[0] : '') ||
+    childName ||
+    '';
+  if (primaryCandidate?.trim()) names.push(primaryCandidate.trim());
+  if (childName?.trim() && !names.includes(childName.trim())) names.push(childName.trim());
+  const householdMembers = Array.isArray(intake.customer?.householdMembers) ? intake.customer?.householdMembers : [];
+  for (const member of householdMembers) {
+    if (typeof member === 'string' && member.trim() && !names.includes(member.trim())) {
+      names.push(member.trim());
+    }
+  }
+  const prefMembers = readField(intake.prefs || {}, ['household_members', 'magnet_people']);
+  if (prefMembers) {
+    prefMembers
+      .split(/[,;\n]/)
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .forEach((name) => {
+        if (!names.includes(name)) names.push(name);
+      });
+  }
+  const readingName = (intake.raw as any)?.reading?.name || (intake.raw as any)?.reading?.primaryPerson;
+  if (typeof readingName === 'string' && readingName.trim() && !names.includes(readingName.trim())) {
+    names.push(readingName.trim());
+  }
+  if (!names.length) names.push('Primary');
+
+  const audiences = names.map((name, index) =>
+    createAudienceProfile(name, {
+      baseCohort: index === 0 ? intake.ageCohort : undefined,
+      personaTags,
+      defaultStyle,
+      defaultIconSize,
+      versionMap,
+      keywords,
+    })
+  );
+
+  const primary = audiences[0] ||
+    createAudienceProfile('Primary', {
+      baseCohort: intake.ageCohort,
+      personaTags,
+      defaultStyle,
+      defaultIconSize,
+      versionMap,
+      keywords,
+    });
+
   return {
     familyName,
     childName,
     rhythmStyle,
-    cohort: intake.ageCohort,
+    cohort: primary.cohort,
     preferredFormat,
     personaTags,
     keywords,
+    styleLevel: primary.styleLevel,
+    iconSize: primary.iconSize,
+    simplifyText: primary.simplifyText,
+    highContrast: primary.highContrast,
+    needsRepetition: primary.needsRepetition,
+    emphasizeCategories: primary.emphasizeCategories,
+    creativeTone: primary.creativeTone,
+    primaryAudienceName: primary.name,
+    audiences,
   };
 }
 
@@ -556,51 +971,57 @@ export async function resolveMagnetBundlePlan(
   const preferredCategory = resolvePreferredCategory(intake, personalization.personaTags, personalization.keywords);
   let best: StoredMagnetBundle | null = null;
   let bestScore = 0;
+  let bestMeta: ReturnType<typeof scoreBundle> | null = null;
   for (const bundle of bundles) {
-    const score = scoreBundle(bundle, preferredCategory, personalization.personaTags, personalization.keywords, personalization.preferredFormat);
-    if (score > bestScore) {
+    const bundleScore = scoreBundle(bundle, preferredCategory, personalization);
+    if (bundleScore.score > bestScore) {
       best = bundle;
-      bestScore = score;
+      bestScore = bundleScore.score;
+      bestMeta = bundleScore;
     }
   }
 
   let source: MagnetBundlePlan['source'] = 'stored';
-  if (!best || bestScore < 4) {
+  const hasMeaningfulMatch =
+    !!bestMeta &&
+    (bestMeta.tagMatches > 0 ||
+      bestMeta.keywordMatches > 0 ||
+      (bestMeta.styleMatched && bestMeta.formatMatched && bestMeta.sizeAligned));
+  const styleOnlyMatch =
+    !!bestMeta &&
+    bestMeta.tagMatches === 0 &&
+    bestMeta.keywordMatches === 0 &&
+    bestMeta.styleMatched &&
+    bestMeta.formatMatched &&
+    bestMeta.sizeAligned &&
+    personalization.styleLevel === 'standard';
+
+  if (!best || bestScore < 4 || !hasMeaningfulMatch || styleOnlyMatch) {
     const generated = await generateBundleWithAI(intake, personalization, opts);
     if (generated) {
       best = generated;
       source = 'generated';
       bestScore = 10;
-    } else if (!best || bestScore < 4) {
+    } else if (!best || bestScore < 4 || styleOnlyMatch) {
       best = null;
     }
   }
 
   if (!best) {
-    const fallbackIcons = buildFallbackIconRequests(intake);
-    const bundle: StoredMagnetBundle = {
-      id: 'fallback-bundle',
-      name: 'Fallback Rhythm Icons',
-      category: preferredCategory || 'Household',
-      description: 'Baseline icons assembled when no bundle match is found.',
-      icons: fallbackIcons.map((icon) => ({
-        slug: icon.slug,
-        label: icon.label,
-        description: icon.description,
-        tags: icon.tags,
-        tone: icon.tone,
-      })),
-      personaTags: personalization.personaTags,
-      keywords: personalization.keywords,
-      formats: [personalization.preferredFormat, 'svg'],
-      source: 'stored',
-    };
+    const bundle = createFallbackBundle(intake, personalization, preferredCategory);
     best = bundle;
     source = 'fallback';
     bestScore = 5;
   }
 
-  const requests = toRequests(best, personalization);
+  let requests = toRequests(best, personalization);
+  if (!requests.length && source !== 'fallback') {
+    const fallbackBundle = createFallbackBundle(intake, personalization, preferredCategory);
+    best = fallbackBundle;
+    source = 'fallback';
+    bestScore = 5;
+    requests = toRequests(best, personalization);
+  }
   const format = personalization.preferredFormat;
   const helpers = buildHelperTasks({
     format,
@@ -610,8 +1031,16 @@ export async function resolveMagnetBundlePlan(
     iconCount: requests.length,
   });
 
+  const personalizedBundle: StoredMagnetBundle = {
+    ...best,
+    iconSize: personalization.iconSize,
+    styleLevel: personalization.styleLevel,
+  };
+
+  
+
   return {
-    bundle: { ...best, source },
+    bundle: { ...personalizedBundle, source },
     requests: requests.length ? requests : buildFallbackIconRequests(intake),
     helpers,
     personalization,

@@ -76,4 +76,50 @@ describe('magnet bundle plan', () => {
     const labels = plan.requests.map((req) => req.label.toLowerCase());
     expect(labels.some((label) => label.includes('garcia'))).toBe(true);
   });
+
+  it('applies kid-friendly styling for Cairo', async () => {
+    const intake: NormalizedIntake = {
+      ...baseIntake(),
+      ageCohort: 'child',
+      customer: { name: 'Cairo', firstName: 'Cairo', householdMembers: [] },
+      prefs: {
+        household_type: 'Family homeschool crew',
+        focus: 'Play and kid rhythm',
+      },
+    };
+
+    const plan = await resolveMagnetBundlePlan(intake, { runtimePath, allowPersistence: false });
+
+    expect(plan.personalization.styleLevel).toBe('kid_friendly');
+    expect(plan.bundle.iconSize).toBe('1.25in');
+    const morning = plan.requests.find((req) => req.slug === 'sunrise-anchor');
+    expect(morning?.label).toBeDefined();
+    if (morning) {
+      expect(morning.label.split(' ').length).toBeLessThanOrEqual(2);
+      expect(morning.iconSize).toBe('1.25in');
+    }
+  });
+
+  it('adds elder-accessible contrast cues for Enzo', async () => {
+    const intake: NormalizedIntake = {
+      ...baseIntake(),
+      ageCohort: 'adult',
+      customer: { name: 'Enzo', firstName: 'Enzo', householdMembers: [] },
+      prefs: {
+        household_type: 'Elder sensory support home',
+        focus: 'Sensory regulation',
+        support_needs: 'sensory integration and reminders',
+      },
+    };
+
+    const plan = await resolveMagnetBundlePlan(intake, { runtimePath, allowPersistence: false });
+
+    expect(plan.personalization.styleLevel).toBe('elder_accessible');
+    expect(plan.personalization.highContrast).toBe(true);
+    expect(plan.personalization.needsRepetition).toBe(true);
+    const hasContrastNote = plan.requests.some((req) => /high-contrast/i.test(req.description));
+    const hasRepeatNote = plan.requests.some((req) => /Repeat cue/i.test(req.description));
+    expect(hasContrastNote).toBe(true);
+    expect(hasRepeatNote).toBe(true);
+  });
 });
