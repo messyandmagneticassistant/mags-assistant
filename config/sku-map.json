@@ -3,6 +3,13 @@
   "price_lite": { "tier": "lite", "addOns": [] },
   "price_full": { "tier": "full", "addOns": [] },
   "price_schedule_addon": { "addOns": ["schedule"] },
-  "price_magnet_addon": { "addOns": ["magnet"] },
-  "price_bundle_full": { "tier": "full", "addOns": ["schedule", "magnet"] }
+  "price_magnet_addon": { "addOns": ["magnet"], "fulfillmentType": "physical" },
+  "price_bundle_full": { "tier": "full", "addOns": ["schedule", "magnet"], "fulfillmentType": "physical" },
+  "price_printable_download": { "fulfillmentType": "digital" },
+  "price_cricut_ready_bundle": { "fulfillmentType": "cricut-ready" },
+  "price_extra_icons_pack": { "addOns": ["extra_icons"] },
+  "price_bonus_system": { "addOns": ["bonus system"] },
+  "prod_physical_magnet_kit": { "fulfillmentType": "physical" },
+  "prod_printable_download": { "fulfillmentType": "digital" },
+  "prod_cricut_ready_files": { "fulfillmentType": "cricut-ready" }
 }

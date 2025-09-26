@@ -1,4 +1,4 @@
-import type { NormalizedIntake, FulfillmentRecord, OrderSummary } from './types';
+import type { NormalizedIntake, FulfillmentRecord, OrderSummary, FulfillmentOutput } from './types';
 import { normalizeFromStripe, normalizeFromTally } from './intake';
 import { generateBlueprint } from './blueprint';
 import { buildIconBundle } from './icons';
@@ -24,12 +24,16 @@ interface RunOptions {
 }
 
 function formatFiles(record: FulfillmentRecord): string[] {
-  return [
-    record.blueprint.docUrl,
-    record.blueprint.pdfUrl,
-    record.icons.bundleFolderUrl,
-    record.schedule.scheduleFolderUrl,
-  ].filter(Boolean);
+  return record.outputs.map((output) => `${output.label}: ${output.url}`).filter(Boolean);
+}
+
+function buildSummaryMetadata(record: FulfillmentRecord): Record<string, any> {
+  return {
+    bundle_fulfillment: 'complete',
+    fulfillment_type: record.intake.fulfillmentType || 'digital',
+    add_ons: record.intake.addOns || [],
+    outputs: record.outputs.map((output) => ({ label: output.label, url: output.url, type: output.type })),
+  };
 }
 
 async function updateNotion(record: FulfillmentRecord, env?: any) {
@@ -75,6 +79,9 @@ async function resolveIntake(ref: OrderReference, opts: RunOptions): Promise<Nor
 
 export async function runOrder(ref: OrderReference, opts: RunOptions = {}): Promise<FulfillmentRecord> {
   let intake = await resolveIntake(ref, opts);
+  if (!intake.fulfillmentType) {
+    intake = { ...intake, fulfillmentType: 'digital' };
+  }
   let lastError: any = null;
   let record: FulfillmentRecord | null = null;
   const config = await loadFulfillmentConfig(opts);
@@ -85,8 +92,13 @@ export async function runOrder(ref: OrderReference, opts: RunOptions = {}): Prom
       const blueprint = await generateBlueprint(intake, { workspace });
       const icons = await buildIconBundle(intake, { workspace });
       const schedule = await makeScheduleKit(intake, { workspace });
-      const delivery = await deliverFulfillment(intake, blueprint, icons, schedule, opts.env);
-      record = { intake, blueprint, icons, schedule, delivery, workspace };
+      const deliveryResult = await deliverFulfillment(intake, blueprint, icons, schedule, {
+        env: opts.env,
+        workspace,
+      });
+      const delivery = deliveryResult.receipts;
+      const outputs: FulfillmentOutput[] = deliveryResult.outputs;
+      record = { intake, blueprint, icons, schedule, delivery, outputs, workspace };
 
       const summary: OrderSummary = {
         email: intake.email,
@@ -95,6 +107,7 @@ export async function runOrder(ref: OrderReference, opts: RunOptions = {}): Prom
         message: 'Delivered',
         completedAt: new Date().toISOString(),
         files: formatFiles(record),
+        metadata: buildSummaryMetadata(record),
       };
 
       await appendFulfillmentLog(intake, summary, workspace.config);
@@ -108,6 +121,9 @@ export async function runOrder(ref: OrderReference, opts: RunOptions = {}): Prom
       if (attempt === 0) {
         try {
           intake = await resolveIntake({ kind: 'intake', intake }, opts);
+          if (!intake.fulfillmentType) {
+            intake = { ...intake, fulfillmentType: 'digital' };
+          }
         } catch {}
         continue;
       }
@@ -121,6 +137,11 @@ export async function runOrder(ref: OrderReference, opts: RunOptions = {}): Prom
     message: lastError?.message || 'Unknown failure',
     completedAt: new Date().toISOString(),
     files: [],
+    metadata: {
+      bundle_fulfillment: 'error',
+      fulfillment_type: intake.fulfillmentType || 'digital',
+      add_ons: intake.addOns || [],
+    },
   };
   await appendFulfillmentLog(intake, summary, config);
   await recordOrderSummary(summary);
