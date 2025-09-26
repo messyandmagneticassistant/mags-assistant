@@ -11,16 +11,14 @@ She saves a short proof preview (before/after side-by-side) in content/preview/ 
 
 ## Mobile control
 
-Use the private Telegram bot to run Maggie without opening GitHub:
+Use the private Telegram bot to control Maggie without touching GitHub:
 
-- `/start-sync` seeds Cloudflare KV with the latest brain payload, verifies `/diag/config`, and logs the run to Google Sheets.
-- `/maggie-status` reports the most recent brain sync, worker `/health`, recent task log entries, and any errors from the past 24 hours.
-- `/maggie-help` lists all supported chat commands.
-- `/status` checks Worker health, Browserless credentials, and TikTok session coverage from Telegram.
-- `/publish-site` deploys everything in `site/` directly to the Cloudflare Worker routes for `messyandmagnetic.com` and `assistant.messyandmagnetic.com`.
-- `/self-heal` restarts Browserless/Puppeteer flows and verifies TikTok sessions, reporting the results back to chat.
+- `/status` &mdash; returns a JSON snapshot of the current task queue, retry loop, and top trends.
+- `/wake` &mdash; restarts every scheduler (social loop, funnels, cleanup) and re-pings the website/TikTok builders. This replaces the old manual Codex triggers.
+- `/stop` &mdash; gracefully pauses the schedulers while keeping Telegram online for status checks.
+- `/help` &mdash; lists the available controls.
 
-Run `npx tsx scripts/runTelegram.ts` on a box with secrets loaded to keep the Telegram bridge online.
+Maggie now keeps the Telegram webhook registered automatically, so the bot stays live 24/7 without running `scripts/runTelegram.ts`.
 
 ## Automation loops
 
