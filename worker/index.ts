@@ -5,6 +5,7 @@ import {
   ensureSchedulerAwake,
   getSchedulerSnapshot,
   tickScheduler,
+  backfillOnStart,
   type SchedulerSnapshot,
 } from './scheduler';
 import { maybeSendDailySummary } from './summary';
@@ -21,6 +22,9 @@ export async function bootstrapWorker(env: Env, request: Request | null, ctx: Ex
   const origin = request ? new URL(request.url).origin : undefined;
   ctx.waitUntil(ensureTelegramWebhook(env, origin).catch((err) => console.warn('[worker] webhook ensure failed', err)));
   ctx.waitUntil(ensureSchedulerAwake(env).catch((err) => console.warn('[worker] scheduler awake failed', err)));
+  ctx.waitUntil(
+    backfillOnStart(env, { reason: 'boot' }).catch((err) => console.warn('[worker] boot backfill failed', err))
+  );
   ctx.waitUntil(markBoot(env).catch((err) => console.warn('[worker] mark boot failed', err)));
 }
 
