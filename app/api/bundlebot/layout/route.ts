@@ -1,5 +1,11 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+import sharp from 'sharp';
+
+import { generateAndUploadPDF, type RhythmStyle } from '../../../../bundlebot/generateAndUploadPDF';
+import { slugify } from '../../../../utils/slugify';
 import type {
   MagnetIconRequest,
   BlankMagnetPlaceholder,
@@ -7,7 +13,7 @@ import type {
   BundleBotFeedbackRequest,
 } from '../../../../src/fulfillment/magnet-bundles';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 type LayoutFormat = BundleBotLayoutRequest['format'] | 'magnet-kit';
 
@@ -18,6 +24,10 @@ interface LayoutPayload {
   layoutRequest?: Partial<BundleBotLayoutRequest> & { format?: LayoutFormat };
   feedbackRequest?: Partial<BundleBotFeedbackRequest>;
   helperNotes?: string | null;
+  name?: string;
+  theme?: string;
+  style?: RhythmStyle;
+  qrCodeUrl?: string;
 }
 
 interface NormalizedIcon {
@@ -31,6 +41,8 @@ interface LayoutResponse {
   imageURL: string;
   layoutSVG: string;
   iconGrid: string[];
+  pdfPath?: string;
+  driveLink?: string;
 }
 
 const CELL_WIDTH = 160;
@@ -81,6 +93,23 @@ export async function POST(request: NextRequest) {
     layoutSVG,
     iconGrid,
   };
+
+  if (layoutSVG && payload?.name) {
+    try {
+      const layoutImagePath = await saveLayoutPreview(layoutSVG, payload.name);
+      const pdfResult = await generateAndUploadPDF({
+        name: payload.name,
+        theme: payload.theme || 'custom',
+        style: normalizeStyle(payload.style),
+        layoutImagePath,
+        qrCodeUrl: payload.qrCodeUrl || payload.feedbackRequest?.link,
+      });
+      response.pdfPath = pdfResult.filePath;
+      response.driveLink = pdfResult.driveLink;
+    } catch (error) {
+      console.error('[bundlebot.layout] failed to generate printable PDF:', error);
+    }
+  }
 
   return NextResponse.json(response);
 }
@@ -239,4 +268,27 @@ function escapeXML(value: string): string {
 function truncate(value: string, max: number): string {
   if (value.length <= max) return value;
   return `${value.slice(0, max - 1)}…`;
+}
+
+function normalizeStyle(value: unknown): RhythmStyle {
+  if (value === 'child' || value === 'adult' || value === 'elder') {
+    return value;
+  }
+  return 'adult';
+}
+
+async function saveLayoutPreview(svg: string, name: string): Promise<string> {
+  const safeName = sanitizeFileSegment(name);
+  const fileName = `${safeName}-layout-${Date.now()}.png`;
+  const filePath = path.join('/tmp', fileName);
+  await fs.mkdir('/tmp', { recursive: true });
+  await sharp(Buffer.from(svg, 'utf8'), { density: 320 })
+    .png({ compressionLevel: 9, adaptiveFiltering: true })
+    .toFile(filePath);
+  return filePath;
+}
+
+function sanitizeFileSegment(value: string): string {
+  const slug = slugify(value || '').replace(/[^a-z0-9_-]/gi, '');
+  return slug || 'layout';
 }
