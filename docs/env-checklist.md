@@ -23,6 +23,7 @@
 | `CRON_SECRET` | Secret token for cron jobs | Vercel, Cloudflare Worker |
 | `GOOGLE_CLIENT_EMAIL` | Google service account email | Vercel, Cloudflare Worker |
 | `GOOGLE_PRIVATE_KEY_P1`…`P4` | Google service account private key parts | Vercel, Cloudflare Worker |
+| `MAGNET_BUNDLE_LIBRARY_SHEET_ID` | Google Sheet ID for the reusable magnet bundle library | Vercel, Cloudflare Worker |
 | `SCRAPER_PROVIDER` | scraping provider (default `actions`) | Vercel, Cloudflare Worker |
 | `SCRAPER_API_KEY` | provider API key (if required) | Vercel, Cloudflare Worker (optional) |
 | `SCRAPER_ENDPOINT` | provider endpoint (if required) | Vercel, Cloudflare Worker (optional) |

@@ -128,6 +128,7 @@ export interface FulfillmentConfig {
   iconLibraryFolderId?: string;
   resendFromEmail?: string;
   resendFromName?: string;
+  bundleLibrarySheetId?: string;
 }
 
 export interface FulfillmentRecord {

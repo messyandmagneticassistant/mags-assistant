@@ -1,6 +1,7 @@
 import { Buffer } from 'buffer';
 import { ensureOrderWorkspace, ensureFolder, loadIconLibrary } from './common';
 import type { NormalizedIntake, IconBundleResult, IconAsset, FulfillmentWorkspace } from './types';
+import { saveBundleToLibrary, type BundleOwnerContext } from './bundle-library';
 import {
   resolveMagnetBundlePlan,
   persistBundlePlanArtifacts,
@@ -172,6 +173,45 @@ export async function buildIconBundle(
     manifest,
     workspace
   );
+
+  const ownerContext: BundleOwnerContext = {
+    name:
+      plan.personalization.familyName ||
+      intake.customer?.name ||
+      [intake.customer?.firstName, intake.customer?.lastName].filter(Boolean).join(' ') ||
+      undefined,
+    household: Array.isArray(intake.customer?.householdMembers)
+      ? intake.customer?.householdMembers.filter(Boolean).join(', ')
+      : undefined,
+    email: intake.email,
+    notes: plan.personalization.rhythmStyle,
+    sourceBlueprint: intake.referenceId,
+    referenceBundleId:
+      typeof intake.prefs?.repeat_bundle_id === 'string'
+        ? intake.prefs.repeat_bundle_id
+        : typeof intake.prefs?.original_bundle_id === 'string'
+        ? intake.prefs.original_bundle_id
+        : undefined,
+    referenceBundleName:
+      typeof intake.prefs?.repeat_bundle_name === 'string'
+        ? intake.prefs.repeat_bundle_name
+        : typeof intake.prefs?.original_bundle_name === 'string'
+        ? intake.prefs.original_bundle_name
+        : undefined,
+    customTags: plan.personalization.personaTags,
+  };
+
+  try {
+    await saveBundleToLibrary(plan.bundle, ownerContext, {
+      sheetId: workspace.config.bundleLibrarySheetId,
+      notes: plan.personalization.rhythmStyle,
+      sourceBlueprint: intake.referenceId,
+      referenceBundleId: ownerContext.referenceBundleId,
+      referenceBundleName: ownerContext.referenceBundleName,
+    });
+  } catch (err) {
+    console.warn('[magnet-bundles] failed to update bundle library:', err);
+  }
 
   return {
     bundleFolderId: iconFolder.id!,
