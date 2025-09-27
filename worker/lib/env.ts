@@ -1,6 +1,7 @@
 export type Env = {
   BRAIN: KVNamespace;
   PostQ?: KVNamespace;
+  TELEGRAM_TOKEN?: string;
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string;
   POST_THREAD_SECRET?: string;

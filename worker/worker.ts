@@ -88,45 +88,51 @@ export default {
         return siteResponse;
       }
 
-      if (url.pathname === '/ping' && req.method === 'GET') {
-        const token = (env as any).TELEGRAM_TOKEN ?? env.TELEGRAM_BOT_TOKEN;
-        const chatId = env.TELEGRAM_CHAT_ID ?? (env as any).TELEGRAM_CHAT_ID;
+      if (url.pathname === "/ping" && req.method === "GET") {
+        const token = env.TELEGRAM_TOKEN;
+        const chatId = env.TELEGRAM_CHAT_ID;
 
         if (!token || !chatId) {
           return new Response(
-            JSON.stringify({ ok: false, error: 'Missing Telegram credentials' }),
+            JSON.stringify({ ok: false, error: "Missing Telegram credentials" }),
             {
               status: 500,
-              headers: { 'Content-Type': 'application/json' },
+              headers: cors({ "content-type": "application/json; charset=utf-8" }),
             }
           );
         }
 
-        const telegramMessage =
-          '👋 Ping received from Maggie\u2019s /ping route — Telegram is working!';
         const telegramUrl = `https://api.telegram.org/bot${token}/sendMessage`;
-        const send = await fetch(telegramUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        const telegramResponse = await fetch(telegramUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
           body: JSON.stringify({
             chat_id: chatId,
-            text: telegramMessage,
+            text: "👋 Maggie’s /ping route is working and reached Telegram!",
           }),
         });
 
-        if (!send.ok) {
+        let telegramBody: { ok?: boolean } | null = null;
+        try {
+          telegramBody = (await telegramResponse.json()) as { ok?: boolean };
+        } catch (err) {
+          telegramBody = null;
+        }
+
+        if (!telegramResponse.ok || telegramBody?.ok !== true) {
           return new Response(
-            JSON.stringify({ ok: false, error: 'Telegram send failed' }),
+            JSON.stringify({ ok: false, error: "Telegram send failed" }),
             {
               status: 500,
-              headers: { 'Content-Type': 'application/json' },
+              headers: cors({ "content-type": "application/json; charset=utf-8" }),
             }
           );
         }
 
-        return new Response(JSON.stringify({ ok: true, message: 'Ping sent' }), {
-          headers: { 'Content-Type': 'application/json' },
-        });
+        return new Response(
+          JSON.stringify({ ok: true, message: "Ping sent" }),
+          { headers: cors({ "content-type": "application/json; charset=utf-8" }) }
+        );
       }
 
       if (url.pathname === '/' || url.pathname === '/health') {
