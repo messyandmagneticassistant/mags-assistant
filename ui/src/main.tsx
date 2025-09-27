@@ -11,6 +11,10 @@ import AboutPage from './pages/about';
 const root = document.getElementById('root')!;
 const path = window.location.pathname.replace(/\/$/, '') || '/';
 
+if (path.startsWith('/admin')) {
+  window.location.replace('https://assistant.messyandmagnetic.com');
+}
+
 const routes: Record<string, React.FC> = {
   '/': HomePage,
   '/offerings': OfferingsPage,
@@ -26,5 +30,5 @@ const Page = routes[path] || HomePage;
 ReactDOM.createRoot(root).render(
   <React.StrictMode>
     <Page />
-  </React.StrictMode>
+  </React.StrictMode>,
 );
