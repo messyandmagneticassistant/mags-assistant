@@ -88,6 +88,47 @@ export default {
         return siteResponse;
       }
 
+      if (url.pathname === '/ping' && req.method === 'GET') {
+        const token = (env as any).TELEGRAM_TOKEN ?? env.TELEGRAM_BOT_TOKEN;
+        const chatId = env.TELEGRAM_CHAT_ID ?? (env as any).TELEGRAM_CHAT_ID;
+
+        if (!token || !chatId) {
+          return new Response(
+            JSON.stringify({ ok: false, error: 'Missing Telegram credentials' }),
+            {
+              status: 500,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          );
+        }
+
+        const telegramMessage =
+          '👋 Ping received from Maggie\u2019s /ping route — Telegram is working!';
+        const telegramUrl = `https://api.telegram.org/bot${token}/sendMessage`;
+        const send = await fetch(telegramUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: telegramMessage,
+          }),
+        });
+
+        if (!send.ok) {
+          return new Response(
+            JSON.stringify({ ok: false, error: 'Telegram send failed' }),
+            {
+              status: 500,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          );
+        }
+
+        return new Response(JSON.stringify({ ok: true, message: 'Ping sent' }), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
       if (url.pathname === '/' || url.pathname === '/health') {
         return await handleHealth(env);
       }
