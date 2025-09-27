@@ -1,51 +1,293 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>Messy & Magnetic™</title>
-  <link rel="stylesheet" href="/styles.css" />
-</head>
-<body>
-  <main>
-    <section class="hero">
-      <h1>Messy & Magnetic</h1>
-      <p>Find the rhythm that lets your soul lead.</p>
-    </section>
-    <section class="feeling">
-      <h2>The Feeling – “It’s all too much.”</h2>
-      <p>The to-do list is louder than your intuition. Your planner is abandoned by Wednesday. You’ve tried every system except the one that speaks to your soul.</p>
-    </section>
-    <section class="bridge">
-      <h2>The Bridge – “There’s a rhythm to your soul.”</h2>
-      <p>Chaos isn’t a character flaw—it’s a compass. When you sync with your natural cadence, overwhelm becomes possibility.</p>
-    </section>
-    <section class="tool">
-      <h2>The Tool – “Let’s find it together.”</h2>
-      <p>Maggie reads your chart, your patterns, your phases. Then it hands you a rhythm toolkit that fits how you actually move.</p>
-    </section>
-    <section class="journey">
-      <h2>The Journey – “Welcome to Messy & Magnetic.”</h2>
-      <p>We’re the experiment lab for souls who refuse to choose between structure and flow. Expect rituals, rest stops, and side-eyes at hustle culture.</p>
-    </section>
-    <section class="cta">
-      <h2>Start your rhythm reset</h2>
-      <form class="cta-form">
-        <label for="email">Email address</label>
-        <input type="email" id="email" name="email" placeholder="you@example.com" required />
-        <button type="submit">Start your rhythm reset</button>
-      </form>
-    </section>
-  </main>
-  <footer>
-    <a href="preview.html">Preview</a>
-    <a href="soulkit.html">SoulKit</a>
-  </footer>
-  <script>
-    fetch('assets/tiktok-reference.json')
-      .then(res => res.json())
-      .then(data => console.log('Loaded TikTok references'))
-      .catch(err => console.error('Failed to load TikTok references', err));
-  </script>
-</body>
-</html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Your Soul is Rare — Let It Be Seen | Messy & Magnetic</title>
+    <meta
+      name="description"
+      content="Messy & Magnetic guides soulful creators through readings, magnet kits, and retreats so they can be fully seen."
+    />
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #0f1115;
+        --card: rgba(255, 255, 255, 0.05);
+        --accent: #ff72b6;
+        --accent-dark: #d35792;
+        --text: #f7f5f9;
+        --muted: rgba(247, 245, 249, 0.72);
+        --max-width: min(1100px, 92vw);
+        font-family: "Inter", "Avenir", "Helvetica Neue", system-ui, sans-serif;
+      }
 
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: radial-gradient(circle at 20% -10%, rgba(255, 114, 182, 0.18), transparent 45%),
+          radial-gradient(circle at 80% 10%, rgba(114, 182, 255, 0.15), transparent 50%), var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: rgba(15, 17, 21, 0.82);
+        backdrop-filter: blur(18px);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      nav {
+        max-width: var(--max-width);
+        margin: 0 auto;
+        padding: 1.1rem 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+      }
+
+      .brand {
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .nav-links {
+        display: flex;
+        gap: 1.4rem;
+        font-size: 0.95rem;
+      }
+
+      .nav-links a {
+        opacity: 0.8;
+        transition: opacity 0.2s ease, color 0.2s ease;
+      }
+
+      .nav-links a:hover,
+      .nav-links a:focus {
+        opacity: 1;
+        color: var(--accent);
+      }
+
+      .cta-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.9rem 1.8rem;
+        border-radius: 999px;
+        background: linear-gradient(120deg, var(--accent), #9c6cff);
+        color: #0f1115;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        box-shadow: 0 18px 36px rgba(255, 114, 182, 0.25);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+      }
+
+      .cta-button:hover,
+      .cta-button:focus {
+        transform: translateY(-2px);
+        box-shadow: 0 22px 42px rgba(255, 114, 182, 0.32);
+      }
+
+      main {
+        flex: 1;
+        max-width: var(--max-width);
+        margin: 0 auto;
+        padding: 3.5rem 0 5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 4rem;
+      }
+
+      section {
+        display: grid;
+        gap: 1.2rem;
+      }
+
+      .hero {
+        padding-top: 4rem;
+        text-align: center;
+        display: grid;
+        gap: 1.6rem;
+      }
+
+      .hero h1 {
+        font-size: clamp(2.8rem, 5vw + 1rem, 4.4rem);
+        margin: 0;
+        line-height: 1.05;
+      }
+
+      .hero p {
+        margin: 0 auto;
+        max-width: 38rem;
+        color: var(--muted);
+        font-size: 1.1rem;
+        line-height: 1.6;
+      }
+
+      .sections-grid {
+        display: grid;
+        gap: 2rem;
+      }
+
+      .card {
+        background: var(--card);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 20px;
+        padding: 2.4rem;
+        display: grid;
+        gap: 0.85rem;
+        transition: transform 0.2s ease, border-color 0.2s ease;
+      }
+
+      .card:hover,
+      .card:focus-within {
+        transform: translateY(-4px);
+        border-color: rgba(255, 255, 255, 0.22);
+      }
+
+      .card h2 {
+        margin: 0;
+        font-size: 1.8rem;
+      }
+
+      .card p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.7;
+      }
+
+      .card a {
+        font-weight: 600;
+        color: var(--accent);
+      }
+
+      .contact {
+        text-align: center;
+      }
+
+      footer {
+        margin-top: auto;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(15, 17, 21, 0.88);
+      }
+
+      footer .footer-inner {
+        max-width: var(--max-width);
+        margin: 0 auto;
+        padding: 1.6rem 0;
+        text-align: center;
+        color: var(--muted);
+      }
+
+      footer a {
+        color: var(--accent);
+        font-weight: 600;
+      }
+
+      @media (max-width: 720px) {
+        nav {
+          flex-direction: column;
+        }
+
+        .nav-links {
+          flex-wrap: wrap;
+          justify-content: center;
+        }
+
+        main {
+          padding-top: 2.8rem;
+        }
+
+        .card {
+          padding: 2rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <nav>
+        <a class="brand" href="#top">Messy & Magnetic</a>
+        <div class="nav-links">
+          <a href="#soul-readings">Soul Readings</a>
+          <a href="#magnet-kits">Magnet Kits</a>
+          <a href="#poleo-creek-retreat">Poleo Creek Retreat</a>
+          <a href="#contact">Contact</a>
+        </div>
+        <a class="cta-button" href="https://tally.so/r/w268rj">Start My Soul Blueprint</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <h1>Your Soul is Rare — Let It Be Seen</h1>
+        <p>
+          Messy & Magnetic is your sanctuary for aligning intuition with action. We blend astrology, energetics, and practical
+          rituals so you can move through the world with clarity, softness, and power.
+        </p>
+        <a class="cta-button" href="https://tally.so/r/w268rj">Start My Soul Blueprint</a>
+      </section>
+
+      <section class="sections-grid">
+        <article class="card" id="soul-readings">
+          <h2>Soul Readings</h2>
+          <p>
+            One-on-one sessions that decode your cosmic blueprint. Receive an immersive reading, an actionable rhythm map, and
+            bespoke rituals designed to help you show up exactly as you are.
+          </p>
+        </article>
+
+        <article class="card" id="magnet-kits">
+          <h2>Magnet Kits</h2>
+          <p>
+            Curated collections of prompts, playlists, and energy practices to ground your vision. Choose the kit that matches your
+            current season and receive a magnetic plan you can revisit again and again.
+          </p>
+        </article>
+
+        <article class="card" id="poleo-creek-retreat">
+          <h2>Poleo Creek Retreat</h2>
+          <p>
+            A weekend immersion on sacred land. Gather with a small circle for ceremony, movement, and strategy that reclaims joy and
+            momentum for your next chapter.
+          </p>
+        </article>
+
+        <article class="card contact" id="contact">
+          <h2>Contact</h2>
+          <p>
+            Questions or collaborations? Email <a href="mailto:maggie@messyandmagnetic.com">maggie@messyandmagnetic.com</a> and
+            we’ll craft the next step together.
+          </p>
+        </article>
+      </section>
+    </main>
+
+    <footer>
+      <div class="footer-inner">
+        © <span id="year"></span> Messy & Magnetic · <a href="mailto:maggie@messyandmagnetic.com">maggie@messyandmagnetic.com</a>
+      </div>
+    </footer>
+
+    <script>
+      const yearSpan = document.getElementById("year");
+      if (yearSpan) {
+        yearSpan.textContent = new Date().getFullYear();
+      }
+    </script>
+  </body>
+</html>
