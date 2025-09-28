@@ -88,7 +88,7 @@ export default {
         return siteResponse;
       }
 
-      if (url.pathname === "/ping" && req.method === "GET") {
+      if (req.method === "GET" && url.pathname === "/ping") {
         const token = env.TELEGRAM_TOKEN;
         const chatId = env.TELEGRAM_CHAT_ID;
 
@@ -103,35 +103,30 @@ export default {
         }
 
         const telegramUrl = `https://api.telegram.org/bot${token}/sendMessage`;
-        const telegramResponse = await fetch(telegramUrl, {
+        const payload = {
+          chat_id: chatId,
+          text: "👋 Maggie’s /ping route is working and reached Telegram!",
+        };
+
+        const telegramResp = await fetch(telegramUrl, {
           method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text: "👋 Maggie’s /ping route is working and reached Telegram!",
-          }),
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
         });
 
-        let telegramBody: { ok?: boolean } | null = null;
-        try {
-          telegramBody = (await telegramResponse.json()) as { ok?: boolean };
-        } catch (err) {
-          telegramBody = null;
-        }
-
-        if (!telegramResponse.ok || telegramBody?.ok !== true) {
+        if (telegramResp.ok) {
           return new Response(
-            JSON.stringify({ ok: false, error: "Telegram send failed" }),
-            {
-              status: 500,
-              headers: cors({ "content-type": "application/json; charset=utf-8" }),
-            }
+            JSON.stringify({ ok: true, message: "Ping sent" }),
+            { headers: cors({ "content-type": "application/json; charset=utf-8" }) }
           );
         }
 
         return new Response(
-          JSON.stringify({ ok: true, message: "Ping sent" }),
-          { headers: cors({ "content-type": "application/json; charset=utf-8" }) }
+          JSON.stringify({ ok: false, error: "Telegram send failed" }),
+          {
+            status: 500,
+            headers: cors({ "content-type": "application/json; charset=utf-8" }),
+          }
         );
       }
 
