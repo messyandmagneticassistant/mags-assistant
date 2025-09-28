@@ -1,7 +1,6 @@
 // worker/worker.ts — finalized unified router (KV-first, CORS, cron-safe)
 import { handleHealth } from './health';
 import { handleDiagConfig } from './diag';
-import { TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID } from './env';
 import type { Env } from './lib/env';
 import { syncThreadStateFromGitHub } from './lib/threadStateSync';
 import { serveStaticSite } from './lib/site';
@@ -28,22 +27,198 @@ function isPreflight(req: Request) {
 
 const corsHeaders = cors({ "content-type": "application/json; charset=utf-8" });
 
-async function sendTelegramMessage(env: Env, text: string) {
-  const token = (env as any).TELEGRAM_BOT_TOKEN || env.TELEGRAM_BOT_TOKEN || (env as any).TELEGRAM_TOKEN || env.TELEGRAM_TOKEN;
+type TelegramCredentials = {
+  token: string;
+  chatId: string;
+};
+
+type TelegramSendResult = {
+  ok: boolean;
+  status: number;
+  body: any;
+};
+
+function getTelegramCredentials(env: Env): TelegramCredentials {
+  const token =
+    (env as any).TELEGRAM_TOKEN ||
+    env.TELEGRAM_TOKEN ||
+    (env as any).TELEGRAM_BOT_TOKEN ||
+    env.TELEGRAM_BOT_TOKEN;
   const chatId = (env as any).TELEGRAM_CHAT_ID || env.TELEGRAM_CHAT_ID;
 
   if (!token || !chatId) {
     throw new Error("Missing Telegram credentials");
   }
 
-  return await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+  return { token: String(token), chatId: String(chatId) };
+}
+
+async function sendTelegramMessage(
+  credentials: TelegramCredentials,
+  text: string
+): Promise<TelegramSendResult> {
+  const response = await fetch(`https://api.telegram.org/bot${credentials.token}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      chat_id: chatId,
+      chat_id: credentials.chatId,
       text,
     }),
   });
+
+  const body = await response.json().catch(() => ({}));
+
+  return {
+    ok: response.ok && !!body?.ok,
+    status: response.status,
+    body,
+  };
+}
+
+function getWorkerVersion(env: Env): string | null {
+  const candidate =
+    (env as any).WORKER_VERSION ||
+    (env as any).BUILD_VERSION ||
+    (env as any).COMMIT_SHA ||
+    (env as any).GIT_SHA ||
+    (env as any).VERSION ||
+    null;
+
+  return candidate ? String(candidate) : null;
+}
+
+type PingResponse = {
+  ok: boolean;
+  sent: boolean;
+  path: string;
+  status: string;
+  source: string;
+  telegram?: {
+    status: number;
+    body: any;
+  };
+  error?: string;
+};
+
+async function performPing(env: Env, source: string): Promise<{ status: number; payload: PingResponse }> {
+  try {
+    const credentials = getTelegramCredentials(env);
+    const result = await sendTelegramMessage(credentials, "Maggie ping test");
+
+    const payload: PingResponse = {
+      ok: result.ok,
+      sent: result.ok,
+      path: "/ping",
+      status: result.ok ? "sent" : "telegram-failed",
+      source,
+      telegram: {
+        status: result.status,
+        body: result.body,
+      },
+    };
+
+    if (!result.ok) {
+      const error = result.body?.description || `Telegram returned status ${result.status}`;
+      payload.error = error;
+      console.error("[worker:/ping] Telegram delivery failed", {
+        source,
+        status: result.status,
+        error,
+        body: result.body,
+      });
+      return { status: 502, payload };
+    }
+
+    return { status: 200, payload };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const payload: PingResponse = {
+      ok: false,
+      sent: false,
+      path: "/ping",
+      status: "error",
+      source,
+      error: message,
+    };
+    console.error("[worker:/ping] Unexpected failure", { source, error: message });
+    return { status: 500, payload };
+  }
+}
+
+type PingDebugResponse = {
+  ok: boolean;
+  sent: boolean;
+  path: string;
+  method: string;
+  source: string;
+  time: string;
+  workerVersion: string | null;
+  tokenEnding: string | null;
+  status: string;
+  telegram?: {
+    ok: boolean;
+    status: number;
+    body: any;
+  } | null;
+  error?: string;
+};
+
+async function performPingDebug(
+  env: Env,
+  source: string,
+  method: string
+): Promise<{ status: number; payload: PingDebugResponse }> {
+  const time = new Date().toISOString();
+
+  try {
+    const credentials = getTelegramCredentials(env);
+    const tokenEnding = credentials.token.slice(-5);
+    const result = await sendTelegramMessage(credentials, "Ping-debug request received");
+
+    const payload: PingDebugResponse = {
+      ok: result.ok,
+      sent: result.ok,
+      path: "/ping-debug",
+      method,
+      source,
+      time,
+      workerVersion: getWorkerVersion(env),
+      tokenEnding,
+      status: result.ok ? "sent" : "telegram-failed",
+      telegram: {
+        ok: result.ok,
+        status: result.status,
+        body: result.body,
+      },
+    };
+
+    if (result.ok) {
+      console.log(`[worker:/ping-debug:${source}]`, JSON.stringify(payload));
+      return { status: 200, payload };
+    }
+
+    const error = result.body?.description || `Telegram returned status ${result.status}`;
+    payload.error = error;
+    console.error(`[worker:/ping-debug:${source}] Telegram delivery failed`, payload);
+    return { status: 502, payload };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const payload: PingDebugResponse = {
+      ok: false,
+      sent: false,
+      path: "/ping-debug",
+      method,
+      source,
+      time,
+      workerVersion: getWorkerVersion(env),
+      tokenEnding: null,
+      status: "error",
+      telegram: null,
+      error: message,
+    };
+    console.error(`[worker:/ping-debug:${source}] Unexpected failure`, payload);
+    return { status: 500, payload };
+  }
 }
 
 // --------------- Dynamic route loader ---------------
@@ -110,35 +285,8 @@ export default {
       }
 
       if (req.method === "GET" && url.pathname === "/ping") {
-        try {
-          const telegramResp = await sendTelegramMessage(env, "👋 Maggie is online!");
-          const result = await telegramResp.json().catch(() => ({}));
-
-          if (!result?.ok) {
-            return new Response(
-              JSON.stringify({
-                ok: false,
-                error: result?.description || "Telegram error",
-              }),
-              { status: 500, headers: corsHeaders }
-            );
-          }
-
-          return new Response(JSON.stringify({ ok: true }), { headers: corsHeaders });
-        } catch (err: any) {
-          if (err?.message === "Missing Telegram credentials") {
-            return new Response(
-              JSON.stringify({ ok: false, error: "Missing Telegram credentials" }),
-              { status: 500, headers: corsHeaders }
-            );
-          }
-
-          console.error("[worker] /ping telegram error", err);
-          return new Response(
-            JSON.stringify({ ok: false, error: "Telegram error" }),
-            { status: 500, headers: corsHeaders }
-          );
-        }
+        const { status, payload } = await performPing(env, "http");
+        return new Response(JSON.stringify(payload), { status, headers: corsHeaders });
       }
 
       if (url.pathname === '/' || url.pathname === '/health') {
@@ -448,45 +596,8 @@ export default {
       }
 
       if (url.pathname === "/ping-debug" && req.method === "GET") {
-        try {
-          const chatId = TELEGRAM_CHAT_ID;
-          const token = TELEGRAM_BOT_TOKEN;
-
-          const text = "📡 Ping received from /ping-debug";
-
-          const telegramResp = await fetch(
-            `https://api.telegram.org/bot${token}/sendMessage`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ chat_id: chatId, text }),
-            }
-          );
-
-          const json = await telegramResp.json();
-
-          return new Response(
-            JSON.stringify({
-              ok: true,
-              telegram: json,
-              chat_id: chatId,
-              msg: "📡 Ping received!",
-            }),
-            {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
-            }
-          );
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          return new Response(
-            JSON.stringify({ ok: false, error: message }),
-            {
-              status: 500,
-              headers: { "Content-Type": "application/json" },
-            }
-          );
-        }
+        const { status, payload } = await performPingDebug(env, "http", req.method);
+        return new Response(JSON.stringify(payload), { status, headers: corsHeaders });
       }
 
       // Default not-found
@@ -515,6 +626,22 @@ export default {
       ctx.waitUntil(handleAutomationScheduled(event, env, ctx).then(() => {}));
     } catch (err) {
       console.error('[worker.cron] automation tick failed:', err);
+    }
+
+    if (event.cron === '0 7 * * *') {
+      ctx.waitUntil(
+        (async () => {
+          const pingResult = await performPing(env, 'cron');
+          if (!pingResult.payload.ok) {
+            console.error('[worker.cron] nightly /ping failed', pingResult.payload);
+          }
+
+          const debugResult = await performPingDebug(env, 'cron', 'CRON');
+          if (!debugResult.payload.ok) {
+            console.error('[worker.cron] nightly /ping-debug failed', debugResult.payload);
+          }
+        })().catch((err) => console.error('[worker.cron] ping routine crashed', err))
+      );
     }
 
     try {
