@@ -447,21 +447,10 @@ export default {
         });
       }
 
-      // Default not-found
       if (url.pathname === "/ping-debug" && req.method === "GET") {
         try {
-          const chatId =
-            (env as any).TELEGRAM_CHAT_ID ||
-            env.TELEGRAM_CHAT_ID ||
-            TELEGRAM_CHAT_ID;
-          const token =
-            (env as any).TELEGRAM_BOT_TOKEN ||
-            env.TELEGRAM_BOT_TOKEN ||
-            TELEGRAM_BOT_TOKEN;
-
-          if (!chatId || !token) {
-            throw new Error("Missing TELEGRAM_CHAT_ID or TELEGRAM_BOT_TOKEN");
-          }
+          const chatId = TELEGRAM_CHAT_ID;
+          const token = TELEGRAM_BOT_TOKEN;
 
           const text = "📡 Ping received from /ping-debug";
 
@@ -474,27 +463,24 @@ export default {
             }
           );
 
-          const telegramJson = await telegramResp.json().catch(() => ({}));
-          const ok = Boolean(telegramJson?.ok ?? telegramResp.ok);
+          const json = await telegramResp.json();
 
           return new Response(
             JSON.stringify({
-              ok,
-              telegram: telegramJson,
+              ok: true,
+              telegram: json,
               chat_id: chatId,
               msg: "📡 Ping received!",
             }),
             {
-              status: ok ? 200 : 500,
+              status: 200,
               headers: { "Content-Type": "application/json" },
             }
           );
-        } catch (err: any) {
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
           return new Response(
-            JSON.stringify({
-              ok: false,
-              error: err?.message || "Unknown error",
-            }),
+            JSON.stringify({ ok: false, error: message }),
             {
               status: 500,
               headers: { "Content-Type": "application/json" },
@@ -503,6 +489,7 @@ export default {
         }
       }
 
+      // Default not-found
       return new Response(
         JSON.stringify({ ok: false, error: "not-found", path: url.pathname }),
         { status: 404, headers: { "content-type": "application/json" } },
