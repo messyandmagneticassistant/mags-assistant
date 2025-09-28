@@ -114,20 +114,26 @@ export default {
           body: JSON.stringify(payload),
         });
 
-        if (telegramResp.ok) {
-          return new Response(
-            JSON.stringify({ ok: true, message: "Ping sent" }),
-            { headers: cors({ "content-type": "application/json; charset=utf-8" }) }
-          );
-        }
-
-        return new Response(
-          JSON.stringify({ ok: false, error: "Telegram send failed" }),
-          {
+        let result: any;
+        try {
+          result = await telegramResp.json();
+        } catch {
+          return new Response(JSON.stringify({ ok: false }), {
             status: 500,
             headers: cors({ "content-type": "application/json; charset=utf-8" }),
-          }
-        );
+          });
+        }
+
+        if (result?.ok !== true) {
+          return new Response(JSON.stringify({ ok: false }), {
+            status: 500,
+            headers: cors({ "content-type": "application/json; charset=utf-8" }),
+          });
+        }
+
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: cors({ "content-type": "application/json; charset=utf-8" }),
+        });
       }
 
       if (url.pathname === '/' || url.pathname === '/health') {
