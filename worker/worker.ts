@@ -25,6 +25,26 @@ function isPreflight(req: Request) {
   return req.method === "OPTIONS";
 }
 
+const corsHeaders = cors({ "content-type": "application/json; charset=utf-8" });
+
+async function sendTelegramMessage(env: Env, text: string) {
+  const token = (env as any).TELEGRAM_BOT_TOKEN || env.TELEGRAM_BOT_TOKEN || (env as any).TELEGRAM_TOKEN || env.TELEGRAM_TOKEN;
+  const chatId = (env as any).TELEGRAM_CHAT_ID || env.TELEGRAM_CHAT_ID;
+
+  if (!token || !chatId) {
+    throw new Error("Missing Telegram credentials");
+  }
+
+  return await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text,
+    }),
+  });
+}
+
 // --------------- Dynamic route loader ---------------
 async function tryRoute<T extends Record<string, any>>(
   pathPrefix: string,
@@ -89,51 +109,35 @@ export default {
       }
 
       if (req.method === "GET" && url.pathname === "/ping") {
-        const token = env.TELEGRAM_TOKEN;
-        const chatId = env.TELEGRAM_CHAT_ID;
+        try {
+          const telegramResp = await sendTelegramMessage(env, "👋 Maggie is online!");
+          const result = await telegramResp.json().catch(() => ({}));
 
-        if (!token || !chatId) {
+          if (!result?.ok) {
+            return new Response(
+              JSON.stringify({
+                ok: false,
+                error: result?.description || "Telegram error",
+              }),
+              { status: 500, headers: corsHeaders }
+            );
+          }
+
+          return new Response(JSON.stringify({ ok: true }), { headers: corsHeaders });
+        } catch (err: any) {
+          if (err?.message === "Missing Telegram credentials") {
+            return new Response(
+              JSON.stringify({ ok: false, error: "Missing Telegram credentials" }),
+              { status: 500, headers: corsHeaders }
+            );
+          }
+
+          console.error("[worker] /ping telegram error", err);
           return new Response(
-            JSON.stringify({ ok: false, error: "Missing Telegram credentials" }),
-            {
-              status: 500,
-              headers: cors({ "content-type": "application/json; charset=utf-8" }),
-            }
+            JSON.stringify({ ok: false, error: "Telegram error" }),
+            { status: 500, headers: corsHeaders }
           );
         }
-
-        const telegramUrl = `https://api.telegram.org/bot${token}/sendMessage`;
-        const payload = {
-          chat_id: chatId,
-          text: "👋 Maggie’s /ping route is working and reached Telegram!",
-        };
-
-        const telegramResp = await fetch(telegramUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-
-        let result: any;
-        try {
-          result = await telegramResp.json();
-        } catch {
-          return new Response(JSON.stringify({ ok: false }), {
-            status: 500,
-            headers: cors({ "content-type": "application/json; charset=utf-8" }),
-          });
-        }
-
-        if (result?.ok !== true) {
-          return new Response(JSON.stringify({ ok: false }), {
-            status: 500,
-            headers: cors({ "content-type": "application/json; charset=utf-8" }),
-          });
-        }
-
-        return new Response(JSON.stringify({ ok: true }), {
-          headers: cors({ "content-type": "application/json; charset=utf-8" }),
-        });
       }
 
       if (url.pathname === '/' || url.pathname === '/health') {
