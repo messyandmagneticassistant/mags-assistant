@@ -1,6 +1,7 @@
 // worker/worker.ts — finalized unified router (KV-first, CORS, cron-safe)
 import { handleHealth } from './health';
 import { handleDiagConfig } from './diag';
+import { TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID } from './env';
 import type { Env } from './lib/env';
 import { syncThreadStateFromGitHub } from './lib/threadStateSync';
 import { serveStaticSite } from './lib/site';
@@ -447,6 +448,61 @@ export default {
       }
 
       // Default not-found
+      if (url.pathname === "/ping-debug" && req.method === "GET") {
+        try {
+          const chatId =
+            (env as any).TELEGRAM_CHAT_ID ||
+            env.TELEGRAM_CHAT_ID ||
+            TELEGRAM_CHAT_ID;
+          const token =
+            (env as any).TELEGRAM_BOT_TOKEN ||
+            env.TELEGRAM_BOT_TOKEN ||
+            TELEGRAM_BOT_TOKEN;
+
+          if (!chatId || !token) {
+            throw new Error("Missing TELEGRAM_CHAT_ID or TELEGRAM_BOT_TOKEN");
+          }
+
+          const text = "📡 Ping received from /ping-debug";
+
+          const telegramResp = await fetch(
+            `https://api.telegram.org/bot${token}/sendMessage`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ chat_id: chatId, text }),
+            }
+          );
+
+          const telegramJson = await telegramResp.json().catch(() => ({}));
+          const ok = Boolean(telegramJson?.ok ?? telegramResp.ok);
+
+          return new Response(
+            JSON.stringify({
+              ok,
+              telegram: telegramJson,
+              chat_id: chatId,
+              msg: "📡 Ping received!",
+            }),
+            {
+              status: ok ? 200 : 500,
+              headers: { "Content-Type": "application/json" },
+            }
+          );
+        } catch (err: any) {
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              error: err?.message || "Unknown error",
+            }),
+            {
+              status: 500,
+              headers: { "Content-Type": "application/json" },
+            }
+          );
+        }
+      }
+
       return new Response(
         JSON.stringify({ ok: false, error: "not-found", path: url.pathname }),
         { status: 404, headers: { "content-type": "application/json" } },
