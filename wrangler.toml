@@ -38,7 +38,7 @@ zone_name = "messyandmagnetic.com"
 
 # === Cron triggers ===
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["*/5 * * * *", "0 7 * * *"]
 
 # === Cloudflare Pages (UI app) ===
 [pages]
