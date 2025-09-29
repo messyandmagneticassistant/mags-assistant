@@ -24,7 +24,17 @@ jobs:
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
-        run: wrangler publish worker/worker.ts
+        run: wrangler deploy -c wrangler.toml
+
+      - name: Verify deployment & notify
+        if: github.event_name != 'pull_request'
+        env:
+          WORKER_PING_URL: https://maggie.messyandmagnetic.com/ping
+          WORKER_PING_DEBUG_URL: https://maggie.messyandmagnetic.com/ping-debug
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_DEPLOY_CHAT_ID: ${{ secrets.TELEGRAM_DEPLOY_CHAT_ID }}
+        run: node scripts/verify-worker-deploy.mjs
 
       - name: Preview (PRs)
         if: github.event_name == 'pull_request'
@@ -32,4 +42,4 @@ jobs:
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
-        run: wrangler deploy --dry-run
+        run: wrangler deploy -c wrangler.toml --dry-run

@@ -27,6 +27,102 @@ function isPreflight(req: Request) {
 
 const corsHeaders = cors({ "content-type": "application/json; charset=utf-8" });
 
+const WELL_KNOWN_ROUTES = [
+  "/ping",
+  "/ping-debug",
+  "/hello",
+  "/health",
+  "/ready",
+  "/status",
+  "/summary",
+];
+
+type BasicPingPayload = {
+  ok: true;
+  message: string;
+  timestamp: string;
+  hostname: string;
+  colo?: string;
+  version: string | null;
+  routes: string[];
+  telegramConfigured: boolean;
+};
+
+type PingDebugPayload = BasicPingPayload & {
+  message: string;
+  envKeys: string[];
+  bindings: Record<string, string>;
+};
+
+function describeBinding(value: unknown): string {
+  if (value === null) return "null";
+  if (value === undefined) return "unset";
+  const type = typeof value;
+  if (type === "string" || type === "number" || type === "boolean" || type === "bigint") {
+    return type;
+  }
+  if (type === "function") return "function";
+  if (type === "object") {
+    const candidate = value as Record<string, unknown>;
+    if (typeof candidate.get === "function" && typeof candidate.put === "function") {
+      return "KVNamespace";
+    }
+    if (typeof candidate.send === "function") {
+      return "Queue";
+    }
+    if (typeof candidate.idFromName === "function") {
+      return "DurableObjectNamespace";
+    }
+    const ctor = (value as { constructor?: { name?: string } }).constructor;
+    if (ctor?.name) return `object:${ctor.name}`;
+    return "object";
+  }
+  return "unknown";
+}
+
+function hasTelegramCredentials(env: Env): boolean {
+  try {
+    getTelegramCredentials(env);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function buildPingPayload(env: Env, url: URL, colo?: string): BasicPingPayload {
+  return {
+    ok: true,
+    message: "Ping successful",
+    timestamp: new Date().toISOString(),
+    hostname: url.hostname,
+    colo,
+    version: getWorkerVersion(env),
+    routes: WELL_KNOWN_ROUTES,
+    telegramConfigured: hasTelegramCredentials(env),
+  };
+}
+
+function buildPingDebugPayload(env: Env, url: URL, colo?: string): PingDebugPayload {
+  const keys = Array.from(new Set(Object.keys(env as Record<string, unknown>)));
+  keys.sort();
+
+  const bindings = keys.reduce<Record<string, string>>((acc, key) => {
+    try {
+      acc[key] = describeBinding((env as Record<string, unknown>)[key]);
+    } catch (err) {
+      acc[key] = `error:${err instanceof Error ? err.message : String(err)}`;
+    }
+    return acc;
+  }, {});
+
+  return {
+    ...buildPingPayload(env, url, colo),
+    message: "Ping debug",
+    envKeys: keys,
+    bindings,
+  };
+}
+
 type TelegramCredentials = {
   token: string;
   chatId: string;
@@ -285,8 +381,24 @@ export default {
       }
 
       if (req.method === "GET" && url.pathname === "/ping") {
-        const { status, payload } = await performPing(env, "http");
-        return new Response(JSON.stringify(payload), { status, headers: corsHeaders });
+        const colo = typeof (req as any).cf?.colo === "string" ? (req as any).cf.colo : undefined;
+        const payload = buildPingPayload(env, url, colo);
+        return new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: corsHeaders,
+        });
+      }
+
+      if (req.method === "GET" && url.pathname === "/hello") {
+        const colo = typeof (req as any).cf?.colo === "string" ? (req as any).cf.colo : undefined;
+        const payload = {
+          ...buildPingPayload(env, url, colo),
+          message: "Hello from Maggie Worker",
+        };
+        return new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: corsHeaders,
+        });
       }
 
       if (url.pathname === '/' || url.pathname === '/health') {
@@ -596,8 +708,12 @@ export default {
       }
 
       if (url.pathname === "/ping-debug" && req.method === "GET") {
-        const { status, payload } = await performPingDebug(env, "http", req.method);
-        return new Response(JSON.stringify(payload), { status, headers: corsHeaders });
+        const colo = typeof (req as any).cf?.colo === "string" ? (req as any).cf.colo : undefined;
+        const payload = buildPingDebugPayload(env, url, colo);
+        return new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: corsHeaders,
+        });
       }
 
       // Default not-found
