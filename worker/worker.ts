@@ -11,6 +11,19 @@ import {
   handleScheduled as handleAutomationScheduled,
 } from './index';
 import * as cronRoutes from './routes/cron';
+import {
+  buildDailyMessage,
+  gatherDailyMetrics,
+  getAdminSecret,
+  getWorkerRoutes,
+  getWorkerVersion,
+  listAllKvKeys,
+  type DailyMetrics,
+} from './lib/reporting';
+import {
+  sendTelegram as sendTelegramNotification,
+  type TelegramSendResult as TelegramHelperResult,
+} from '../src/utils/telegram';
 // ---------------- CORS helpers ----------------
 const CORS_BASE: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -26,16 +39,6 @@ function isPreflight(req: Request) {
 }
 
 const corsHeaders = cors({ "content-type": "application/json; charset=utf-8" });
-
-const WELL_KNOWN_ROUTES = [
-  "/ping",
-  "/ping-debug",
-  "/hello",
-  "/health",
-  "/ready",
-  "/status",
-  "/summary",
-];
 
 type BasicPingPayload = {
   ok: true;
@@ -97,7 +100,7 @@ function buildPingPayload(env: Env, url: URL, colo?: string): BasicPingPayload {
     hostname: url.hostname,
     colo,
     version: getWorkerVersion(env),
-    routes: WELL_KNOWN_ROUTES,
+    routes: getWorkerRoutes(),
     telegramConfigured: hasTelegramCredentials(env),
   };
 }
@@ -123,12 +126,63 @@ function buildPingDebugPayload(env: Env, url: URL, colo?: string): PingDebugPayl
   };
 }
 
+const AUTH_SCHEME = "Bearer";
+
+type DailyReportResult = {
+  metrics: DailyMetrics;
+  message: string;
+  telegram: TelegramHelperResult;
+};
+
+function jsonResponse(body: unknown, init?: ResponseInit): Response {
+  const headers = new Headers(init?.headers ?? {});
+  headers.set('content-type', 'application/json; charset=utf-8');
+  for (const [key, value] of Object.entries(CORS_BASE)) {
+    if (!headers.has(key)) headers.set(key, value);
+  }
+
+  return new Response(JSON.stringify(body, null, 2), {
+    ...init,
+    headers,
+  });
+}
+
+function buildUnauthorizedResponse(status: number, error: string): Response {
+  const response = jsonResponse({ ok: false, error }, { status });
+  response.headers.set('WWW-Authenticate', AUTH_SCHEME);
+  return response;
+}
+
+function requireAdminAuthorization(req: Request, env: Env): Response | null {
+  const expected = getAdminSecret(env);
+  if (!expected) {
+    console.warn('[worker:auth] ADMIN_SECRET not configured');
+    return buildUnauthorizedResponse(401, 'admin-secret-missing');
+  }
+
+  const header = req.headers.get('authorization') || '';
+  const [scheme, token] = header.split(/\s+/);
+
+  if (!scheme || scheme.toLowerCase() !== AUTH_SCHEME.toLowerCase() || token !== expected) {
+    return buildUnauthorizedResponse(401, 'unauthorized');
+  }
+
+  return null;
+}
+
+async function runDailyReport(env: Env, host: string | null): Promise<DailyReportResult> {
+  const metrics = await gatherDailyMetrics(env, { host: host ?? undefined });
+  const message = buildDailyMessage(metrics);
+  const telegram = await sendTelegramNotification(message, { env });
+  return { metrics, message, telegram };
+}
+
 type TelegramCredentials = {
   token: string;
   chatId: string;
 };
 
-type TelegramSendResult = {
+type PingTelegramSendResult = {
   ok: boolean;
   status: number;
   body: any;
@@ -152,7 +206,7 @@ function getTelegramCredentials(env: Env): TelegramCredentials {
 async function sendTelegramMessage(
   credentials: TelegramCredentials,
   text: string
-): Promise<TelegramSendResult> {
+): Promise<PingTelegramSendResult> {
   const response = await fetch(`https://api.telegram.org/bot${credentials.token}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -169,18 +223,6 @@ async function sendTelegramMessage(
     status: response.status,
     body,
   };
-}
-
-function getWorkerVersion(env: Env): string | null {
-  const candidate =
-    (env as any).WORKER_VERSION ||
-    (env as any).BUILD_VERSION ||
-    (env as any).COMMIT_SHA ||
-    (env as any).GIT_SHA ||
-    (env as any).VERSION ||
-    null;
-
-  return candidate ? String(candidate) : null;
 }
 
 type PingResponse = {
@@ -470,6 +512,53 @@ export default {
         });
       }
 
+      if (url.pathname === '/daily' || url.pathname === '/cron-report') {
+        if (req.method !== 'GET') {
+          const res = jsonResponse({ ok: false, error: 'method-not-allowed' }, { status: 405 });
+          res.headers.set('Allow', 'GET');
+          return res;
+        }
+
+        const unauthorized = requireAdminAuthorization(req, env);
+        if (unauthorized) return unauthorized;
+
+        const host = url.hostname || null;
+        try {
+          const report = await runDailyReport(env, host);
+          return jsonResponse({
+            ok: true,
+            source: url.pathname === '/cron-report' ? 'cron-report' : 'daily',
+            metrics: report.metrics,
+            message: report.message,
+            telegram: report.telegram,
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'daily-report-failed';
+          console.error('[worker:/daily] failed to generate report', err);
+          return jsonResponse({ ok: false, error: message }, { status: 500 });
+        }
+      }
+
+      if (url.pathname === '/kv/keys') {
+        if (req.method !== 'GET') {
+          const res = jsonResponse({ ok: false, error: 'method-not-allowed' }, { status: 405 });
+          res.headers.set('Allow', 'GET');
+          return res;
+        }
+
+        const unauthorized = requireAdminAuthorization(req, env);
+        if (unauthorized) return unauthorized;
+
+        try {
+          const keys = await listAllKvKeys(env);
+          return jsonResponse({ ok: true, count: keys.length, keys });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'kv-list-failed';
+          console.error('[worker:/kv/keys] failed to list keys', err);
+          return jsonResponse({ ok: false, error: message }, { status: 500 });
+        }
+      }
+
       if (url.pathname === "/init-blob") {
         if (req.method !== "POST") {
           return new Response("init-blob requires POST", {
@@ -757,6 +846,21 @@ export default {
             console.error('[worker.cron] nightly /ping-debug failed', debugResult.payload);
           }
         })().catch((err) => console.error('[worker.cron] ping routine crashed', err))
+      );
+    }
+
+    if (event.cron === '30 3 * * *') {
+      ctx.waitUntil(
+        (async () => {
+          try {
+            const report = await runDailyReport(env, 'cron-event');
+            if (!report.telegram.ok) {
+              console.warn('[worker.cron] daily telegram delivery failed', report.telegram);
+            }
+          } catch (err) {
+            console.error('[worker.cron] daily report failed', err);
+          }
+        })().catch((err) => console.error('[worker.cron] daily report crashed', err))
       );
     }
 
