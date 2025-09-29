@@ -9,12 +9,50 @@ import {
   type SchedulerSnapshot,
 } from './scheduler';
 import { maybeSendDailySummary } from './summary';
+import { buildDeploymentMessage, getWorkerRoutes, getWorkerVersion } from './lib/reporting';
+import { sendTelegram as sendTelegramNotification } from '../src/utils/telegram';
 
 const BOOT_WARMUP_LABEL = 'bootWarmupAt';
+const DEPLOY_PING_LABEL = 'lastDeployPing';
 
 async function markBoot(env: Env): Promise<void> {
   const state = await loadState(env);
   (state as any)[BOOT_WARMUP_LABEL] = new Date().toISOString();
+  await saveState(env, state);
+}
+
+async function maybeSendDeployNotification(env: Env, request: Request): Promise<void> {
+  const url = new URL(request.url);
+  const host = url.host;
+  const state = await loadState(env);
+  const commit = getWorkerVersion(env) ?? 'unknown';
+  const last = (state as any)[DEPLOY_PING_LABEL];
+
+  let lastCommit: string | null = null;
+  let lastOk = true;
+  if (typeof last === 'string') {
+    lastCommit = last;
+  } else if (last && typeof last === 'object') {
+    if (typeof (last as any).commit === 'string') lastCommit = String((last as any).commit);
+    if (typeof (last as any).ok === 'boolean') lastOk = Boolean((last as any).ok);
+  }
+
+  if (lastCommit === commit && lastOk) return;
+
+  const timestamp = new Date().toISOString();
+  const message = buildDeploymentMessage({
+    host,
+    commit,
+    routes: getWorkerRoutes(),
+    timestamp,
+  });
+
+  const telegram = await sendTelegramNotification(message, { env });
+  if (!telegram.ok) {
+    console.warn('[worker] deployment telegram failed', telegram);
+  }
+
+  (state as any)[DEPLOY_PING_LABEL] = { commit, timestamp, ok: telegram.ok };
   await saveState(env, state);
 }
 
@@ -26,6 +64,9 @@ export async function bootstrapWorker(env: Env, request: Request | null, ctx: Ex
     backfillOnStart(env, { reason: 'boot' }).catch((err) => console.warn('[worker] boot backfill failed', err))
   );
   ctx.waitUntil(markBoot(env).catch((err) => console.warn('[worker] mark boot failed', err)));
+  if (request) {
+    ctx.waitUntil(maybeSendDeployNotification(env, request).catch((err) => console.warn('[worker] deploy ping failed', err)));
+  }
 }
 
 export async function handleScheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<SchedulerSnapshot> {

@@ -37,8 +37,14 @@ pattern = "messyandmagnetic.com/*"
 zone_name = "messyandmagnetic.com"
 
 # === Cron triggers ===
-[triggers]
-crons = ["*/5 * * * *", "0 7 * * *"]
+[[triggers]]
+schedule = "*/5 * * * *"
+
+[[triggers]]
+schedule = "0 7 * * *"
+
+[[triggers]]
+schedule = "30 3 * * *"
 
 # === Cloudflare Pages (UI app) ===
 [pages]
