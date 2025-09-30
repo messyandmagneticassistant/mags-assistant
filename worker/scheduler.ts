@@ -133,26 +133,25 @@ function coerceISO(value: MaybeDate): string | null {
 
 function normalizeBackfillResults(raw: unknown): BackfillTaskResult[] | undefined {
   if (!Array.isArray(raw)) return undefined;
-  const mapped = raw
-    .map((entry) => {
-      if (!entry || typeof entry !== 'object') return null;
-      const result = entry as BackfillTaskResult;
-      const task = typeof result.task === 'string' && result.task ? result.task : null;
-      if (!task) return null;
-      return {
-        task,
-        ok: result.ok !== false,
-        detail: typeof result.detail === 'string' ? result.detail : undefined,
-        error: typeof result.error === 'string' ? result.error : undefined,
-        startedAt: coerceISO((result as any).startedAt) || undefined,
-        finishedAt: coerceISO((result as any).finishedAt) || undefined,
-        durationMs:
-          typeof result.durationMs === 'number' && Number.isFinite(result.durationMs)
-            ? result.durationMs
-            : undefined,
-      } satisfies BackfillTaskResult;
-    })
-    .filter((value): value is BackfillTaskResult => Boolean(value));
+  const mapped: BackfillTaskResult[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue;
+    const result = entry as BackfillTaskResult;
+    const task = typeof result.task === 'string' && result.task ? result.task : null;
+    if (!task) continue;
+    mapped.push({
+      task,
+      ok: result.ok !== false,
+      detail: typeof result.detail === 'string' ? result.detail : undefined,
+      error: typeof result.error === 'string' ? result.error : undefined,
+      startedAt: coerceISO((result as any).startedAt) || undefined,
+      finishedAt: coerceISO((result as any).finishedAt) || undefined,
+      durationMs:
+        typeof result.durationMs === 'number' && Number.isFinite(result.durationMs)
+          ? result.durationMs
+          : undefined,
+    });
+  }
   return mapped.length ? mapped : undefined;
 }
 
@@ -234,7 +233,7 @@ function ensureRetryQueue(runtime: SchedulerRuntime, state: any): void {
       attempts: typeof entry === 'object' && entry && typeof entry.attempts === 'number' ? entry.attempts : 0,
       lastAttemptAt:
         typeof entry === 'object' && entry && typeof entry.lastAttemptAt === 'string'
-          ? coerceISO(entry.lastAttemptAt)
+          ? coerceISO(entry.lastAttemptAt) || undefined
           : undefined,
       nextAttemptAt:
         typeof entry === 'object' && entry && typeof entry.nextAttemptAt === 'string'

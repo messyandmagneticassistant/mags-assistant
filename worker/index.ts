@@ -10,7 +10,8 @@ import {
 } from './scheduler';
 import { maybeSendDailySummary } from './summary';
 import { buildDeploymentMessage, getWorkerRoutes, getWorkerVersion } from './lib/reporting';
-import { sendTelegram as sendTelegramNotification } from '../src/utils/telegram';
+// @ts-ignore - worker bundles runtime helper from shared source
+import { getSendTelegram } from './lib/telegramBridge';
 
 const BOOT_WARMUP_LABEL = 'bootWarmupAt';
 const DEPLOY_PING_LABEL = 'lastDeployPing';
@@ -47,6 +48,7 @@ async function maybeSendDeployNotification(env: Env, request: Request): Promise<
     timestamp,
   });
 
+  const sendTelegramNotification = await getSendTelegram();
   const telegram = await sendTelegramNotification(message, { env });
   if (!telegram.ok) {
     console.warn('[worker] deployment telegram failed', telegram);

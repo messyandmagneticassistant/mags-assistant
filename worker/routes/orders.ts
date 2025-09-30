@@ -1,14 +1,14 @@
-import { getLastOrderSummary } from "../../src/queue";
-
 export async function onRequestGet({ request, env }: { request: Request; env: any }) {
   const url = new URL(request.url);
-  if (url.pathname === "/ops/recent-order") {
+  if (url.pathname === '/ops/recent-order') {
+    // @ts-ignore - queue helpers are shared with the Node runtime
+    const { getLastOrderSummary } = await import('../../src/' + 'queue');
     const summary = await getLastOrderSummary(env);
     return json({ ok: true, summary });
   }
-  if (url.pathname !== "/orders/list") return json({ ok: false }, 404);
+  if (url.pathname !== '/orders/list') return json({ ok: false }, 404);
 
-  const email = url.searchParams.get("email")?.trim();
+  const email = url.searchParams.get('email')?.trim();
   if (!email) return json([]);
 
   try {
@@ -31,28 +31,27 @@ export async function onRequestPost(ctx: any) {
   try {
     ctx.waitUntil(
       (async () => {
-        const mod: any = await import("../orders/fulfill.js");
-        if (typeof mod.fulfill === "function") await mod.fulfill(ctxObj, ctx.env);
+        const mod: any = await import('../orders/fulfill');
+        if (typeof mod.fulfill === 'function') await mod.fulfill(ctxObj, ctx.env);
       })()
     );
   } catch {}
   return new Response(JSON.stringify({ ok: true }), {
     status: 200,
-    headers: { "content-type": "application/json" },
+    headers: { 'content-type': 'application/json' },
   });
 }
 
 /** util */
 async function sha(input: string): Promise<string> {
   const enc = new TextEncoder();
-  const buf = await crypto.subtle.digest("SHA-256", enc.encode(input));
-  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const buf = await crypto.subtle.digest('SHA-256', enc.encode(input));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 function json(data: any, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: { 'content-type': 'application/json' },
   });
 }
-

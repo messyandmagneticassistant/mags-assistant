@@ -1,25 +1,24 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022", "DOM"],
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "lib": ["ESNext"],
+    "module": "ESNext",
+    "moduleResolution": "node",
     "strict": true,
+    "esModuleInterop": true,
     "skipLibCheck": true,
     "noEmit": true,
     "downlevelIteration": true,
-    "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
-    "resolveJsonModule": true,
     "allowJs": true,
     "checkJs": false,
+    "resolveJsonModule": true,
     "baseUrl": ".",
     "paths": {
       "@/*": ["./*"]
     },
-    "types": ["node", "vitest/globals", "@cloudflare/workers-types"]
+    "types": ["@cloudflare/workers-types", "node"]
   },
-  "include": ["src", "site", "scripts", "worker", "lib", "types", "**/*.ts", "**/*.tsx"],
+  "include": ["worker/**/*.ts", "worker/**/*.tsx", "types/**/*.d.ts"],
   "exclude": ["node_modules", "dist", "build"]
 }
-

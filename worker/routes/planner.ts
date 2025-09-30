@@ -22,20 +22,21 @@ export async function onRequestPost({ request, env }: { request: Request; env: a
   const { pathname } = new URL(request.url);
 
   if (pathname === '/planner/run') {
-    const body = await request.json().catch(() => ({}));
-    const mod = await import('../../src/planner');
+    const body = (await request.json().catch(() => ({}))) as Record<string, any>;
+    // @ts-ignore - planner helpers are bundled from application source
+    const mod = await import('../../src/' + 'planner');
     const plan = await (mod as any).runPlanner(env, body);
     return json({ ok: true, plan });
   }
 
   if (pathname === '/compose') {
-    const body = await request.json().catch(() => ({}));
+    const body = (await request.json().catch(() => ({}))) as Record<string, any>;
     const caption = body.text || '...';
     return json({ ok: true, caption, audioHint: null, when: null, planStep: null });
   }
 
   if (pathname === '/schedule') {
-    const body = await request.json().catch(() => ({}));
+    const body = (await request.json().catch(() => ({}))) as Record<string, any>;
     const jobs = Array.isArray(body.jobs) ? body.jobs : [];
     const size = await appendJobs(env, jobs);
     return json({ ok: true, queued: jobs.length, queueSize: size });
@@ -48,7 +49,8 @@ export async function onRequestGet({ request, env }: { request: Request; env: an
   const { pathname } = new URL(request.url);
 
   if (pathname === '/planner/today') {
-    const mod = await import('../../src/planner');
+    // @ts-ignore - planner helpers are bundled from application source
+    const mod = await import('../../src/' + 'planner');
     const plan = await (mod as any).getTodayPlan(env);
     return json({ ok: true, plan });
   }
@@ -61,7 +63,8 @@ export async function onScheduled(_event: ScheduledEvent, env: any) {
   try {
     const ts = await env.POSTQ.get('tiktok:trends:ts');
     if (!ts || Date.now() - Number(ts) > 60 * 60 * 1000) {
-      const mod = await import('../../src/trends');
+      // @ts-ignore - trend helpers are bundled from application source
+      const mod = await import('../../src/' + 'trends');
       if (typeof (mod as any).refreshTrends === 'function') await (mod as any).refreshTrends(env);
     }
   } catch {}

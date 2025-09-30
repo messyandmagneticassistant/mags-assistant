@@ -1,17 +1,17 @@
 export async function onRequestPost({ request, env }: any) {
-  const body = await request.json().catch(() => ({}));
+  const body = (await request.json().catch(() => ({}))) as Record<string, any>;
   const { name, email, tier = "intro", notes = "" } = body || {};
   if (!email) return new Response(JSON.stringify({ ok:false, error:"missing email" }), { status: 400 });
 
   // Call Apps Script
-  const url = new URL(env.APPS_SCRIPT_WEBAPP_URL);
+  const url = new URL(String(env.APPS_SCRIPT_WEBAPP_URL));
   const res = await fetch(url.toString(), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ name, email, tier, notes, secret: env.APPS_SCRIPT_SECRET || env.GEMINI_AGENT_SECRET })
   }).catch(() => null);
 
-  const js = res ? await res.json().catch(() => ({})) : {};
+  const js = (res ? await res.json().catch(() => ({})) : {}) as Record<string, any>;
   const pdfUrl = js.pdfUrl || js.pdf || "";
 
   // Email via Resend if configured, else just return the URL

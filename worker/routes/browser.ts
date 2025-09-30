@@ -16,7 +16,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: a
       Authorization: `Bearer ${env.BROWSERLESS_TOKEN}`,
     },
   });
-  const data = await r.json();
+  const data = (await r.json()) as Record<string, any>;
   return new Response(JSON.stringify({ wsUrl: data.wsUrl }), {
     headers: { ...CORS, 'content-type': 'application/json' },
   });

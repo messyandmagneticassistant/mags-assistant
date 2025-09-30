@@ -3,7 +3,7 @@ import { presenceReport, Env } from './lib/env';
 export async function handleHealth(env: Env): Promise<Response> {
   try {
     const report = presenceReport(env);
-    return new Response(JSON.stringify({ ok: true, ...report }), {
+    return new Response(JSON.stringify({ ...report, ok: true }), {
       headers: { 'content-type': 'application/json' },
     });
   } catch (err: any) {

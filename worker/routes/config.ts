@@ -32,7 +32,7 @@ export async function onRequestGet({ env }: { env: any }) {
 
 export async function onRequestPost({ env, request }: { env: any; request: Request }) {
   if (request.headers.get('x-api-key') !== env.POST_THREAD_SECRET) return json({ ok: false, error: 'unauthorized' }, 401);
-  const body = await request.json().catch(() => ({}));
+  const body = (await request.json().catch(() => ({}))) as Record<string, any>;
   for (const k of KEYS) {
     if (body[k.split(':')[1]] !== undefined) {
       await env.BRAIN.put(k, JSON.stringify(body[k.split(':')[1]]));
