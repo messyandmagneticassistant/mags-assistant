@@ -1,6 +1,6 @@
 import { runMaggie } from './maggie'
 import { loadBrain } from './brain'
-import { schedulePosts, boostPostViaAltProfiles } from './tiktok'
+import { runGrowthEngine } from './maggie/tiktok/growth-engine'
 import { analyzeTrends, selectBestTime, evolveStrategy } from './insights'
 import { getCompetitorBenchmarks } from './intel'
 
@@ -11,25 +11,13 @@ const main = async () => {
   const { topTrends, timingWindows } = await analyzeTrends(config)
   const bestTime = selectBestTime(timingWindows)
 
-  const postPlan = await schedulePosts({
-    trends: topTrends,
-    timing: [bestTime],
-    audienceNiche: config.audience,
-    style: config.styleNaturalNotAI,
-    rotation: config.emotionRotation
-  })
-
-  if (postPlan.nowReady && postPlan.nowIsOptimal) {
-    await postPlan.postNow()
-    await boostPostViaAltProfiles(postPlan.id)
-  }
-
-  await postPlan.scheduleRemaining()
+  await runGrowthEngine({ handle: config.tiktokHandle, timezone: config.timezone || 'America/Denver' })
 
   await evolveStrategy({
     analytics: await getCompetitorBenchmarks(config),
     audienceInsights: config.personalAudience,
-    memoryLog: true
+    memoryLog: true,
+    highlightWindow: bestTime
   })
 }
 
