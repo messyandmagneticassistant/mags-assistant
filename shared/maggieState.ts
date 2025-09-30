@@ -1,4 +1,5 @@
 export interface MaggieTrend {
+  id?: string;
   title: string;
   url?: string;
   score?: number;

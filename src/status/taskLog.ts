@@ -31,20 +31,20 @@ async function readAll(): Promise<TaskLogEntry[]> {
     const raw = await fs.readFile(TASK_LOG_PATH, 'utf8');
     const parsed = JSON.parse(raw || '[]');
     if (Array.isArray(parsed)) {
-      return parsed
-        .map((entry) => {
-          if (!entry || typeof entry !== 'object') return null;
-          const ts = typeof entry.timestamp === 'string' ? entry.timestamp : '';
-          const task = typeof entry.task === 'string' ? entry.task : '';
-          if (!ts || !task) return null;
-          return {
-            timestamp: ts,
-            task,
-            detail: typeof entry.detail === 'string' ? entry.detail : undefined,
-            outcome: typeof entry.outcome === 'string' ? entry.outcome : undefined,
-          } satisfies TaskLogEntry;
-        })
-        .filter((item): item is TaskLogEntry => !!item);
+      const entries: TaskLogEntry[] = [];
+      for (const entry of parsed) {
+        if (!entry || typeof entry !== 'object') continue;
+        const ts = typeof entry.timestamp === 'string' ? entry.timestamp : '';
+        const task = typeof entry.task === 'string' ? entry.task : '';
+        if (!ts || !task) continue;
+        entries.push({
+          timestamp: ts,
+          task,
+          detail: typeof (entry as any).detail === 'string' ? (entry as any).detail : undefined,
+          outcome: typeof (entry as any).outcome === 'string' ? (entry as any).outcome : undefined,
+        });
+      }
+      return entries;
     }
   } catch (err) {
     console.warn('[taskLog] Failed to parse task log:', err);

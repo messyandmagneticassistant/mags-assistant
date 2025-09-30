@@ -34,29 +34,54 @@ export async function saveState(env: Env, state: MaggieState): Promise<void> {
   }
 }
 
-export function normalizeTrends(trends: unknown): MaggieTrend[] | undefined {
+type TrendEntry = MaggieTrend & { id?: string };
+
+function coerceTrendId(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    return value.trim() || undefined;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value);
+  }
+  return undefined;
+}
+
+function normalizeTrendEntry(entry: unknown): TrendEntry | null {
+  if (!entry) return null;
+  if (typeof entry === 'string') {
+    return { title: entry } satisfies TrendEntry;
+  }
+  if (typeof entry === 'object') {
+    const obj = entry as Record<string, unknown>;
+    const titleCandidate = obj.title ?? obj.name ?? obj.caption;
+    let title = typeof titleCandidate === 'string' ? titleCandidate.trim() : '';
+    if (!title && typeof obj.url === 'string') {
+      title = obj.url.trim();
+    }
+    if (!title) return null;
+
+    const normalized: Record<string, unknown> = { ...obj, title };
+    const id = coerceTrendId(obj.id);
+    if (id) {
+      normalized.id = id;
+    } else {
+      delete normalized.id;
+    }
+    return normalized as TrendEntry;
+  }
+  return null;
+}
+
+export function normalizeTrends(trends: unknown): TrendEntry[] | undefined {
   if (!Array.isArray(trends)) return undefined;
-  const mapped = trends
-    .map((entry) => {
-      if (!entry) return null;
-      if (typeof entry === 'string') {
-        return { title: entry } satisfies MaggieTrend;
-      }
-      if (typeof entry === 'object') {
-        const obj = entry as Record<string, unknown>;
-        const title = obj.title ?? obj.name ?? obj.caption;
-        if (typeof title === 'string' && title.trim()) {
-          return { ...obj, title: title.trim() } as MaggieTrend;
-        }
-        const url = typeof obj.url === 'string' ? obj.url : undefined;
-        if (url) {
-          return { ...obj, title: url } as MaggieTrend;
-        }
-      }
-      return null;
-    })
-    .filter((value): value is MaggieTrend => Boolean(value));
-  return mapped.length ? mapped : undefined;
+  const normalized: TrendEntry[] = [];
+  for (const entry of trends) {
+    const trend = normalizeTrendEntry(entry);
+    if (trend) {
+      normalized.push(trend);
+    }
+  }
+  return normalized.length ? normalized : undefined;
 }
 
 export async function sendTelegram(env: Env, text: string) {
