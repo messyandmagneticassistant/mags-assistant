@@ -1087,19 +1087,19 @@ function parseBlankPlaceholderSource(
 ): Array<Partial<BlankMagnetPlaceholder>> {
   if (!source) return [];
   if (Array.isArray(source)) {
-    return source
-      .map((entry) => {
-        if (!entry) return null;
-        if (typeof entry === 'string') {
-          const label = entry.trim();
-          return label ? { label } : null;
-        }
-        if (typeof entry === 'object') {
-          return entry as Partial<BlankMagnetPlaceholder>;
-        }
-        return null;
-      })
-      .filter((entry): entry is Partial<BlankMagnetPlaceholder> => Boolean(entry));
+    const items: Array<Partial<BlankMagnetPlaceholder>> = [];
+    for (const entry of source) {
+      if (!entry) continue;
+      if (typeof entry === 'string') {
+        const label = entry.trim();
+        if (label) items.push({ label });
+        continue;
+      }
+      if (typeof entry === 'object') {
+        items.push(entry as Partial<BlankMagnetPlaceholder>);
+      }
+    }
+    return items;
   }
 
   if (typeof source === 'string') {
@@ -1119,18 +1119,18 @@ function parseBlankPlaceholderSource(
   }
 
   if (typeof source === 'object') {
-    return Object.entries(source as Record<string, any>)
-      .map(([slug, value]) => {
-        if (!value) return null;
-        if (typeof value === 'string') {
-          return { slug, label: value };
-        }
-        if (typeof value === 'object') {
-          return { slug, ...(value as Partial<BlankMagnetPlaceholder>) };
-        }
-        return null;
-      })
-      .filter((entry): entry is Partial<BlankMagnetPlaceholder> => Boolean(entry));
+    const entries: Array<Partial<BlankMagnetPlaceholder>> = [];
+    for (const [slug, value] of Object.entries(source as Record<string, unknown>)) {
+      if (!value) continue;
+      if (typeof value === 'string') {
+        entries.push({ slug, label: value });
+        continue;
+      }
+      if (typeof value === 'object') {
+        entries.push({ slug, ...(value as Partial<BlankMagnetPlaceholder>) });
+      }
+    }
+    return entries;
   }
 
   return [];
