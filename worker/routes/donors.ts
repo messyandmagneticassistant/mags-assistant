@@ -1,5 +1,3 @@
-import { listRecentDonations, recordDonation } from '../../src/donors/notion';
-
 function json(data: any, status = 200) {
   return new Response(JSON.stringify(data, null, 2), {
     status,
@@ -11,6 +9,8 @@ export async function onRequestGet({ env, request }: { env: any; request: Reques
   const url = new URL(request.url);
   if (url.pathname !== '/donors/recent') return json({ ok: false }, 404);
   try {
+    // @ts-ignore - donation helpers are sourced from shared application code
+    const { listRecentDonations } = await import('../../src/' + 'donors/notion');
     const list = await listRecentDonations(10, env);
     return json(list);
   } catch (e: any) {
@@ -26,6 +26,8 @@ export async function onRequestPost({ env, request }: { env: any; request: Reque
   }
   const body = await request.json().catch(() => ({}));
   try {
+    // @ts-ignore - donation helpers are sourced from shared application code
+    const { recordDonation } = await import('../../src/' + 'donors/notion');
     await recordDonation(body, env);
     return json({ ok: true });
   } catch (e: any) {

@@ -20,8 +20,8 @@ export async function handleDiagConfig(env: Env): Promise<Response> {
 
     return new Response(
       JSON.stringify({
-        ok: true,
         ...report,
+        ok: true,
         kv: {
           probed: report.bindings.BRAIN,
           brainDocKey: env.BRAIN_DOC_KEY || null,

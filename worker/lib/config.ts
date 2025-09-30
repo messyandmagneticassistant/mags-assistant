@@ -1,5 +1,3 @@
-import type { ExecutionContext } from "workerd";
-
 type AnyObj = Record<string, any>;
 
 const DEFAULT_SECRET_BLOB = "thread-state";

@@ -103,8 +103,8 @@ export async function ensureTelegramWebhook(env: Env, origin?: string): Promise<
     if (!res.ok) {
       throw new Error(`Failed to set webhook: ${res.status}`);
     }
-    const payload = await res.json().catch(() => ({}));
-    if (!payload?.ok) {
+    const payload = (await res.json().catch(() => ({}))) as { ok?: boolean };
+    if (!payload.ok) {
       throw new Error(`Telegram rejected webhook: ${JSON.stringify(payload)}`);
     }
     await updateTelegramMeta(env, {
@@ -200,7 +200,7 @@ async function handleStatus(env: Env): Promise<void> {
   const website = typeof state.website === 'string' && state.website ? state.website : 'https://messyandmagnetic.com';
   const lastRecap = formatTimestamp(readLastRecap(state));
   const nextPost = nextPostFromState(state);
-  const trends = summarizeTrends(snapshot.topTrends);
+  const trends = summarizeTrends(Array.isArray((snapshot as any).topTrends) ? (snapshot as any).topTrends : []);
   const lines: string[] = [
     '📊 System Pulse',
     `• Mode: ${mode}`,

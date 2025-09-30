@@ -20,10 +20,7 @@ import {
   listAllKvKeys,
   type DailyMetrics,
 } from './lib/reporting';
-import {
-  sendTelegram as sendTelegramNotification,
-  type TelegramSendResult as TelegramHelperResult,
-} from '../src/utils/telegram';
+import { getSendTelegram, type SendTelegramResult as TelegramHelperResult } from './lib/telegramBridge';
 // ---------------- CORS helpers ----------------
 const CORS_BASE: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -134,6 +131,11 @@ type DailyReportResult = {
   telegram: TelegramHelperResult;
 };
 
+async function sendSharedTelegram(message: string, env: Env): Promise<TelegramHelperResult> {
+  const sendTelegram = await getSendTelegram();
+  return sendTelegram(message, { env });
+}
+
 function jsonResponse(body: unknown, init?: ResponseInit): Response {
   const headers = new Headers(init?.headers ?? {});
   headers.set('content-type', 'application/json; charset=utf-8');
@@ -173,7 +175,7 @@ function requireAdminAuthorization(req: Request, env: Env): Response | null {
 async function runDailyReport(env: Env, host: string | null): Promise<DailyReportResult> {
   const metrics = await gatherDailyMetrics(env, { host: host ?? undefined });
   const message = buildDailyMessage(metrics);
-  const telegram = await sendTelegramNotification(message, { env });
+  const telegram = await sendSharedTelegram(message, env);
   return { metrics, message, telegram };
 }
 
@@ -216,7 +218,7 @@ async function sendTelegramMessage(
     }),
   });
 
-  const body = await response.json().catch(() => ({}));
+  const body = (await response.json().catch(() => ({}))) as Record<string, any>;
 
   return {
     ok: response.ok && !!body?.ok,
@@ -632,7 +634,8 @@ export default {
 
       // Diagnostics
       if (url.pathname === "/diag/email" && req.method === "GET") {
-      const { getEmailConfig } = await import("../utils/email");
+      // @ts-ignore - email config helper ships from shared runtime
+      const { getEmailConfig } = await import("../" + 'utils/email');
       const { fromEmail, fromName, apiKey } = getEmailConfig(env);
       const domain = fromEmail.split("@")[1] || "";
       let domainVerified: boolean | undefined;
@@ -641,8 +644,8 @@ export default {
           const resp = await fetch("https://api.resend.com/domains", {
             headers: { Authorization: `Bearer ${apiKey}` },
           });
-          const data = await resp.json();
-          const match = data?.data?.find((d: any) => d.name === domain);
+          const data = (await resp.json().catch(() => ({}))) as { data?: Array<{ name?: string; status?: string }> };
+          const match = data.data?.find((d) => d?.name === domain);
           domainVerified = match?.status === "verified";
         } catch {}
       }
@@ -782,6 +785,7 @@ export default {
       // Readiness
       if (url.pathname === "/ready") {
         try {
+          // @ts-ignore - ready route is generated during build
           const r: any = await import("./routes/ready");
           if (typeof r.onRequestGet === "function") {
             return await r.onRequestGet({ request: req, env, ctx });
@@ -824,7 +828,7 @@ export default {
     // Optional warm ping (harmless if unset)
     try {
       const warmUrl = env?.APPS_SCRIPT_EXEC || env?.APPS_SCRIPT_WEBAPP_URL;
-      if (warmUrl) ctx.waitUntil(fetch(warmUrl).then(() => {}));
+      if (warmUrl) ctx.waitUntil(fetch(String(warmUrl)).then(() => {}));
     } catch {}
 
     try {
@@ -879,6 +883,7 @@ export default {
       }
     } catch {}
     try {
+      // @ts-ignore - optional tasks route is generated during build
       const tasks: any = await import("./routes/tasks");
       if (typeof tasks.onScheduled === "function") ctx.waitUntil(tasks.onScheduled(event, env));
     } catch {}

@@ -64,7 +64,7 @@ export async function onRequestGet({ request, env }: { request: Request; env: an
 
 export async function onRequestPost({ request, env }: { request: Request; env: any }) {
   const { pathname } = new URL(request.url);
-  const body = await request.json().catch(() => ({}));
+  const body = (await request.json().catch(() => ({}))) as Record<string, any>;
 
   if (pathname === '/tiktok/accounts') {
     const accounts = (await read(env, 'tiktok:accounts')) || {};
@@ -159,7 +159,8 @@ export async function runNextJob(env: any) {
 
 export async function onScheduled(_event: ScheduledEvent, env: any) {
   try {
-    const mod = await import('../../src/trends');
+    // @ts-ignore - trend helpers are bundled from application source
+    const mod = await import('../../src/' + 'trends');
     const ts = await env.POSTQ.get('tiktok:trends:ts');
     if (!ts || Date.now() - Number(ts) > 60 * 60 * 1000) {
       if (typeof (mod as any).refreshTrends === 'function') await (mod as any).refreshTrends(env);

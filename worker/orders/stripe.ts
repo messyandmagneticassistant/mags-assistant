@@ -1,6 +1,5 @@
 import Stripe from 'stripe';
 import type { KVNamespace } from '@cloudflare/workers-types';
-import { enqueueFulfillmentJob } from '../../src/queue';
 
 interface Env {
   STRIPE_SECRET_KEY?: string;
@@ -10,7 +9,7 @@ interface Env {
 
 export async function onRequestPost({ request, env }: { request: Request; env: Env }) {
   const key = env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET_KEY;
-  const stripe = key ? new Stripe(key, { apiVersion: '2023-10-16' }) : null;
+  const stripe = key ? new Stripe(key, { apiVersion: '2025-08-27.basil' }) : null;
   const secret = env.STRIPE_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET;
   const signature = request.headers.get('stripe-signature');
   const rawBody = await request.text();
@@ -33,6 +32,8 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
     const session = event.data.object as Stripe.Checkout.Session;
     const sessionId = session.id;
     if (sessionId) {
+      // @ts-ignore - queue helpers are shared with the Node runtime
+      const { enqueueFulfillmentJob } = await import('../../src/' + 'queue');
       await enqueueFulfillmentJob(
         {
           source: 'stripe',

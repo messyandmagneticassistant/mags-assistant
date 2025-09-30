@@ -1,4 +1,8 @@
-import { OrderContext } from '../../src/forms/schema';
+type OrderContext = {
+  email?: string;
+  productId?: string;
+  [key: string]: any;
+};
 
 export async function fulfill(order: OrderContext, env: any) {
   const key = env.STRIPE_SECRET_KEY;
