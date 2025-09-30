@@ -26,6 +26,27 @@ jobs:
           CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
         run: wrangler deploy -c wrangler.toml
 
+      - name: Smoke test + Telegram after deploy
+        if: github.event_name != 'pull_request' && success()
+        run: |
+          set -euo pipefail
+          base_url="https://maggie.messyandmagnetic.com"
+          for endpoint in /health /summary /daily; do
+            for i in 1 2 3; do
+              echo "Requesting ${endpoint} attempt ${i}"
+              if curl -sSf "${base_url}${endpoint}"; then
+                break
+              fi
+
+              if [ "$i" -eq 3 ]; then
+                echo "Failed to call ${endpoint} after ${i} attempts"
+                exit 1
+              fi
+
+              sleep $((i * 5))
+            done
+          done
+
       - name: Verify deployment & notify
         if: github.event_name != 'pull_request'
         env:
