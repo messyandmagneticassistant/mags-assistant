@@ -7,6 +7,10 @@ const SITE_HOSTS = new Set([
   'assistant.messyandmagnetic.com',
 ]);
 
+export function isSiteHostname(host?: string): boolean {
+  return !!host && SITE_HOSTS.has(host.toLowerCase());
+}
+
 interface StoredSiteAsset {
   path: string;
   content: string;
@@ -86,8 +90,9 @@ async function readAsset(env: Env, relativePath: string): Promise<StoredSiteAsse
 }
 
 export async function serveStaticSite(req: Request, env: Env): Promise<Response | null> {
-  const host = req.headers.get('host')?.toLowerCase();
-  if (!host || !SITE_HOSTS.has(host)) return null;
+  const rawHost = req.headers.get('host');
+  const host = rawHost ? rawHost.toLowerCase() : undefined;
+  if (!isSiteHostname(host)) return null;
 
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     return null;

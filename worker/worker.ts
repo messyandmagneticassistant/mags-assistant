@@ -3,13 +3,14 @@ import { handleHealth } from './health';
 import { handleDiagConfig } from './diag';
 import type { Env } from './lib/env';
 import { syncThreadStateFromGitHub } from './lib/threadStateSync';
-import { serveStaticSite } from './lib/site';
+import { serveStaticSite, isSiteHostname } from './lib/site';
 import {
   bootstrapWorker,
   gatherStatus,
   gatherSummary,
   handleScheduled as handleAutomationScheduled,
 } from './index';
+import { handleSiteRequest } from './routes/site';
 import * as cronRoutes from './routes/cron';
 import {
   buildDailyMessage,
@@ -419,9 +420,24 @@ export default {
     const url = new URL(req.url);
     try {
       await bootstrapWorker(env, req, ctx);
+      const siteHost = isSiteHostname(url.hostname);
       const siteResponse = await serveStaticSite(req, env);
+      let deferredSite404: Response | null = null;
       if (siteResponse) {
-        return siteResponse;
+        if (siteResponse.status === 404 && siteHost) {
+          deferredSite404 = siteResponse;
+        } else {
+          return siteResponse;
+        }
+      }
+
+      if (siteHost) {
+        const page = await handleSiteRequest(req, env);
+        if (page) return page;
+      }
+
+      if (deferredSite404) {
+        return deferredSite404;
       }
 
       if (req.method === "GET" && url.pathname === "/ping") {
@@ -445,7 +461,7 @@ export default {
         });
       }
 
-      if (url.pathname === '/' || url.pathname === '/health') {
+      if (url.pathname === '/health' || (!siteHost && url.pathname === '/')) {
         return await handleHealth(env);
       }
       if (url.pathname === '/diag/config') {
