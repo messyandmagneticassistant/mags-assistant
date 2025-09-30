@@ -417,6 +417,13 @@ export default {
   // ---------------- HTTP entry ----------------
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
+
+    if (url.pathname === "/") {
+      return new Response("✅ Maggie is Live — Home route working!", {
+        headers: { "content-type": "text/plain" },
+      });
+    }
+
     try {
       await bootstrapWorker(env, req, ctx);
       const siteResponse = await serveStaticSite(req, env);
