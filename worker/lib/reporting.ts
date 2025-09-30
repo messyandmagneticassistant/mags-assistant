@@ -12,6 +12,9 @@ export const CORE_WORKER_ROUTES = [
   '/daily',
   '/cron-report',
   '/kv/keys',
+  '/trigger-post',
+  '/post-status',
+  '/post-log',
 ];
 
 export type DailyMetrics = {
