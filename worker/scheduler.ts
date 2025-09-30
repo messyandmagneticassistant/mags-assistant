@@ -38,6 +38,79 @@ interface BackfillOptions {
   triggerTick?: boolean;
 }
 
+export interface TrendEntry {
+  id: string;
+  title: string;
+  hashtag?: string;
+  soundId?: string;
+  url?: string;
+  score?: number;
+}
+
+type NormalizedTrend = NonNullable<ReturnType<typeof normalizeTrends>>[number];
+
+function coerceTrendEntry(value: NormalizedTrend | undefined, fallbackIndex: number): TrendEntry | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  const rawId = record.id;
+  const id =
+    typeof rawId === 'string' && rawId.trim()
+      ? rawId.trim()
+      : typeof rawId === 'number' && Number.isFinite(rawId)
+        ? String(rawId)
+        : `trend-${fallbackIndex}`;
+
+  const rawTitle = record.title;
+  let title: string | null = null;
+  if (typeof rawTitle === 'string' && rawTitle.trim()) {
+    title = rawTitle.trim();
+  } else if (typeof record.hashtag === 'string' && record.hashtag.trim()) {
+    title = record.hashtag.trim();
+  } else if (typeof record.url === 'string' && record.url.trim()) {
+    title = record.url.trim();
+  }
+
+  if (!title) {
+    return null;
+  }
+
+  const entry: TrendEntry = { id, title };
+
+  if (typeof record.hashtag === 'string' && record.hashtag.trim()) {
+    entry.hashtag = record.hashtag.trim();
+  }
+  if (typeof record.soundId === 'string' && record.soundId.trim()) {
+    entry.soundId = record.soundId.trim();
+  }
+  if (typeof record.url === 'string' && record.url.trim()) {
+    entry.url = record.url.trim();
+  }
+  if (typeof record.score === 'number' && Number.isFinite(record.score)) {
+    entry.score = record.score;
+  }
+
+  return entry;
+}
+
+export function selectTrendEntries(
+  trends?: ReturnType<typeof normalizeTrends>,
+  limit = 6,
+): TrendEntry[] {
+  if (!Array.isArray(trends)) {
+    return [];
+  }
+
+  const entries = trends
+    .map((trend, index) => coerceTrendEntry(trend, index))
+    .filter((entry): entry is TrendEntry => entry !== null);
+
+  return limit > 0 ? entries.slice(0, limit) : entries;
+}
+
 interface SchedulerRuntime {
   paused: boolean;
   lastWake?: string;
@@ -602,6 +675,7 @@ export interface SchedulerSnapshot {
   retryQueue: number;
   nextRetryAt: string | null;
   topTrends: ReturnType<typeof normalizeTrends>;
+  trendEntries: TrendEntry[];
   runtime: SchedulerRuntime;
 }
 
@@ -634,6 +708,9 @@ export async function tickScheduler(env: Env, now = new Date()): Promise<Schedul
 
   await persistScheduler(env, scheduler);
 
+  const normalizedTrends = normalizeTrends((scheduler.state as any).topTrends);
+  const trendEntries = selectTrendEntries(normalizedTrends);
+
   return {
     paused: scheduler.runtime.paused,
     currentTasks: tasks,
@@ -645,7 +722,8 @@ export async function tickScheduler(env: Env, now = new Date()): Promise<Schedul
           .filter(Boolean)
           .sort()[0] || null
       : null,
-    topTrends: normalizeTrends((scheduler.state as any).topTrends) || [],
+    topTrends: normalizedTrends ?? [],
+    trendEntries,
     runtime: scheduler.runtime,
   };
 }
@@ -673,6 +751,9 @@ export async function stopSchedulers(env: Env): Promise<SchedulerSnapshot> {
   scheduler.runtime.lastTick = nowIso();
   (scheduler.state as any).currentTasks = ['Idle (manual pause)'];
   await persistScheduler(env, scheduler);
+  const normalizedTrends = normalizeTrends((scheduler.state as any).topTrends);
+  const trendEntries = selectTrendEntries(normalizedTrends);
+
   return {
     paused: true,
     currentTasks: ['Idle (manual pause)'],
@@ -686,7 +767,8 @@ export async function stopSchedulers(env: Env): Promise<SchedulerSnapshot> {
           .filter(Boolean)
           .sort()[0] || null
       : null,
-    topTrends: normalizeTrends((scheduler.state as any).topTrends) || [],
+    topTrends: normalizedTrends ?? [],
+    trendEntries,
     runtime: scheduler.runtime,
   };
 }
@@ -708,6 +790,8 @@ export async function getSchedulerSnapshot(env: Env): Promise<SchedulerSnapshot>
   const scheduler = await loadScheduler(env);
   ensureRetryQueue(scheduler.runtime, scheduler.state);
   const tasks = ensureTasks(scheduler.state, scheduler.runtime);
+  const normalizedTrends = normalizeTrends((scheduler.state as any).topTrends);
+  const trendEntries = selectTrendEntries(normalizedTrends);
   return {
     paused: scheduler.runtime.paused,
     currentTasks: tasks,
@@ -721,7 +805,8 @@ export async function getSchedulerSnapshot(env: Env): Promise<SchedulerSnapshot>
           .filter(Boolean)
           .sort()[0] || null
       : null,
-    topTrends: normalizeTrends((scheduler.state as any).topTrends) || [],
+    topTrends: normalizedTrends ?? [],
+    trendEntries,
     runtime: scheduler.runtime,
   };
 }
