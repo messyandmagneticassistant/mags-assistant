@@ -42,7 +42,7 @@ export async function onRequestGet({ env, request }: { env: any; request: Reques
     // @ts-ignore - donation helpers are sourced from shared application code
     const { listRecentDonations } = await import('../../src/' + 'donors/notion');
     const list = await listRecentDonations(10, env);
-    return json(list);
+    return json({ ok: true, donors: list });
   } catch (e: any) {
     return json({ ok: false, error: e.message }, 500);
   }
@@ -54,9 +54,9 @@ export async function onRequestPost({ env, request }: { env: any; request: Reque
   if (request.headers.get('x-api-key') !== env.POST_THREAD_SECRET) {
     return json({ ok: false, error: 'unauthorized' }, 401);
   }
-  const body = await request.json().catch(() => ({}));
+  const body: unknown = await request.json().catch(() => ({}));
   const input = parseDonationInput(body);
-  if (!input) {
+  if (input === null) {
     return json({ ok: false, error: 'invalid-input' }, 400);
   }
   try {
