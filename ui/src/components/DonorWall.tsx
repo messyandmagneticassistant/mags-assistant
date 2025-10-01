@@ -7,13 +7,7 @@ export default function DonorWall() {
   useEffect(() => {
     fetch('/donors/recent')
       .then((r) => r.json())
-      .then((res) => {
-        if (Array.isArray(res)) {
-          setList(res);
-        } else if (Array.isArray(res?.donors)) {
-          setList(res.donors);
-        }
-      })
+      .then((res) => setList(res.donors))
       .catch(() => {});
   }, []);
   return (
