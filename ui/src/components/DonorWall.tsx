@@ -5,7 +5,16 @@ interface Donation { name: string; amount: number; intent: string; createdAt: st
 export default function DonorWall() {
   const [list, setList] = useState<Donation[]>([]);
   useEffect(() => {
-    fetch('/donors/recent').then((r) => r.json()).then(setList).catch(() => {});
+    fetch('/donors/recent')
+      .then((r) => r.json())
+      .then((res) => {
+        if (Array.isArray(res)) {
+          setList(res);
+        } else if (Array.isArray(res?.donors)) {
+          setList(res.donors);
+        }
+      })
+      .catch(() => {});
   }, []);
   return (
     <div className="space-y-2">
