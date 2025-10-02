@@ -1,0 +1,29 @@
+name: Notify Deploy Status
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 */6 * * *"  # every 6 hours
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node + Corepack
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+        env:
+          COREPACK_ENABLE_STRICT: '0'
+      - run: corepack enable && corepack prepare pnpm@latest --activate
+      - name: Install deps
+        run: pnpm install
+      - name: Run deploy notifier
+        run: pnpm tsx worker/scripts/checkDeployAndNotify.ts
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
