@@ -21,6 +21,11 @@ import {
   type DailyMetrics,
 } from './lib/reporting';
 import { getSendTelegram, type SendTelegramResult as TelegramHelperResult } from './lib/telegramBridge';
+import {
+  getAutopostStatus,
+  getRecentAutopostLog,
+  runAutopostCycle,
+} from './social/scheduler';
 // ---------------- CORS helpers ----------------
 const CORS_BASE: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -438,6 +443,73 @@ export default {
           status: 200,
           headers: corsHeaders,
         });
+      }
+
+      if (isPreflight(req) && ["/trigger-post", "/post-status", "/post-log"].includes(url.pathname)) {
+        return new Response(null, { status: 204, headers: corsHeaders });
+      }
+
+      if (url.pathname === '/trigger-post') {
+        if (req.method !== 'POST') {
+          const res = jsonResponse({ ok: false, error: 'method-not-allowed' }, { status: 405 });
+          res.headers.set('Allow', 'POST');
+          return res;
+        }
+        const body = (await req.json().catch(() => ({}))) as {
+          reason?: string;
+          dryrun?: boolean;
+          now?: string;
+        };
+        let when: Date | undefined;
+        if (body?.now) {
+          const parsed = new Date(body.now);
+          if (!Number.isNaN(parsed.getTime())) when = parsed;
+        }
+        try {
+          const result = await runAutopostCycle(env, {
+            reason: body?.reason || 'manual-trigger',
+            dryrun: body?.dryrun === true,
+            now: when,
+          });
+          const statusCode = result.ok ? 200 : result.error === 'queue-empty' ? 409 : 500;
+          return jsonResponse(result, { status: statusCode });
+        } catch (err) {
+          console.error('[worker] trigger-post failed', err);
+          return jsonResponse({ ok: false, error: 'trigger-failed' }, { status: 500 });
+        }
+      }
+
+      if (url.pathname === '/post-status') {
+        if (req.method !== 'GET') {
+          const res = jsonResponse({ ok: false, error: 'method-not-allowed' }, { status: 405 });
+          res.headers.set('Allow', 'GET');
+          return res;
+        }
+        try {
+          const status = await getAutopostStatus(env);
+          return jsonResponse({ ok: true, ...status });
+        } catch (err) {
+          console.error('[worker] post-status failed', err);
+          return jsonResponse({ ok: false, error: 'status-failed' }, { status: 500 });
+        }
+      }
+
+      if (url.pathname === '/post-log') {
+        if (req.method !== 'GET') {
+          const res = jsonResponse({ ok: false, error: 'method-not-allowed' }, { status: 405 });
+          res.headers.set('Allow', 'GET');
+          return res;
+        }
+        const hoursParam = url.searchParams.get('hours');
+        const hours = hoursParam ? Number(hoursParam) : 24;
+        const scopedHours = Number.isFinite(hours) && hours > 0 ? Math.min(hours, 72) : 24;
+        try {
+          const entries = await getRecentAutopostLog(env, scopedHours);
+          return jsonResponse({ ok: true, hours: scopedHours, entries });
+        } catch (err) {
+          console.error('[worker] post-log failed', err);
+          return jsonResponse({ ok: false, error: 'log-failed' }, { status: 500 });
+        }
       }
 
       if (req.method === "GET" && url.pathname === "/hello") {
@@ -880,6 +952,18 @@ export default {
       ctx.waitUntil(syncThreadStateFromGitHub(env));
     } catch (err) {
       console.error('[worker.cron] failed to enqueue thread-state sync:', err);
+    }
+
+    if (event.cron === '0 */3 * * *') {
+      ctx.waitUntil(
+        runAutopostCycle(env, { reason: 'cron', now: new Date(event.scheduledTime) })
+          .then((result) => {
+            if (!result.ok && result.error !== 'queue-empty') {
+              console.warn('[worker.cron] autopost cycle reported issue', result);
+            }
+          })
+          .catch((err) => console.error('[worker.cron] autopost cycle failed', err)),
+      );
     }
 
     // Let optional modules hook scheduled if present
