@@ -419,8 +419,81 @@ export default {
     const url = new URL(req.url);
 
     if (url.pathname === "/") {
-      return new Response("✅ Maggie is Live — Home route working!", {
-        headers: { "content-type": "text/plain" },
+      const homepageHtml = `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Messy &amp; Magnetic</title>
+    <style>
+      :root {
+        color-scheme: only light;
+        font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+        background: #fdf7ff;
+        color: #3b2f4a;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #fdf7ff, #f5fbff);
+      }
+      main {
+        padding: 3rem clamp(1.5rem, 5vw, 4rem);
+        border-radius: 24px;
+        background: rgba(255, 255, 255, 0.85);
+        box-shadow: 0 18px 45px rgba(59, 47, 74, 0.12);
+        max-width: 520px;
+        text-align: center;
+      }
+      h1 {
+        margin: 0 0 1rem;
+        font-size: clamp(2rem, 5vw, 2.75rem);
+        color: #6d46b8;
+      }
+      p {
+        margin: 0 0 2rem;
+        line-height: 1.6;
+        color: #56466f;
+      }
+      nav {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+      a {
+        text-decoration: none;
+        padding: 0.75rem 1rem;
+        border-radius: 999px;
+        background: #e6ddff;
+        color: #3b2f4a;
+        font-weight: 600;
+        transition: transform 160ms ease, box-shadow 160ms ease;
+      }
+      a:hover,
+      a:focus {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 18px rgba(109, 70, 184, 0.18);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Messy &amp; Magnetic</h1>
+      <p>Welcome in! The full experience is arriving soon. For now, explore a few highlights while we finish weaving the magic.</p>
+      <nav>
+        <a href="/soul-blueprint">Explore the Soul Blueprint</a>
+        <a href="/donate">Support &amp; Donate</a>
+        <a href="/quiz">Take the Quiz</a>
+      </nav>
+    </main>
+  </body>
+</html>`;
+
+      return new Response(homepageHtml, {
+        headers: { "content-type": "text/html; charset=utf-8" },
       });
     }
 
