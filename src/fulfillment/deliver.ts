@@ -1,4 +1,5 @@
-import { sendEmail } from '../../utils/email';
+import { sendEmail as sendEmailWithResend } from '../../utils/email';
+import { sendEmail as sendEmailWithGmail } from '../../lib/gmail';
 import { loadFulfillmentConfig } from './common';
 import { tgSend } from '../lib/telegram';
 import type {
@@ -20,6 +21,12 @@ interface DeliverOptions {
 interface DeliveryResult {
   receipts: DeliveryReceipt[];
   outputs: FulfillmentOutput[];
+}
+
+interface GmailDeliveryResult {
+  ok: boolean;
+  id?: string;
+  error?: unknown;
 }
 
 function describeFulfillment(mode: FulfillmentMode | undefined): string {
@@ -84,6 +91,22 @@ function formatHtmlOutputs(outputs: FulfillmentOutput[]): string {
     .join('');
 }
 
+async function tryDeliverViaGmail(
+  to: string,
+  subject: string,
+  textBody: string,
+  htmlBody: string
+): Promise<GmailDeliveryResult> {
+  try {
+    const res = await sendEmailWithGmail({ to, subject, text: textBody, html: htmlBody });
+    const id = typeof res?.id === 'string' ? res.id : (res as any)?.threadId;
+    return { ok: true, id };
+  } catch (err) {
+    console.warn('[fulfillment.deliver] Gmail delivery failed:', err);
+    return { ok: false, error: err };
+  }
+}
+
 export async function deliverFulfillment(
   intake: NormalizedIntake,
   blueprint: BlueprintResult,
@@ -131,17 +154,25 @@ Maggie`;
   <p>With warmth,<br/>Maggie</p>
   `;
 
-  const result = await sendEmail(
-    {
-      to: intake.email,
-      subject,
-      text: textBody,
-      html: htmlBody,
-    },
-    opts.env
-  );
+  const gmailResult = await tryDeliverViaGmail(intake.email, subject, textBody, htmlBody);
+  let primaryReceipt: DeliveryReceipt | null = null;
 
-  const receipts: DeliveryReceipt[] = [{ channel: 'email', id: result.id }];
+  if (gmailResult.ok) {
+    primaryReceipt = { channel: 'email', id: gmailResult.id ? `gmail:${gmailResult.id}` : 'gmail' };
+  } else {
+    const resendResult = await sendEmailWithResend(
+      {
+        to: intake.email,
+        subject,
+        text: textBody,
+        html: htmlBody,
+      },
+      opts.env
+    );
+    primaryReceipt = { channel: 'email', id: resendResult.id ? `resend:${resendResult.id}` : 'resend' };
+  }
+
+  const receipts: DeliveryReceipt[] = primaryReceipt ? [primaryReceipt] : [];
 
   if (config?.telegramChatId && config.telegramBotToken) {
     const telegramMessage = `✨ ${fulfillmentLabel} sent to ${intake.email}\nAdd-ons: ${addOnSummary}\n${formatTextOutputs(outputs)}`;
