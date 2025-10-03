@@ -516,8 +516,9 @@ export default {
           topTrends: snapshot.topTrends,
           paused: snapshot.paused,
         };
-        return new Response(JSON.stringify(summary, null, 2), {
-          headers: { 'Content-Type': 'application/json' },
+        return jsonResponse({
+          ok: true,
+          summary,
         });
       }
 
