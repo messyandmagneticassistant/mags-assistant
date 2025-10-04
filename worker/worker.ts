@@ -21,6 +21,7 @@ import {
   type DailyMetrics,
 } from './lib/reporting';
 import { getSendTelegram, type SendTelegramResult as TelegramHelperResult } from './lib/telegramBridge';
+import { router } from './router/router';
 // ---------------- CORS helpers ----------------
 const CORS_BASE: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -240,15 +241,22 @@ type PingResponse = {
   error?: string;
 };
 
-async function performPing(env: Env, source: string): Promise<{ status: number; payload: PingResponse }> {
+async function performPing(
+  env: Env,
+  source: string,
+  options?: { path?: string; message?: string }
+): Promise<{ status: number; payload: PingResponse }> {
   try {
     const credentials = getTelegramCredentials(env);
-    const result = await sendTelegramMessage(credentials, "Maggie ping test");
+    const result = await sendTelegramMessage(
+      credentials,
+      options?.message ?? "Maggie ping test"
+    );
 
     const payload: PingResponse = {
       ok: result.ok,
       sent: result.ok,
-      path: "/ping",
+      path: options?.path ?? "/ping",
       status: result.ok ? "sent" : "telegram-failed",
       source,
       telegram: {
@@ -361,6 +369,24 @@ async function performPingDebug(
   }
 }
 
+router.get(
+  '/',
+  async () =>
+    new Response('Maggie is online! 🌸 Welcome to Messy & Magnetic.', {
+      headers: { 'content-type': 'text/plain; charset=utf-8' },
+    }),
+  { stage: 'pre' }
+);
+
+router.get('/test-telegram', async (_req, env) => {
+  const { status, payload } = await performPing(env, 'route:/test-telegram', {
+    path: '/test-telegram',
+    message: 'Manual Telegram test triggered via /test-telegram',
+  });
+
+  return jsonResponse(payload, { status });
+});
+
 // --------------- Dynamic route loader ---------------
 async function tryRoute<T extends Record<string, any>>(
   pathPrefix: string,
@@ -418,10 +444,9 @@ export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
 
-    if (req.method === "GET" && url.pathname === "/") {
-      return new Response("Maggie is online! 🌸 Welcome to Messy & Magnetic.", {
-        headers: { "content-type": "text/plain; charset=utf-8" },
-      });
+    const preBootstrapResponse = await router.handlePreBootstrap(req, env, ctx);
+    if (preBootstrapResponse) {
+      return preBootstrapResponse;
     }
 
     try {
@@ -429,6 +454,11 @@ export default {
       const siteResponse = await serveStaticSite(req, env);
       if (siteResponse) {
         return siteResponse;
+      }
+
+      const routedResponse = await router.handlePostBootstrap(req, env, ctx);
+      if (routedResponse) {
+        return routedResponse;
       }
 
       if (req.method === "GET" && url.pathname === "/ping") {
