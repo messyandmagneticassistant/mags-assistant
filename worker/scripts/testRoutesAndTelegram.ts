@@ -1,17 +1,27 @@
 const ROUTES = [
-  'https://maggie.messyandmagnetic.com/',
-  'https://assistant.messyandmagnetic.com/',
+  {
+    url: 'https://maggie.messyandmagnetic.com/ping',
+    expectOk: true,
+  },
+  {
+    url: 'https://maggie.messyandmagnetic.com/summary',
+    expectOk: true,
+  },
 ] as const;
 
 const TIMEOUT_MS = 15_000;
 
-interface RouteResult {
+interface RouteConfig {
   url: string;
-  ok: boolean;
+  expectOk: boolean;
+}
+
+interface RouteResult extends RouteConfig {
   status: number;
   durationMs: number;
   snippet: string;
   error?: string;
+  ok: boolean;
 }
 
 type Ok = { ok?: boolean; error?: string };
@@ -68,13 +78,13 @@ async function sendTelegramMessage(text: string): Promise<Ok> {
   }
 }
 
-async function testRoute(url: string): Promise<RouteResult> {
+async function testRoute(route: RouteConfig): Promise<RouteResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
   const started = Date.now();
 
   try {
-    const response = await fetch(url, {
+    const response = await fetch(route.url, {
       method: 'GET',
       signal: controller.signal,
       headers: {
@@ -85,23 +95,53 @@ async function testRoute(url: string): Promise<RouteResult> {
 
     const durationMs = Date.now() - started;
     const status = response.status;
-    const text = await response.text();
-    const snippet = text.replace(/\s+/g, ' ').trim().slice(0, 160);
-    const ok = response.ok;
+    let ok = response.ok;
+    let snippet = '';
+    let error: string | undefined;
+
+    if (route.expectOk) {
+      try {
+        const data = (await response.json()) as { ok?: unknown };
+        snippet = JSON.stringify(data).slice(0, 160);
+        if (data?.ok !== true) {
+          ok = false;
+          error = 'failed-to-return-ok:true';
+        }
+      } catch (parseError) {
+        ok = false;
+        const detail = parseError instanceof Error ? parseError.message : String(parseError);
+        error = `invalid-json: ${detail}`;
+        try {
+          const text = await response.text();
+          snippet = text.replace(/\s+/g, ' ').trim().slice(0, 160);
+        } catch {
+          // ignore secondary failure
+        }
+      }
+    }
+
+    if (!snippet) {
+      const text = await response.text();
+      snippet = text.replace(/\s+/g, ' ').trim().slice(0, 160);
+    }
+
+    if (!ok && !error) {
+      error = `status-${status}`;
+    }
 
     return {
-      url,
+      ...route,
       ok,
       status,
       durationMs,
       snippet,
-      error: ok ? undefined : `status-${status}`,
+      error,
     };
   } catch (error) {
     const durationMs = Date.now() - started;
     const detail = error instanceof Error ? error.message : String(error);
     return {
-      url,
+      ...route,
       ok: false,
       status: 0,
       durationMs,
@@ -122,12 +162,26 @@ function formatResult(result: RouteResult): string {
   return base;
 }
 
-async function notify(ok: boolean): Promise<void> {
+function formatFailureSummary(results: RouteResult[]): string {
+  return results
+    .filter((result) => !result.ok)
+    .map((result) => {
+      const route = new URL(result.url);
+      const status = result.status ? `status: ${result.status}` : 'status: error';
+      const detail = result.error ? `detail: ${result.error}` : undefined;
+      return [`Route: ${route.pathname}`, status, detail].filter(Boolean).join('\n');
+    })
+    .join('\n\n');
+}
+
+async function notifyResults(results: RouteResult[]): Promise<void> {
+  const ok = results.every((result) => result.ok);
   const sha = process.env.GITHUB_SHA?.slice(0, 7) ?? 'local';
   const timestamp = new Date().toISOString();
+  const failureSummary = ok ? '' : `\n${formatFailureSummary(results)}`;
   const text = ok
-    ? `✅ Route test passed — maggie & assistant are live. v:${sha} at ${timestamp}`
-    : `❌ Route test FAILED — see CI logs. v:${sha} at ${timestamp}`;
+    ? `✅ Route test passed — /ping & /summary healthy. v:${sha} at ${timestamp}`
+    : `❌ Route check failed for Maggie${failureSummary}\nSHA: ${sha}\nAt: ${timestamp}`;
 
   const result = await sendTelegramMessage(text);
   if (!result.ok) {
@@ -136,8 +190,8 @@ async function notify(ok: boolean): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  console.log('[route-test] Checking routes:', ROUTES.join(', '));
-  const results = await Promise.all(ROUTES.map((url) => testRoute(url)));
+  console.log('[route-test] Checking routes:', ROUTES.map((route) => route.url).join(', '));
+  const results = await Promise.all(ROUTES.map((route) => testRoute(route)));
   for (const result of results) {
     console.log(formatResult(result));
     if (result.snippet) {
@@ -148,18 +202,28 @@ async function main(): Promise<void> {
     }
   }
 
-  const allOk = results.every((result) => result.ok);
-  await notify(allOk);
+  await notifyResults(results);
 
-  if (!allOk) {
+  if (!results.every((result) => result.ok)) {
     throw new Error('Route test failed');
+  }
+}
+
+async function notifyUnexpectedFailure(error: unknown): Promise<void> {
+  const sha = process.env.GITHUB_SHA?.slice(0, 7) ?? 'local';
+  const timestamp = new Date().toISOString();
+  const detail = error instanceof Error ? error.message : String(error);
+  const text = `❌ Route check failed for Maggie\nError: ${detail}\nSHA: ${sha}\nAt: ${timestamp}`;
+  const result = await sendTelegramMessage(text);
+  if (!result.ok) {
+    console.warn('[route-test] Telegram notification was not sent:', result.error ?? 'unknown-error');
   }
 }
 
 main().catch(async (error) => {
   console.error('[route-test] Unexpected error:', error instanceof Error ? error.message : error);
   try {
-    await notify(false);
+    await notifyUnexpectedFailure(error);
   } catch (notifyError) {
     console.error('[route-test] Failed to send failure notification:', notifyError);
   }
