@@ -1,5 +1,6 @@
 import type { Env } from './env';
 import { loadState } from './state';
+import { listRouterPaths } from '../router';
 
 export const CORE_WORKER_ROUTES = [
   '/ping',
@@ -47,7 +48,9 @@ function resolveKvNamespace(env: Env): KvNamespaceLike | undefined {
 }
 
 export function getWorkerRoutes(): string[] {
-  return [...CORE_WORKER_ROUTES];
+  const routerRoutes = listRouterPaths();
+  const unique = new Set<string>([...CORE_WORKER_ROUTES, ...routerRoutes]);
+  return Array.from(unique);
 }
 
 export function getWorkerVersion(env: Env): string | null {

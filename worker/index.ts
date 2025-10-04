@@ -10,11 +10,14 @@ import {
 } from './scheduler';
 import { maybeSendDailySummary } from './summary';
 import { buildDeploymentMessage, getWorkerRoutes, getWorkerVersion } from './lib/reporting';
+import { ensureCoreRouterRoutes } from './router';
 // @ts-ignore - worker bundles runtime helper from shared source
 import { getSendTelegram } from './lib/telegramBridge';
 
 const BOOT_WARMUP_LABEL = 'bootWarmupAt';
 const DEPLOY_PING_LABEL = 'lastDeployPing';
+
+ensureCoreRouterRoutes();
 
 async function markBoot(env: Env): Promise<void> {
   const state = await loadState(env);
