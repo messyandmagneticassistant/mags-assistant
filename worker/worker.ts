@@ -378,7 +378,13 @@ router.get(
   { stage: 'pre' }
 );
 
-router.get('/test-telegram', async (_req, env) => {
+router.get('/test-telegram', async (req, env) => {
+  const unauthorized = requireAdminAuthorization(req, env);
+  if (unauthorized) {
+    console.error('[worker:/test-telegram] unauthorized access attempt');
+    return unauthorized;
+  }
+
   const { status, payload } = await performPing(env, 'route:/test-telegram', {
     path: '/test-telegram',
     message: 'Manual Telegram test triggered via /test-telegram',
