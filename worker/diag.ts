@@ -1,4 +1,4 @@
-import { Env } from './lib/env';
+import { presenceReport, Env } from './lib/env';
 
 const REQUIRED_KEYS = [
   'STRIPE_API_KEY',
@@ -20,32 +20,105 @@ function jsonResponse(data: unknown, status = 200): Response {
   });
 }
 
+function parseConfig(doc: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(doc);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch (err) {
+    console.warn('[/diag/config] failed to parse config JSON:', err);
+  }
+
+  return null;
+}
+
+function hasRequiredKey(state: Record<string, unknown>, key: string): boolean {
+  if (!Object.prototype.hasOwnProperty.call(state, key)) {
+    return false;
+  }
+
+  const value = state[key];
+  return !(value === undefined || value === null || value === '');
+}
+
 export async function handleDiagConfig(env: Env): Promise<Response> {
   try {
+    const report = presenceReport(env);
+    const { ok: _presenceOk, ...reportDetails } = report;
+
     if (!env.PostQ || typeof env.PostQ.get !== 'function') {
-      return jsonResponse({ status: '❌ PostQ KV namespace is not configured.' }, 500);
+      return jsonResponse(
+        {
+          ok: false,
+          status: '❌ PostQ KV namespace is not configured.',
+          ...reportDetails,
+        },
+        500,
+      );
     }
 
-    const state = (await env.PostQ.get('thread-state', { type: 'json' })) as
-      | Record<string, unknown>
-      | null;
+    const secretBlobKey = env.SECRET_BLOB || 'thread-state';
+    const rawValue = await env.PostQ.get(secretBlobKey);
 
-    if (!state || typeof state !== 'object') {
-      return jsonResponse({ status: '❌ Unable to load PostQ:thread-state configuration.' }, 500);
+    let state: Record<string, unknown> | null = null;
+    let bytes: number | null = null;
+
+    if (typeof rawValue === 'string') {
+      bytes = new TextEncoder().encode(rawValue).length;
+      if (rawValue.trim()) {
+        state = parseConfig(rawValue);
+      }
+    } else if (rawValue && typeof rawValue === 'object') {
+      state = rawValue as Record<string, unknown>;
+      try {
+        bytes = new TextEncoder().encode(JSON.stringify(rawValue)).length;
+      } catch {
+        bytes = null;
+      }
     }
 
-    const missing = REQUIRED_KEYS.filter((key) => {
-      const value = state[key];
-      return value === undefined || value === null || value === '';
-    });
+    const basePayload = {
+      ...reportDetails,
+      kv: {
+        probed: true,
+        secretBlobKey,
+        hasDocument: !!state,
+        bytes,
+      },
+    };
+
+    if (!state) {
+      return jsonResponse(
+        {
+          ok: false,
+          status: `❌ Unable to load PostQ:${secretBlobKey} configuration.`,
+          ...basePayload,
+        },
+        500,
+      );
+    }
+
+    const missing = REQUIRED_KEYS.filter((key) => !hasRequiredKey(state!, key));
 
     if (missing.length > 0) {
-      return jsonResponse({ status: '❌ Missing keys', missing });
+      return jsonResponse(
+        {
+          ok: false,
+          status: '❌ Missing keys',
+          missing,
+          ...basePayload,
+        },
+      );
     }
 
-    return jsonResponse({ status: '✅ All required config keys are present and valid.' });
+    return jsonResponse({
+      ok: true,
+      status: '✅ All required config keys are present and valid.',
+      ...basePayload,
+    });
   } catch (err: any) {
     console.error('[/diag/config] crash:', err?.stack || err);
-    return jsonResponse({ status: '❌ diag-failed' }, 500);
+    return jsonResponse({ ok: false, status: '❌ diag-failed' }, 500);
   }
 }
