@@ -1,42 +1,80 @@
-import { presenceReport, Env } from './lib/env';
+import type { Env } from './lib/env';
+
+const REQUIRED_KEYS = [
+  'STRIPE_API_KEY',
+  'TIKTOK_SESSION_MAIN',
+  'TIKTOK_PROFILE_MAIN',
+  'TALLY_FORM_ID',
+  'TELEGRAM_BOT_TOKEN',
+  'BROWSERLESS_API_KEY',
+  'NOTION_API_KEY',
+] as const;
+
+type RequiredKey = (typeof REQUIRED_KEYS)[number];
+
+type ConfigCheckResult = {
+  valid: boolean;
+  missing_keys: RequiredKey[];
+};
+
+function jsonResponse(body: ConfigCheckResult, status = 200): Response {
+  return new Response(JSON.stringify(body, null, 2), {
+    status,
+    headers: { 'content-type': 'application/json; charset=utf-8' },
+  });
+}
+
+function resolveConfigKV(env: Env): KVNamespace | null {
+  const candidate =
+    (env as Record<string, unknown>).PostQ ??
+    (env as Record<string, unknown>).POSTQ ??
+    env.BRAIN;
+
+  if (candidate && typeof (candidate as KVNamespace).get === 'function') {
+    return candidate as KVNamespace;
+  }
+
+  return null;
+}
+
+function parseConfig(raw: string | null): Record<string, unknown> | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function hasRequiredKey(config: Record<string, unknown>, key: RequiredKey): boolean {
+  if (config[key]) return true;
+
+  const nestedSources = [config.env, config.secrets, config.config];
+  for (const source of nestedSources) {
+    if (source && typeof source === 'object' && (source as Record<string, unknown>)[key]) {
+      return true;
+    }
+  }
+
+  return false;
+}
 
 export async function handleDiagConfig(env: Env): Promise<Response> {
-  try {
-    const report = presenceReport(env);
-
-    let brainDocBytes: number | null = null;
-    let secretBlobBytes: number | null = null;
-
-    if (report.bindings.BRAIN) {
-      if (env.BRAIN_DOC_KEY) {
-        const v = await env.BRAIN.get(env.BRAIN_DOC_KEY);
-        brainDocBytes = v ? new TextEncoder().encode(v).length : 0;
-      }
-      if (env.SECRET_BLOB) {
-        const s = await env.BRAIN.get(env.SECRET_BLOB);
-        secretBlobBytes = s ? new TextEncoder().encode(s).length : 0;
-      }
-    }
-
-    return new Response(
-      JSON.stringify({
-        ...report,
-        ok: true,
-        kv: {
-          probed: report.bindings.BRAIN,
-          brainDocKey: env.BRAIN_DOC_KEY || null,
-          brainDocBytes,
-          secretBlobKey: env.SECRET_BLOB || null,
-          secretBlobBytes,
-        },
-      }),
-      { headers: { 'content-type': 'application/json' } },
-    );
-  } catch (err: any) {
-    console.error('[/diag/config] crash:', err?.stack || err);
-    return new Response(JSON.stringify({ ok: false, error: 'diag-failed' }), {
-      status: 500,
-      headers: { 'content-type': 'application/json' },
-    });
+  const kv = resolveConfigKV(env);
+  if (!kv) {
+    return jsonResponse({ valid: false, missing_keys: [...REQUIRED_KEYS] });
   }
+
+  const keyName = env.BRAIN_DOC_KEY || 'PostQ:thread-state';
+  const raw = await kv.get(keyName);
+  const config = parseConfig(raw);
+
+  if (!config) {
+    return jsonResponse({ valid: false, missing_keys: [...REQUIRED_KEYS] });
+  }
+
+  const missing = REQUIRED_KEYS.filter((key) => !hasRequiredKey(config, key));
+
+  return jsonResponse({ valid: missing.length === 0, missing_keys: missing });
 }
