@@ -1,6 +1,13 @@
 // worker/worker.ts — finalized unified router (KV-first, CORS, cron-safe)
 import { handleHealth } from './health';
 import { handleDiagConfig } from './diag';
+import {
+  getBrainStateSnapshot,
+  recordBrainUpdate,
+  setGeminiSyncState,
+  storeCodexTags,
+  type GeminiSyncState,
+} from './brain';
 import type { Env } from './lib/env';
 import { syncThreadStateFromGitHub } from './lib/threadStateSync';
 import { serveStaticSite } from './lib/site';
@@ -149,6 +156,49 @@ function jsonResponse(body: unknown, init?: ResponseInit): Response {
     ...init,
     headers,
   });
+}
+
+function firstNonEmptyString(...candidates: Array<unknown>): string | null {
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue;
+    const trimmed = candidate.trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
+function getCodexSyncUrl(env: Env): string | null {
+  return (
+    firstNonEmptyString(
+      env.CODEX_SYNC_URL,
+      env.CODEX_LEARN_URL,
+      env.CODEX_ENDPOINT,
+      (env as Record<string, unknown>).CODEX_API_URL,
+    ) ?? null
+  );
+}
+
+function getCodexAuthToken(env: Env): string | null {
+  return firstNonEmptyString(env.CODEX_AUTH_TOKEN, env.CODEX_TOKEN, env.CODEX_API_KEY);
+}
+
+function coerceTagList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === 'string' ? item : typeof item === 'number' ? String(item) : null))
+      .filter((item): item is string => !!item)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  return [];
 }
 
 function buildUnauthorizedResponse(status: number, error: string): Response {
@@ -494,6 +544,130 @@ router.get('/test-telegram', async (req, env) => {
   return jsonResponse(payload, { status });
 });
 
+router.post('/brain/learn', async (req, env) => {
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch (err) {
+    console.warn('[worker:/brain/learn] invalid JSON body', err);
+    return jsonResponse({ ok: false, error: 'invalid-json' }, { status: 400 });
+  }
+
+  const summary = typeof (body as any)?.summary === 'string' ? (body as any).summary.trim() : '';
+  if (!summary) {
+    return jsonResponse({ ok: false, error: 'missing-summary' }, { status: 400 });
+  }
+
+  const entry = await recordBrainUpdate(env, {
+    summary,
+    type: 'learning-sync',
+    severity: 'info',
+    metadata: { source: 'worker:/brain/learn' },
+  });
+
+  const codexUrl = getCodexSyncUrl(env);
+  const codexToken = getCodexAuthToken(env);
+  const codexDetails: { attempted: boolean; ok: boolean; tags: string[] } = {
+    attempted: false,
+    ok: false,
+    tags: [],
+  };
+
+  if (codexUrl) {
+    codexDetails.attempted = true;
+    try {
+      const headers = new Headers({ 'content-type': 'application/json' });
+      if (codexToken) headers.set('authorization', `Bearer ${codexToken}`);
+
+      const response = await fetch(codexUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ summary, event: entry }),
+      });
+
+      codexDetails.ok = response.ok;
+      const data = await response.json().catch(() => null);
+      if (data && typeof data === 'object') {
+        const tags = coerceTagList((data as Record<string, unknown>).tags ?? (data as Record<string, unknown>).tagList);
+        if (tags.length) {
+          await storeCodexTags(env, tags);
+          codexDetails.tags = tags;
+        }
+      }
+    } catch (err) {
+      codexDetails.ok = false;
+      console.warn('[worker:/brain/learn] Codex sync failed', err);
+    }
+  }
+
+  const geminiKey = typeof env.GEMINI_API_KEY === 'string' ? env.GEMINI_API_KEY.trim() : '';
+  const geminiDetails: { attempted: boolean; ok: boolean } = {
+    attempted: false,
+    ok: false,
+  };
+  let geminiState: GeminiSyncState | null = null;
+
+  if (geminiKey) {
+    geminiDetails.attempted = true;
+    const model = firstNonEmptyString(env.GEMINI_MODEL, 'gemini-1.5-flash') ?? 'gemini-1.5-flash';
+    const base =
+      firstNonEmptyString(env.GEMINI_API_BASE, 'https://generativelanguage.googleapis.com/v1beta/models') ??
+      'https://generativelanguage.googleapis.com/v1beta/models';
+    const trimmedBase = base.endsWith('/') ? base.slice(0, -1) : base;
+    const url = `${trimmedBase}/${model}:generateContent?key=${encodeURIComponent(geminiKey)}`;
+    const payload = {
+      contents: [
+        {
+          parts: [
+            {
+              text: `Store this Maggie learning summary and keep Codex + Gemini aligned. Summary:\n${summary}`,
+            },
+          ],
+        },
+      ],
+    };
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      geminiDetails.ok = response.ok;
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => '');
+        geminiState = {
+          ok: false,
+          timestamp: entry.timestamp,
+          summary,
+          error: errorText.slice(0, 512),
+        };
+      } else {
+        geminiState = { ok: true, timestamp: entry.timestamp, summary };
+      }
+    } catch (err) {
+      geminiDetails.ok = false;
+      const message = err instanceof Error ? err.message : String(err);
+      geminiState = { ok: false, timestamp: entry.timestamp, summary, error: message };
+      console.warn('[worker:/brain/learn] Gemini sync failed', err);
+    }
+  } else {
+    geminiState = { ok: false, timestamp: entry.timestamp, summary, error: 'GEMINI_API_KEY not configured' };
+  }
+
+  if (geminiState) {
+    await setGeminiSyncState(env, geminiState);
+  }
+
+  return jsonResponse({
+    ok: true,
+    update: entry,
+    codex: codexDetails,
+    gemini: geminiDetails,
+  });
+});
+
 // --------------- Dynamic route loader ---------------
 async function tryRoute<T extends Record<string, any>>(
   pathPrefix: string,
@@ -592,13 +766,18 @@ export default {
       if (url.pathname === '/' || url.pathname === '/health') {
         return await handleHealth(env);
       }
-      if (['/diag/config', '/status', '/summary'].includes(url.pathname)) {
+      if (['/diag/config', '/status', '/summary', '/diag/brain-state'].includes(url.pathname)) {
         const unauthorized = requireAdminAuthorization(req, env);
         if (unauthorized) return unauthorized;
       }
 
       if (url.pathname === '/diag/config') {
         return await handleDiagConfig(env);
+      }
+
+      if (url.pathname === '/diag/brain-state') {
+        const snapshot = await getBrainStateSnapshot(env, { recentLimit: 5 });
+        return jsonResponse(snapshot);
       }
 
       if (url.pathname === '/status') {

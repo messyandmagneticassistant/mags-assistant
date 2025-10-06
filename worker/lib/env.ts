@@ -14,6 +14,15 @@ export type Env = {
   GITHUB_TOKEN?: string;
   GITHUB_PAT?: string;
   GITHUB_REF_NAME?: string;
+  CODEX_SYNC_URL?: string;
+  CODEX_ENDPOINT?: string;
+  CODEX_LEARN_URL?: string;
+  CODEX_AUTH_TOKEN?: string;
+  CODEX_API_KEY?: string;
+  CODEX_TOKEN?: string;
+  GEMINI_API_KEY?: string;
+  GEMINI_MODEL?: string;
+  GEMINI_API_BASE?: string;
   [k: string]: unknown;
 };
 
