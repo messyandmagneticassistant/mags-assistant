@@ -207,12 +207,18 @@ function extractSecretToken(req: Request): string | null {
   return null;
 }
 
+const publicDebugRoutes = ['/health', '/diag/config'];
+
 function checkSecret(req: Request, env: Env): SecretCheckResult {
   const method = req.method.toUpperCase();
   const clientIp = getClientIp(req);
   const nodeEnv = (env as Record<string, unknown>).NODE_ENV;
+  const pathname = new URL(req.url).pathname;
 
-  if (method === 'GET') {
+  if (
+    publicDebugRoutes.includes(pathname) &&
+    (method === 'GET' || method === 'HEAD')
+  ) {
     return { authorized: true, clientIp };
   }
 
