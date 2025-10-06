@@ -12,6 +12,7 @@
     "format": "prettier --write .",
     "test": "node -e \"const fs=require('fs');fs.mkdirSync('docs',{recursive:true});const p='docs/.brain.md';if(!fs.existsSync(p))fs.writeFileSync(p,'');\" && eslint src/fundraising --no-error-on-unmatched-pattern && vitest run tests/testBrain.test.ts tests/brain-watch.test.ts tests/fundraising.test.ts tests/magnet-bundles.test.ts tests/feedback-qr.test.ts",
     "build": "echo build ok",
+    "updateBrain": "tsx scripts/updateBrain.ts",
     "typecheck": "tsc --noEmit",
     "ci:build": "pnpm install --no-frozen-lockfile && pnpm run build",
     "// --- Local dev ---": "--------------------------------------------",
