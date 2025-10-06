@@ -207,7 +207,7 @@ function extractSecretToken(req: Request): string | null {
   return null;
 }
 
-const publicDebugRoutes = ['/health', '/diag/config'];
+const publicDebugRoutes = ['/health'];
 
 function checkSecret(req: Request, env: Env): SecretCheckResult {
   const method = req.method.toUpperCase();
@@ -592,6 +592,11 @@ export default {
       if (url.pathname === '/' || url.pathname === '/health') {
         return await handleHealth(env);
       }
+      if (['/diag/config', '/status', '/summary'].includes(url.pathname)) {
+        const unauthorized = requireAdminAuthorization(req, env);
+        if (unauthorized) return unauthorized;
+      }
+
       if (url.pathname === '/diag/config') {
         return await handleDiagConfig(env);
       }
@@ -779,28 +784,34 @@ export default {
 
       // Diagnostics
       if (url.pathname === "/diag/email" && req.method === "GET") {
-      // @ts-ignore - email config helper ships from shared runtime
-      const { getEmailConfig } = await import("../" + 'utils/email');
-      const { fromEmail, fromName, apiKey } = getEmailConfig(env);
-      const domain = fromEmail.split("@")[1] || "";
-      let domainVerified: boolean | undefined;
-      if (apiKey) {
-        try {
-          const resp = await fetch("https://api.resend.com/domains", {
-            headers: { Authorization: `Bearer ${apiKey}` },
-          });
-          const data = (await resp.json().catch(() => ({}))) as { data?: Array<{ name?: string; status?: string }> };
-          const match = data.data?.find((d) => d?.name === domain);
-          domainVerified = match?.status === "verified";
-        } catch {}
+        const unauthorized = requireAdminAuthorization(req, env);
+        if (unauthorized) return unauthorized;
+
+        // @ts-ignore - email config helper ships from shared runtime
+        const { getEmailConfig } = await import("../" + 'utils/email');
+        const { fromEmail, fromName, apiKey } = getEmailConfig(env);
+        const domain = fromEmail.split("@")[1] || "";
+        let domainVerified: boolean | undefined;
+        if (apiKey) {
+          try {
+            const resp = await fetch("https://api.resend.com/domains", {
+              headers: { Authorization: `Bearer ${apiKey}` },
+            });
+            const data = (await resp.json().catch(() => ({}))) as { data?: Array<{ name?: string; status?: string }> };
+            const match = data.data?.find((d) => d?.name === domain);
+            domainVerified = match?.status === "verified";
+          } catch {}
+        }
+        return new Response(
+          JSON.stringify({ ok: true, from: `${fromName} <${fromEmail}>`, domain, domainVerified }),
+          { status: 200, headers: cors({ "content-type": "application/json" }) }
+        );
       }
-      return new Response(
-        JSON.stringify({ ok: true, from: `${fromName} <${fromEmail}>`, domain, domainVerified }),
-        { status: 200, headers: cors({ "content-type": "application/json" }) }
-      );
-    }
 
       if (url.pathname === "/diag/email/test" && req.method === "POST") {
+        const unauthorized = requireAdminAuthorization(req, env);
+        if (unauthorized) return unauthorized;
+
         const r = await tryRoute("/diag/email/test", "./routes/email", null, req, env, ctx);
         if (r && r.status !== 404) return r;
       }
@@ -946,6 +957,9 @@ export default {
       }
 
       if (url.pathname === "/ping-debug" && req.method === "GET") {
+        const unauthorized = requireAdminAuthorization(req, env);
+        if (unauthorized) return unauthorized;
+
         const colo = typeof (req as any).cf?.colo === "string" ? (req as any).cf.colo : undefined;
         const payload = buildPingDebugPayload(env, url, colo);
         return new Response(JSON.stringify(payload), {
