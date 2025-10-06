@@ -2,6 +2,16 @@
 import { handleHealth } from './health';
 import { handleDiagConfig } from './diag';
 import type { Env } from './lib/env';
+import {
+  recordBrainUpdate,
+  getRecentBrainUpdates,
+  storeCodexTags,
+  getCodexTags,
+  setGeminiSynced,
+  getGeminiSynced,
+  getCodexLearnUrl,
+  getGeminiLearnUrl,
+} from './brain';
 import { syncThreadStateFromGitHub } from './lib/threadStateSync';
 import { serveStaticSite } from './lib/site';
 import {
@@ -492,6 +502,113 @@ router.get('/test-telegram', async (req, env) => {
   });
 
   return jsonResponse(payload, { status });
+});
+
+router.post('/brain/learn', async (req, env) => {
+  const unauthorized = requireAdminAuthorization(req, env);
+  if (unauthorized) {
+    console.warn('[worker:/brain/learn] unauthorized access attempt');
+    return unauthorized;
+  }
+
+  let payload: any = null;
+  try {
+    payload = await req.json();
+  } catch {
+    payload = null;
+  }
+
+  const summary = typeof payload?.summary === 'string' ? payload.summary.trim() : '';
+  if (!summary) {
+    return jsonResponse({ ok: false, error: 'missing-summary' }, { status: 400 });
+  }
+
+  const recentUpdates = await recordBrainUpdate(summary, env);
+  let codexTags = await getCodexTags(env);
+  let syncedToGemini = await getGeminiSynced(env);
+
+  if (env.CODEX_API_KEY) {
+    const codexUrl = getCodexLearnUrl(env);
+    if (codexUrl) {
+      try {
+        const response = await fetch(codexUrl, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            Authorization: `Bearer ${env.CODEX_API_KEY}`,
+          },
+          body: JSON.stringify({ summary }),
+        });
+
+        if (response.ok) {
+          const data = (await response.json().catch(() => ({}))) as { tags?: unknown };
+          if (data && Array.isArray(data.tags)) {
+            codexTags = await storeCodexTags(env, data.tags);
+          }
+        } else {
+          console.warn('[worker:/brain/learn] Codex sync failed', response.status);
+        }
+      } catch (err) {
+        console.warn('[worker:/brain/learn] Codex sync error', err);
+      }
+    } else {
+      console.warn('[worker:/brain/learn] Codex URL not configured');
+    }
+  }
+
+  if (env.GEMINI_API_KEY) {
+    const geminiUrl = getGeminiLearnUrl(env);
+    if (geminiUrl) {
+      try {
+        const response = await fetch(geminiUrl, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            Authorization: `Bearer ${env.GEMINI_API_KEY}`,
+          },
+          body: JSON.stringify({ summary }),
+        });
+
+        if (response.ok) {
+          syncedToGemini = true;
+        } else {
+          syncedToGemini = false;
+          console.warn('[worker:/brain/learn] Gemini sync failed', response.status);
+        }
+      } catch (err) {
+        syncedToGemini = false;
+        console.warn('[worker:/brain/learn] Gemini sync error', err);
+      }
+    } else {
+      syncedToGemini = false;
+      console.warn('[worker:/brain/learn] Gemini URL not configured');
+    }
+  }
+
+  await setGeminiSynced(env, syncedToGemini);
+
+  return jsonResponse({
+    ok: true,
+    recentUpdates: recentUpdates.slice(0, 5),
+    codexTags,
+    syncedToGemini,
+  });
+});
+
+router.get('/diag/brain-state', async (req, env) => {
+  const unauthorized = requireAdminAuthorization(req, env);
+  if (unauthorized) {
+    console.warn('[worker:/diag/brain-state] unauthorized access attempt');
+    return unauthorized;
+  }
+
+  const [recentUpdates, codexTags, syncedToGemini] = await Promise.all([
+    getRecentBrainUpdates(env, 5),
+    getCodexTags(env),
+    getGeminiSynced(env),
+  ]);
+
+  return jsonResponse({ recentUpdates, codexTags, syncedToGemini });
 });
 
 // --------------- Dynamic route loader ---------------
