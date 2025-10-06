@@ -125,6 +125,7 @@ function buildPingDebugPayload(env: Env, url: URL, colo?: string): PingDebugPayl
 }
 
 const AUTH_SCHEME = "Bearer";
+const LOCAL_IPS = new Set(["127.0.0.1", "::1", "localhost"]);
 
 type DailyReportResult = {
   metrics: DailyMetrics;
@@ -156,21 +157,113 @@ function buildUnauthorizedResponse(status: number, error: string): Response {
   return response;
 }
 
-function requireAdminAuthorization(req: Request, env: Env): Response | null {
-  const expected = getAdminSecret(env);
-  if (!expected) {
-    console.warn('[worker:auth] ADMIN_SECRET not configured');
-    return buildUnauthorizedResponse(401, 'admin-secret-missing');
+type SecretCheckResult =
+  | { authorized: true; clientIp: string | null }
+  | { authorized: false; reason: string; clientIp: string | null };
+
+function getClientIp(req: Request): string | null {
+  const cf = (req as any).cf;
+  if (cf && typeof cf === 'object' && typeof cf.connecting_ip === 'string' && cf.connecting_ip) {
+    return cf.connecting_ip;
   }
 
-  const header = req.headers.get('authorization') || '';
-  const [scheme, token] = header.split(/\s+/);
+  const connecting =
+    req.headers.get('CF-Connecting-IP') ??
+    req.headers.get('cf-connecting-ip') ??
+    req.headers.get('x-forwarded-for') ??
+    req.headers.get('X-Forwarded-For');
 
-  if (!scheme || scheme.toLowerCase() !== AUTH_SCHEME.toLowerCase() || token !== expected) {
-    return buildUnauthorizedResponse(401, 'unauthorized');
+  if (!connecting) return null;
+
+  const ip = connecting.split(',')[0]?.trim();
+  return ip || null;
+}
+
+function isLocalIp(ip: string | null): boolean {
+  if (!ip) return false;
+  if (LOCAL_IPS.has(ip)) return true;
+
+  // Handle IPv6 localhost variations (e.g., ::ffff:127.0.0.1)
+  if (ip.startsWith('::ffff:')) {
+    const mapped = ip.slice('::ffff:'.length);
+    if (LOCAL_IPS.has(mapped)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function extractSecretToken(req: Request): string | null {
+  const headerSecret = req.headers.get('x-admin-secret')?.trim();
+  if (headerSecret) return headerSecret;
+
+  const authHeader = req.headers.get('authorization') || '';
+  const [scheme, token] = authHeader.split(/\s+/);
+  if (scheme && scheme.toLowerCase() === AUTH_SCHEME.toLowerCase() && token) {
+    return token;
   }
 
   return null;
+}
+
+function checkSecret(req: Request, env: Env): SecretCheckResult {
+  const method = req.method.toUpperCase();
+  const clientIp = getClientIp(req);
+  const nodeEnv = (env as Record<string, unknown>).NODE_ENV;
+
+  if (method === 'GET') {
+    return { authorized: true, clientIp };
+  }
+
+  if (typeof nodeEnv === 'string' && nodeEnv.toLowerCase() === 'development') {
+    return { authorized: true, clientIp };
+  }
+
+  if (isLocalIp(clientIp)) {
+    return { authorized: true, clientIp };
+  }
+
+  const expected = getAdminSecret(env);
+  if (!expected) {
+    return { authorized: false, reason: 'missing-secret', clientIp };
+  }
+
+  const token = extractSecretToken(req);
+  if (!token) {
+    return { authorized: false, reason: 'secret-not-provided', clientIp };
+  }
+
+  if (token !== expected) {
+    return { authorized: false, reason: 'secret-mismatch', clientIp };
+  }
+
+  return { authorized: true, clientIp };
+}
+
+function requireAdminAuthorization(req: Request, env: Env): Response | null {
+  const { authorized, reason, clientIp } = checkSecret(req, env);
+  if (authorized) {
+    return null;
+  }
+
+  const url = new URL(req.url);
+  const nodeEnv = (env as Record<string, unknown>).NODE_ENV ?? 'unknown';
+  const logPayload = {
+    method: req.method,
+    path: url.pathname,
+    ip: clientIp ?? 'unknown',
+    nodeEnv,
+    reason,
+  };
+
+  if (reason === 'missing-secret') {
+    console.warn('[worker:auth] ADMIN_SECRET not configured', logPayload);
+  } else {
+    console.warn('[worker:auth] Unauthorized request blocked', logPayload);
+  }
+
+  return buildUnauthorizedResponse(401, 'admin-secret-invalid');
 }
 
 async function runDailyReport(env: Env, host: string | null): Promise<DailyReportResult> {
