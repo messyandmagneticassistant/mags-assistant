@@ -20,6 +20,11 @@ export type Env = {
   CODEX_AUTH_TOKEN?: string;
   CODEX_API_KEY?: string;
   CODEX_TOKEN?: string;
+  CODEX_SYNC_KEY?: string;
+  CODEX_SYNC_TOKEN?: string;
+  CODEX_LEARN_KEY?: string;
+  SYNC_KEY?: string;
+  LEARN_URL?: string;
   GEMINI_API_KEY?: string;
   GEMINI_MODEL?: string;
   GEMINI_API_BASE?: string;

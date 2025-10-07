@@ -2,7 +2,8 @@ import type { Env } from './lib/env';
 
 const RECENT_EVENTS_KEY = 'brain:recent';
 const CODEX_TAGS_KEY = 'brain:codex-tags';
-const GEMINI_SYNC_KEY = 'brain:gemini-sync';
+const GEMINI_SYNC_STATE_KEY = 'brain:gemini-sync-state';
+const LEGACY_GEMINI_SYNC_KEY = 'brain:gemini-sync';
 const MAX_RECENT_EVENTS = 25;
 
 export type BrainUpdateInput = {
@@ -116,11 +117,18 @@ export async function getCodexTags(env: Env): Promise<string[]> {
 }
 
 export async function setGeminiSyncState(env: Env, state: GeminiSyncState): Promise<void> {
-  await writeJsonToKv(env, GEMINI_SYNC_KEY, state);
+  await writeJsonToKv(env, GEMINI_SYNC_STATE_KEY, state);
+  await writeJsonToKv(env, LEGACY_GEMINI_SYNC_KEY, state);
 }
 
 export async function getGeminiSyncState(env: Env): Promise<GeminiSyncState | null> {
-  return (await readJsonFromKv<GeminiSyncState>(env, GEMINI_SYNC_KEY)) ?? null;
+  const current = await readJsonFromKv<GeminiSyncState>(env, GEMINI_SYNC_STATE_KEY);
+  if (current) return current;
+
+  const legacy = await readJsonFromKv<GeminiSyncState>(env, LEGACY_GEMINI_SYNC_KEY);
+  if (legacy) return legacy;
+
+  return null;
 }
 
 export async function getBrainStateSnapshot(
