@@ -188,20 +188,18 @@ function findTelegramCredentials(payload: Record<string, unknown>): {
 }
 
 async function loadThreadState(): Promise<Record<string, unknown> | null> {
-  const keys = ['PostQ:thread-state', 'thread-state'];
-  for (const key of keys) {
-    try {
-      const raw = await getConfigValue<string>(key as string);
-      if (typeof raw === 'string' && raw.trim().length) {
-        try {
-          return JSON.parse(raw) as Record<string, unknown>;
-        } catch (err) {
-          console.warn(`[telegram-status] Unable to parse ${key} payload as JSON:`, err);
-        }
+  const key = 'PostQ:thread-state';
+  try {
+    const raw = await getConfigValue<string>(key as string);
+    if (typeof raw === 'string' && raw.trim().length) {
+      try {
+        return JSON.parse(raw) as Record<string, unknown>;
+      } catch (err) {
+        console.warn(`[telegram-status] Unable to parse ${key} payload as JSON:`, err);
       }
-    } catch (err) {
-      console.warn(`[telegram-status] Failed to fetch ${key} from KV:`, err);
     }
+  } catch (err) {
+    console.warn(`[telegram-status] Failed to fetch ${key} from KV:`, err);
   }
   return null;
 }
