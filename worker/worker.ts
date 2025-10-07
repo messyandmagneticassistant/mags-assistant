@@ -2,6 +2,8 @@
 import { handleHealth } from './health';
 import { handleDiagConfig } from './diag';
 import {
+  DEFAULT_GEMINI_API_BASE,
+  DEFAULT_GEMINI_MODEL,
   getBrainStateSnapshot,
   recordBrainUpdate,
   setGeminiSyncState,
@@ -621,10 +623,10 @@ router.post('/brain/learn', async (req, env) => {
 
   if (geminiKey) {
     geminiDetails.attempted = true;
-    const model = firstNonEmptyString(env.GEMINI_MODEL, 'gemini-1.5-flash') ?? 'gemini-1.5-flash';
+    const model = firstNonEmptyString(env.GEMINI_MODEL, DEFAULT_GEMINI_MODEL) ?? DEFAULT_GEMINI_MODEL;
     const base =
-      firstNonEmptyString(env.GEMINI_API_BASE, 'https://generativelanguage.googleapis.com/v1beta/models') ??
-      'https://generativelanguage.googleapis.com/v1beta/models';
+      firstNonEmptyString(env.GEMINI_API_BASE, DEFAULT_GEMINI_API_BASE) ??
+      DEFAULT_GEMINI_API_BASE;
     const trimmedBase = base.endsWith('/') ? base.slice(0, -1) : base;
     const url = `${trimmedBase}/${model}:generateContent?key=${encodeURIComponent(geminiKey)}`;
     const payload = {
