@@ -1,9 +1,12 @@
 import type { Env } from './lib/env';
 
-const RECENT_EVENTS_KEY = 'brain:recent';
-const CODEX_TAGS_KEY = 'brain:codex-tags';
-const GEMINI_SYNC_KEY = 'brain:gemini-sync';
-const MAX_RECENT_EVENTS = 25;
+export const RECENT_EVENTS_KEY = 'brain:recent';
+export const CODEX_TAGS_KEY = 'brain:codex-tags';
+export const GEMINI_SYNC_KEY = 'brain:gemini-sync';
+export const MAX_RECENT_EVENTS = 25;
+
+const DEFAULT_GEMINI_MODEL = 'gemini-1.5-flash';
+const DEFAULT_GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 export type BrainUpdateInput = {
   summary: string;
@@ -23,6 +26,15 @@ export type GeminiSyncState = {
   summary?: string;
   error?: string;
 };
+
+function firstNonEmptyString(...candidates: Array<unknown>): string | null {
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue;
+    const trimmed = candidate.trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
 
 function hasKv(env: Env): env is Env & { BRAIN: KVNamespace } {
   return !!env?.BRAIN && typeof env.BRAIN.get === 'function' && typeof env.BRAIN.put === 'function';
@@ -62,6 +74,79 @@ async function writeJsonToKv(env: Env, key: string, value: unknown): Promise<voi
   } catch (err) {
     console.warn(`[brain] Failed to write JSON to KV for key ${key}:`, err);
   }
+}
+
+export function getCodexAuthToken(env: Env): string | null {
+  return firstNonEmptyString(env.CODEX_AUTH_TOKEN, env.CODEX_TOKEN, env.CODEX_API_KEY);
+}
+
+export function getCodexLearnUrl(env: Env): string | null {
+  return (
+    firstNonEmptyString(
+      env.CODEX_SYNC_URL,
+      env.CODEX_LEARN_URL,
+      env.CODEX_ENDPOINT,
+      (env as Record<string, unknown>).CODEX_API_URL,
+    ) ?? null
+  );
+}
+
+export type CodexLearnConfig = {
+  url: string;
+  authToken: string | null;
+};
+
+export function getCodexLearnConfig(env: Env): CodexLearnConfig | null {
+  const url = getCodexLearnUrl(env);
+  if (!url) return null;
+  return { url, authToken: getCodexAuthToken(env) };
+}
+
+export function getGeminiApiKey(env: Env): string | null {
+  const key = firstNonEmptyString(env.GEMINI_API_KEY);
+  return key ?? null;
+}
+
+function formatGeminiUrl(base: string, model: string, key: string): string {
+  const trimmedBase = base.endsWith('/') ? base.slice(0, -1) : base;
+  return `${trimmedBase}/${model}:generateContent?key=${encodeURIComponent(key)}`;
+}
+
+export function getGeminiLearnUrl(env: Env): string | null {
+  const direct = firstNonEmptyString((env as Record<string, unknown>).GEMINI_LEARN_URL, env.GEMINI_LEARN_URL);
+  const key = getGeminiApiKey(env);
+
+  if (direct) {
+    if (!key) return direct;
+
+    const replacements = ['{API_KEY}', '${API_KEY}', '{{API_KEY}}'];
+    let final = direct;
+    for (const token of replacements) {
+      if (final.includes(token)) {
+        final = final.replace(token, encodeURIComponent(key));
+      }
+    }
+    return final;
+  }
+
+  if (!key) return null;
+
+  const model = firstNonEmptyString(env.GEMINI_MODEL, DEFAULT_GEMINI_MODEL) ?? DEFAULT_GEMINI_MODEL;
+  const base = firstNonEmptyString(env.GEMINI_API_BASE, DEFAULT_GEMINI_API_BASE) ?? DEFAULT_GEMINI_API_BASE;
+
+  return formatGeminiUrl(base, model, key);
+}
+
+export type GeminiLearnConfig = {
+  url: string;
+  key: string;
+};
+
+export function getGeminiLearnConfig(env: Env): GeminiLearnConfig | null {
+  const key = getGeminiApiKey(env);
+  const url = getGeminiLearnUrl(env);
+  if (!key || !url) return null;
+  return { key, url };
 }
 
 export async function getRecentBrainUpdates(env: Env): Promise<BrainUpdateEntry[]> {

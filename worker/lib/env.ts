@@ -17,12 +17,14 @@ export type Env = {
   CODEX_SYNC_URL?: string;
   CODEX_ENDPOINT?: string;
   CODEX_LEARN_URL?: string;
+  CODEX_API_URL?: string;
   CODEX_AUTH_TOKEN?: string;
   CODEX_API_KEY?: string;
   CODEX_TOKEN?: string;
   GEMINI_API_KEY?: string;
   GEMINI_MODEL?: string;
   GEMINI_API_BASE?: string;
+  GEMINI_LEARN_URL?: string;
   [k: string]: unknown;
 };
 

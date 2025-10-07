@@ -3,6 +3,8 @@ import { handleHealth } from './health';
 import { handleDiagConfig } from './diag';
 import {
   getBrainStateSnapshot,
+  getCodexLearnConfig,
+  getGeminiLearnConfig,
   recordBrainUpdate,
   setGeminiSyncState,
   storeCodexTags,
@@ -156,30 +158,6 @@ function jsonResponse(body: unknown, init?: ResponseInit): Response {
     ...init,
     headers,
   });
-}
-
-function firstNonEmptyString(...candidates: Array<unknown>): string | null {
-  for (const candidate of candidates) {
-    if (typeof candidate !== 'string') continue;
-    const trimmed = candidate.trim();
-    if (trimmed) return trimmed;
-  }
-  return null;
-}
-
-function getCodexSyncUrl(env: Env): string | null {
-  return (
-    firstNonEmptyString(
-      env.CODEX_SYNC_URL,
-      env.CODEX_LEARN_URL,
-      env.CODEX_ENDPOINT,
-      (env as Record<string, unknown>).CODEX_API_URL,
-    ) ?? null
-  );
-}
-
-function getCodexAuthToken(env: Env): string | null {
-  return firstNonEmptyString(env.CODEX_AUTH_TOKEN, env.CODEX_TOKEN, env.CODEX_API_KEY);
 }
 
 function coerceTagList(value: unknown): string[] {
@@ -553,7 +531,7 @@ router.post('/brain/learn', async (req, env) => {
     return jsonResponse({ ok: false, error: 'invalid-json' }, { status: 400 });
   }
 
-  const summary = typeof (body as any)?.summary === 'string' ? (body as any).summary.trim() : '';
+  const summary = extractLearningSummary(body);
   if (!summary) {
     return jsonResponse({ ok: false, error: 'missing-summary' }, { status: 400 });
   }
@@ -565,21 +543,20 @@ router.post('/brain/learn', async (req, env) => {
     metadata: { source: 'worker:/brain/learn' },
   });
 
-  const codexUrl = getCodexSyncUrl(env);
-  const codexToken = getCodexAuthToken(env);
+  const codexConfig = getCodexLearnConfig(env);
   const codexDetails: { attempted: boolean; ok: boolean; tags: string[] } = {
     attempted: false,
     ok: false,
     tags: [],
   };
 
-  if (codexUrl) {
+  if (codexConfig) {
     codexDetails.attempted = true;
     try {
       const headers = new Headers({ 'content-type': 'application/json' });
-      if (codexToken) headers.set('authorization', `Bearer ${codexToken}`);
+      if (codexConfig.authToken) headers.set('authorization', `Bearer ${codexConfig.authToken}`);
 
-      const response = await fetch(codexUrl, {
+      const response = await fetch(codexConfig.url, {
         method: 'POST',
         headers,
         body: JSON.stringify({ summary, event: entry }),
@@ -600,21 +577,15 @@ router.post('/brain/learn', async (req, env) => {
     }
   }
 
-  const geminiKey = typeof env.GEMINI_API_KEY === 'string' ? env.GEMINI_API_KEY.trim() : '';
+  const geminiConfig = getGeminiLearnConfig(env);
   const geminiDetails: { attempted: boolean; ok: boolean } = {
     attempted: false,
     ok: false,
   };
   let geminiState: GeminiSyncState | null = null;
 
-  if (geminiKey) {
+  if (geminiConfig) {
     geminiDetails.attempted = true;
-    const model = firstNonEmptyString(env.GEMINI_MODEL, 'gemini-1.5-flash') ?? 'gemini-1.5-flash';
-    const base =
-      firstNonEmptyString(env.GEMINI_API_BASE, 'https://generativelanguage.googleapis.com/v1beta/models') ??
-      'https://generativelanguage.googleapis.com/v1beta/models';
-    const trimmedBase = base.endsWith('/') ? base.slice(0, -1) : base;
-    const url = `${trimmedBase}/${model}:generateContent?key=${encodeURIComponent(geminiKey)}`;
     const payload = {
       contents: [
         {
@@ -628,7 +599,7 @@ router.post('/brain/learn', async (req, env) => {
     };
 
     try {
-      const response = await fetch(url, {
+      const response = await fetch(geminiConfig.url, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),
@@ -667,6 +638,51 @@ router.post('/brain/learn', async (req, env) => {
     gemini: geminiDetails,
   });
 });
+
+function extractLearningSummary(body: unknown, depth = 0): string {
+  if (depth > 4) return '';
+
+  if (typeof body === 'string') {
+    const trimmed = body.trim();
+    if (!trimmed) return '';
+
+    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+      try {
+        return extractLearningSummary(JSON.parse(trimmed), depth + 1);
+      } catch {
+        // fall through to using the raw string
+      }
+    }
+
+    return trimmed;
+  }
+
+  if (!body || typeof body !== 'object') {
+    return '';
+  }
+
+  const record = body as Record<string, unknown>;
+
+  const candidateKeys = ['summary', 'text', 'message', 'body'];
+  for (const key of candidateKeys) {
+    if (key in record) {
+      const candidate = extractLearningSummary(record[key], depth + 1);
+      if (candidate) return candidate;
+    }
+  }
+
+  if ('payload' in record) {
+    const candidate = extractLearningSummary(record.payload, depth + 1);
+    if (candidate) return candidate;
+  }
+
+  if ('data' in record) {
+    const candidate = extractLearningSummary(record.data, depth + 1);
+    if (candidate) return candidate;
+  }
+
+  return '';
+}
 
 // --------------- Dynamic route loader ---------------
 async function tryRoute<T extends Record<string, any>>(
