@@ -172,6 +172,7 @@ function getCodexSyncUrl(env: Env): string | null {
     firstNonEmptyString(
       env.CODEX_SYNC_URL,
       env.CODEX_LEARN_URL,
+      env.LEARN_URL,
       env.CODEX_ENDPOINT,
       (env as Record<string, unknown>).CODEX_API_URL,
     ) ?? null
@@ -179,7 +180,18 @@ function getCodexSyncUrl(env: Env): string | null {
 }
 
 function getCodexAuthToken(env: Env): string | null {
-  return firstNonEmptyString(env.CODEX_AUTH_TOKEN, env.CODEX_TOKEN, env.CODEX_API_KEY);
+  return (
+    firstNonEmptyString(
+      env.CODEX_AUTH_TOKEN,
+      env.CODEX_TOKEN,
+      env.CODEX_API_KEY,
+      env.CODEX_SYNC_KEY,
+      env.CODEX_SYNC_TOKEN,
+      env.CODEX_LEARN_KEY,
+      env.SYNC_KEY,
+      (env as Record<string, unknown>).SYNC_KEY,
+    ) ?? null
+  );
 }
 
 function coerceTagList(value: unknown): string[] {
