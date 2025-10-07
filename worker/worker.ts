@@ -160,7 +160,9 @@ function jsonResponse(body: unknown, init?: ResponseInit): Response {
   });
 }
 
-function firstNonEmptyString(...candidates: Array<unknown>): string | null {
+function firstNonEmptyString(
+  ...candidates: (string | undefined | null)[]
+): string | null {
   for (const candidate of candidates) {
     if (typeof candidate !== 'string') continue;
     const trimmed = candidate.trim();
@@ -176,7 +178,7 @@ function getCodexSyncUrl(env: Env): string | null {
       env.CODEX_LEARN_URL,
       env.LEARN_URL,
       env.CODEX_ENDPOINT,
-      (env as Record<string, unknown>).CODEX_API_URL,
+      ((env as Record<string, unknown>).CODEX_BASE_URL as string | undefined | null)
     ) ?? null
   );
 }
@@ -190,8 +192,7 @@ function getCodexAuthToken(env: Env): string | null {
       env.CODEX_SYNC_KEY,
       env.CODEX_SYNC_TOKEN,
       env.CODEX_LEARN_KEY,
-      env.SYNC_KEY,
-      (env as Record<string, unknown>).SYNC_KEY,
+      env.SYNC_KEY
     ) ?? null
   );
 }
