@@ -28,7 +28,21 @@ export async function saveState(env: Env, state: MaggieState): Promise<void> {
   const kv = resolveStateKV(env);
   if (!kv) return;
   try {
-    await kv.put(THREAD_STATE_KEY, JSON.stringify(state));
+    const payload: Record<string, unknown> = { ...state };
+    if (!Object.prototype.hasOwnProperty.call(state, 'brain')) {
+      try {
+        const existing = await kv.get(THREAD_STATE_KEY, 'json');
+        if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
+          const record = existing as Record<string, unknown>;
+          if (Object.prototype.hasOwnProperty.call(record, 'brain')) {
+            payload.brain = record.brain;
+          }
+        }
+      } catch (mergeErr) {
+        console.warn('[state] Failed to preserve brain section during save:', mergeErr);
+      }
+    }
+    await kv.put(THREAD_STATE_KEY, JSON.stringify(payload));
   } catch (err) {
     console.warn('[state] Failed to save thread-state:', err);
   }
