@@ -1,10 +1,12 @@
 import type { Env } from './lib/env';
 
-const RECENT_EVENTS_KEY = 'brain:recent';
-const CODEX_TAGS_KEY = 'brain:codex-tags';
-const GEMINI_SYNC_STATE_KEY = 'brain:gemini-sync-state';
-const LEGACY_GEMINI_SYNC_KEY = 'brain:gemini-sync';
-const MAX_RECENT_EVENTS = 25;
+export const RECENT_EVENTS_KEY = 'brain:recent-events';
+export const CODEX_TAGS_KEY = 'brain:codex-tags';
+export const GEMINI_SYNC_STATE_KEY = 'brain:gemini-sync-state';
+export const LEGACY_GEMINI_SYNC_KEY = 'brain:gemini-sync-key';
+export const MAX_RECENT_EVENTS = 25;
+export const DEFAULT_GEMINI_MODEL = 'gemini-1.5-pro';
+export const DEFAULT_GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 export type BrainUpdateInput = {
   summary: string;
