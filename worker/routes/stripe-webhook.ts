@@ -94,6 +94,20 @@ export async function onRequestPost({
         }
       })()
     );
+
+    tasks.push(
+      recordBrainUpdate(env, {
+        type: 'stripe',
+        summary: `Checkout session completed (${session.id})`,
+        metadata: {
+          eventId: event.id,
+          sessionId: session.id,
+          customer: customerId,
+        },
+      }).catch((err) => {
+        console.error('[stripe-webhook] failed to record brain update for checkout', err);
+      })
+    );
   }
 
   if (event.type === 'product.updated') {
