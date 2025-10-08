@@ -559,6 +559,21 @@ router.get('/test-telegram', async (req, env) => {
   return jsonResponse(payload, { status });
 });
 
+router.post('/stripe/webhook', async (req, env, ctx) => {
+  try {
+    const mod: any = await import('./routes/stripe-webhook');
+    if (typeof mod.onRequestPost === 'function') {
+      return mod.onRequestPost({ request: req, env, ctx });
+    }
+  } catch (err) {
+    console.error('[worker:/stripe/webhook] failed to load handler', err);
+    return new Response('internal error', { status: 500, headers: cors() });
+  }
+
+  console.warn('[worker:/stripe/webhook] handler not implemented');
+  return new Response('not found', { status: 404, headers: cors() });
+});
+
 router.post('/brain/learn', async (req, env) => {
   let body: unknown;
   try {
@@ -1028,12 +1043,6 @@ export default {
       // Fallback for any future /admin/* routes that use the generic pattern
       {
         const r = await tryRoute("/admin/", "./routes/admin", null, req, env, ctx);
-        if (r && r.status !== 404) return r;
-      }
-
-      // Stripe webhook (Codex Stripe sync)
-      if (url.pathname === "/stripe/webhook") {
-        const r = await tryRoute("/stripe/webhook", "./routes/stripe-webhook", null, req, env, ctx);
         if (r && r.status !== 404) return r;
       }
 
