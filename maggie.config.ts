@@ -1,7 +1,6 @@
 import { updateBrain } from './lib/brain';
 import { getConfig } from './utils/config';
 import { watch, appendFileSync } from 'fs';
-import { runMaggieWorkflow } from './runMaggie';
 
 // ========== DEPLOY + CLOUD INFRA ==========
 export const HOSTNAME = "https://assistant.messyandmagnetic.com";
@@ -109,9 +108,10 @@ export async function manualBrainUpdate(message: string) {
 
 export function watchBrainFile() {
   try {
-    watch('.brain.md', async () => {
+    watch('brain/brain.md', async () => {
       try {
         await updateBrain({ message: 'Local brain file changed', tiers: 'Mini' }, 'watcher');
+        const { runMaggieWorkflow } = await import('./runMaggie');
         await runMaggieWorkflow();
         appendFileSync('posted.log', `${new Date().toISOString()} brain file synced\n`);
       } catch (err) {

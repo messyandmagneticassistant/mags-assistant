@@ -3,6 +3,7 @@ import type { Env } from './env';
 const DEFAULT_REPO = 'messyandmagneticassistant/mags-assistant';
 const DEFAULT_BRANCH_FALLBACKS = ['chore/nightly-brain-sync', 'main'];
 const DEFAULT_PATH = 'config/thread-state.json';
+const DEFAULT_BRAIN_DOC_PATH = 'brain/brain.json';
 
 function pickToken(env: Env & Record<string, any>): string | undefined {
   const token =
@@ -21,7 +22,7 @@ function buildFetchHeaders(env: Env & Record<string, any>): HeadersInit {
   return headers;
 }
 
-async function fetchThreadState(
+async function fetchFileFromGitHub(
   env: Env & Record<string, any>,
   repo: string,
   branch: string,
@@ -75,6 +76,13 @@ function determinePath(env: Env & Record<string, any>): string {
     : DEFAULT_PATH;
 }
 
+function determineBrainDocPath(env: Env & Record<string, any>): string {
+  const value = env.BRAIN_DOC_GITHUB_PATH;
+  return typeof value === 'string' && value.trim().length
+    ? value.trim()
+    : DEFAULT_BRAIN_DOC_PATH;
+}
+
 function safeJsonParse(text: string): Record<string, unknown> | null {
   try {
     return JSON.parse(text);
@@ -98,7 +106,7 @@ export async function syncThreadStateFromGitHub(env: Env & Record<string, any>) 
   let fetched: { branch: string; payload: string } | null = null;
   for (const branch of branches) {
     try {
-      const result = await fetchThreadState(env, repo, branch, path);
+      const result = await fetchFileFromGitHub(env, repo, branch, path);
       if (result) {
         fetched = result;
         break;
@@ -137,5 +145,59 @@ export async function syncThreadStateFromGitHub(env: Env & Record<string, any>) 
   await env.BRAIN.put(secretKey, JSON.stringify(enriched));
   console.log(
     `[thread-state-sync] Updated ${secretKey} from GitHub (${repo}@${fetched.branch}) at ${syncedAt}`
+  );
+}
+
+export async function syncBrainDocFromGitHub(env: Env & Record<string, any>) {
+  if (!env?.BRAIN || typeof env.BRAIN.put !== 'function') {
+    console.warn('[brain-doc-sync] BRAIN KV binding missing, skipping.');
+    return;
+  }
+
+  const repo = determineRepo(env);
+  const branchPreference = determineBranchPreference(env);
+  const path = determineBrainDocPath(env);
+  const branches = uniqueBranches(branchPreference);
+
+  let fetched: { branch: string; payload: string } | null = null;
+  for (const branch of branches) {
+    try {
+      const result = await fetchFileFromGitHub(env, repo, branch, path);
+      if (result) {
+        fetched = result;
+        break;
+      }
+    } catch (err) {
+      console.error('[brain-doc-sync] Fetch attempt failed:', branch, err);
+    }
+  }
+
+  if (!fetched) {
+    console.error(
+      '[brain-doc-sync] Unable to fetch brain doc from GitHub for branches:',
+      branches
+    );
+    return;
+  }
+
+  const parsed = safeJsonParse(fetched.payload);
+  if (!parsed) {
+    console.error('[brain-doc-sync] Brain doc payload was not valid JSON.');
+    return;
+  }
+
+  const syncedAt = new Date().toISOString();
+  const enriched = {
+    ...parsed,
+    lastSynced: syncedAt,
+    syncedFromBranch: fetched.branch,
+    syncedFromPath: path,
+  };
+
+  const brainDocKey = env.BRAIN_DOC_KEY || 'PostQ:thread-state';
+
+  await env.BRAIN.put(brainDocKey, JSON.stringify(enriched));
+  console.log(
+    `[brain-doc-sync] Updated ${brainDocKey} from GitHub (${repo}@${fetched.branch}) at ${syncedAt}`
   );
 }

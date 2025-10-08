@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 
+import { readBrain } from '../brain/readBrain';
 import { putConfig } from '../lib/kv';
 import { logBrainSyncToSheet, logErrorToSheet } from '../lib/maggieLogs';
 import { updateBrainStatus } from '../lib/statusStore';
@@ -48,15 +49,147 @@ async function writeLog(entry: BrainSyncLog) {
   }
 }
 
+function asArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((item) => String(item));
+  if (typeof value === 'string') return [value];
+  return [];
+}
+
+function formatList(items: string[], prefix = '-'): string[] {
+  return items.map((item) => `${prefix} ${item}`);
+}
+
+function renderBrainDoc(payload: BrainState, timestamp: string): string {
+  const lines: string[] = ['# Maggie Brain Snapshot', ''];
+  lines.push(`> Auto-synced from [\`brain/brain.md\`](../brain/brain.md) at ${timestamp}.`, '');
+
+  const profile = (payload.profile ?? {}) as Record<string, unknown>;
+  if (Object.keys(profile).length) {
+    lines.push('## Profile');
+    if (profile.name) lines.push(`- **Name:** ${String(profile.name)}`);
+    if (profile.role) lines.push(`- **Role:** ${String(profile.role)}`);
+    const subs = Array.isArray(profile.subdomains)
+      ? (profile.subdomains as string[])
+      : [];
+    if (subs.length) {
+      lines.push('- **Subdomains:**');
+      lines.push(...formatList(subs, '  -'));
+    }
+    if (profile.kvNamespace) {
+      lines.push(`- **KV namespace:** ${String(profile.kvNamespace)}`);
+    }
+    lines.push('');
+  }
+
+  const logic = (payload.maggieLogic ?? {}) as Record<string, unknown>;
+  if (Object.keys(logic).length) {
+    lines.push('## Maggie Logic');
+    const daily = asArray(logic.dailyLoop);
+    if (daily.length) {
+      lines.push('- **Daily loop:**');
+      lines.push(...formatList(daily, '  -'));
+    }
+    const sync = asArray(logic.syncRoutine);
+    if (sync.length) {
+      lines.push('- **Sync routine:**');
+      lines.push(...formatList(sync, '  -'));
+    }
+    lines.push('');
+  }
+
+  const soul = (payload.soulBlueprint ?? {}) as Record<string, unknown>;
+  if (Object.keys(soul).length) {
+    lines.push('## Soul Blueprint');
+    const principles = asArray(soul.guidingPrinciples);
+    if (principles.length) {
+      lines.push('- **Guiding principles:**');
+      lines.push(...formatList(principles, '  -'));
+    }
+    const focus = asArray(soul.focusAreas);
+    if (focus.length) {
+      lines.push('- **Focus areas:**');
+      lines.push(...formatList(focus, '  -'));
+    }
+    lines.push('');
+  }
+
+  const services = (payload.services ?? {}) as Record<string, unknown>;
+  const automation = (payload.automation ?? {}) as Record<string, unknown>;
+  if (Object.keys(services).length || Object.keys(automation).length) {
+    lines.push('## Operations');
+    if (Object.keys(services).length) {
+      lines.push('- **Services online:**');
+      lines.push(
+        ...formatList(
+          Object.entries(services)
+            .filter(([, value]) => Boolean(value))
+            .map(([key]) => key),
+          '  -'
+        )
+      );
+    }
+    if (Object.keys(automation).length) {
+      lines.push('- **Automations active:**');
+      lines.push(
+        ...formatList(
+          Object.entries(automation)
+            .filter(([, value]) => Boolean(value))
+            .map(([key]) => key),
+          '  -'
+        )
+      );
+    }
+    lines.push('');
+  }
+
+  const threadState = (payload.threadState ?? {}) as Record<string, unknown>;
+  if (Object.keys(threadState).length) {
+    lines.push('## Thread State Sync');
+    if (threadState.kvKey) lines.push(`- **KV key:** \`${String(threadState.kvKey)}\``);
+    if (threadState.workerSubdomain)
+      lines.push(`- **Worker:** \`${String(threadState.workerSubdomain)}\``);
+    if (threadState.workflow) lines.push(`- **GitHub Action:** ${String(threadState.workflow)}`);
+    if (threadState.cron) lines.push(`- **Cron cadence:** ${String(threadState.cron)}`);
+    lines.push('');
+  }
+
+  const integrations = (payload.integrations ?? {}) as Record<string, unknown>;
+  if (Object.keys(integrations).length) {
+    lines.push('## Integrations');
+    lines.push(
+      ...formatList(
+        Object.entries(integrations)
+          .filter(([, value]) => Boolean(value))
+          .map(([key]) => key),
+        '-'
+      )
+    );
+    lines.push('');
+  }
+
+  const notes = payload.notes;
+  if (notes) {
+    lines.push('## Notes');
+    const noteLines = Array.isArray(notes)
+      ? (notes as unknown[]).map((entry) => String(entry))
+      : String(notes).split(/\r?\n/);
+    lines.push(...formatList(noteLines.filter(Boolean), '-'));
+    lines.push('');
+  }
+
+  return `${lines.join('\n').trim()}\n`;
+}
+
 async function run() {
   const kvPath = path.resolve(process.cwd(), 'config', 'kv-state.json');
+  const brainJsonPath = path.resolve(process.cwd(), 'brain', 'brain.json');
+  const brainDocPath = path.resolve(process.cwd(), 'docs', 'brain.md');
   let payload: BrainState;
 
   try {
-    const raw = await fs.readFile(kvPath, 'utf8');
-    payload = JSON.parse(raw) as BrainState;
+    payload = (await readBrain()) as BrainState;
   } catch (err) {
-    console.error(`Failed to read or parse ${kvPath}.`);
+    console.error('Failed to read brain document.');
     console.error(err);
     const entry: BrainSyncLog = {
       status: 'failed',
@@ -90,7 +223,7 @@ async function run() {
       logErrorToSheet({
         module: 'BrainSync',
         error: entry.error,
-        recovery: 'read config failed',
+        recovery: 'read brain failed',
         timestamp: entry.attemptedAt,
       }),
     ]);
@@ -101,13 +234,35 @@ async function run() {
   const timestamp = new Date().toISOString();
   payload.lastUpdated = timestamp;
   payload.lastSynced = timestamp;
+  if (typeof payload.notes === 'string') {
+    payload.notes = payload.notes.trim();
+  }
 
   const serialized = `${JSON.stringify(payload, null, 2)}\n`;
-  try {
-    await fs.writeFile(kvPath, serialized, 'utf8');
-  } catch (err) {
-    console.warn(`Failed to persist updated timestamp to ${kvPath}.`, err);
-  }
+  await Promise.all([
+    (async () => {
+      try {
+        await fs.writeFile(kvPath, serialized, 'utf8');
+      } catch (err) {
+        console.warn(`Failed to persist updated timestamp to ${kvPath}.`, err);
+      }
+    })(),
+    (async () => {
+      try {
+        await fs.writeFile(brainJsonPath, serialized, 'utf8');
+      } catch (err) {
+        console.warn(`Failed to refresh ${brainJsonPath}:`, err);
+      }
+    })(),
+    (async () => {
+      try {
+        await fs.mkdir(path.dirname(brainDocPath), { recursive: true });
+        await fs.writeFile(brainDocPath, renderBrainDoc(payload, timestamp), 'utf8');
+      } catch (err) {
+        console.warn(`Failed to render ${brainDocPath}:`, err);
+      }
+    })(),
+  ]);
 
   const bytes = Buffer.from(serialized).length;
   const source = process.env.GITHUB_WORKFLOW ? 'github-actions' : 'local';
@@ -161,7 +316,7 @@ async function run() {
         contentType: 'application/json',
       });
       console.log(
-        `✅ Synced ${KV_KEY} from config/kv-state.json to Cloudflare KV at ${timestamp}.`
+        `✅ Synced ${KV_KEY} from brain/brain.md to Cloudflare KV at ${timestamp}.`
       );
     } catch (err) {
       status = 'failed';

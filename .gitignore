@@ -112,3 +112,5 @@ Thumbs.db
 
 # Diagnostic artifacts
 diag-config.json
+brain-status.log
+data/maggie-status.json
