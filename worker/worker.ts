@@ -1031,6 +1031,12 @@ export default {
         if (r && r.status !== 404) return r;
       }
 
+      // Stripe webhook (Codex Stripe sync)
+      if (url.pathname === "/stripe/webhook") {
+        const r = await tryRoute("/stripe/webhook", "./routes/stripe-webhook", null, req, env, ctx);
+        if (r && r.status !== 404) return r;
+      }
+
       // Orders: Stripe / Tally webhooks
       if (url.pathname === "/webhooks/stripe") {
         const r = await tryRoute("/webhooks/stripe", "./orders/stripe", null, req, env, ctx);
