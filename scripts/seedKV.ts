@@ -22,19 +22,20 @@ async function main() {
   const token = process.env.CF_API_TOKEN;
   const namespaceId = process.env.CF_KV_POSTQ_NAMESPACE_ID;
   const threadState = process.env.THREAD_STATE_JSON;
-  const brainDoc = process.env.BRAIN_DOC_MD;
+  const brainDoc = process.env.BRAIN_DOC_JSON || process.env.BRAIN_DOC_MD;
 
   if (!account || !token || !namespaceId) {
     console.error('Missing CF_ACCOUNT_ID, CF_API_TOKEN, or CF_KV_POSTQ_NAMESPACE_ID');
     process.exit(1);
   }
   if (!threadState || !brainDoc) {
-    console.error('Missing THREAD_STATE_JSON or BRAIN_DOC_MD');
+    console.error('Missing THREAD_STATE_JSON or BRAIN_DOC_JSON/BRAIN_DOC_MD');
     process.exit(1);
   }
 
   await putKV(account, token, namespaceId, 'thread-state', threadState, 'application/json');
-  await putKV(account, token, namespaceId, 'PostQ:thread-state', brainDoc, 'text/markdown');
+  const brainContentType = process.env.BRAIN_DOC_JSON ? 'application/json' : 'text/markdown';
+  await putKV(account, token, namespaceId, 'PostQ:thread-state', brainDoc, brainContentType);
   console.log('Seeded KV');
 }
 

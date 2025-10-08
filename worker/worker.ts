@@ -11,7 +11,7 @@ import {
   type GeminiSyncState,
 } from './brain';
 import type { Env } from './lib/env';
-import { syncThreadStateFromGitHub } from './lib/threadStateSync';
+import { syncThreadStateFromGitHub, syncBrainDocFromGitHub } from './lib/threadStateSync';
 import { serveStaticSite } from './lib/site';
 import {
   bootstrapWorker,
@@ -1222,7 +1222,20 @@ export default {
     }
 
     try {
-      ctx.waitUntil(syncThreadStateFromGitHub(env));
+      ctx.waitUntil(
+        (async () => {
+          try {
+            await syncThreadStateFromGitHub(env);
+          } catch (err) {
+            console.error('[worker.cron] thread-state sync failed:', err);
+          }
+          try {
+            await syncBrainDocFromGitHub(env);
+          } catch (err) {
+            console.error('[worker.cron] brain-doc sync failed:', err);
+          }
+        })()
+      );
     } catch (err) {
       console.error('[worker.cron] failed to enqueue thread-state sync:', err);
     }

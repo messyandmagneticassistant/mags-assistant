@@ -135,8 +135,15 @@ export async function onRequestPost({ request, env }: any) {
     if (request.headers.get('x-fetch-pass') !== process.env.FETCH_PASS) {
       return json({ ok: false, error: 'auth' }, 401);
     }
-    const file = await fetch(new URL('../../brain/.brain.md', import.meta.url)).then((r) => r.text());
-    await env.BRAIN.put('PostQ:thread-state', file);
+    const fileUrl = new URL('../../brain/brain.json', import.meta.url);
+    const raw = await fetch(fileUrl).then((r) => r.text());
+    try {
+      JSON.parse(raw);
+    } catch (err) {
+      console.error('[admin:/brain/sync] brain.json is not valid JSON:', err);
+      return json({ ok: false, error: 'invalid-brain-json' }, 500);
+    }
+    await env.BRAIN.put('PostQ:thread-state', raw);
     return json({ ok: true });
   }
 
