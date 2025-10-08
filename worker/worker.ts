@@ -1,4 +1,5 @@
 // worker/worker.ts — finalized unified router (KV-first, CORS, cron-safe)
+import Stripe from 'stripe';
 import { handleHealth } from './health';
 import { handleDiagConfig } from './diag';
 import {
@@ -560,18 +561,105 @@ router.get('/test-telegram', async (req, env) => {
 });
 
 router.post('/stripe/webhook', async (req, env, ctx) => {
-  try {
-    const mod: any = await import('./routes/stripe-webhook');
-    if (typeof mod.onRequestPost === 'function') {
-      return mod.onRequestPost({ request: req, env, ctx });
-    }
-  } catch (err) {
-    console.error('[worker:/stripe/webhook] failed to load handler', err);
-    return new Response('internal error', { status: 500, headers: cors() });
+  const configuredSecret = (env as Record<string, unknown>).STRIPE_WEBHOOK_SECRET;
+  const secret =
+    (typeof configuredSecret === 'string' && configuredSecret) ||
+    (typeof process !== 'undefined' ? process.env?.STRIPE_WEBHOOK_SECRET : undefined);
+
+  if (!secret) {
+    console.error('[stripe-webhook] missing STRIPE_WEBHOOK_SECRET');
+    return jsonResponse({ ok: false, error: 'missing-webhook-secret' }, { status: 500 });
   }
 
-  console.warn('[worker:/stripe/webhook] handler not implemented');
-  return new Response('not found', { status: 404, headers: cors() });
+  const signature = req.headers.get('stripe-signature');
+  if (!signature) {
+    console.warn('[stripe-webhook] missing stripe-signature header');
+    return jsonResponse({ ok: false, error: 'missing-signature' }, { status: 400 });
+  }
+
+  let payload: string;
+  try {
+    payload = await req.text();
+  } catch (err) {
+    console.error('[stripe-webhook] failed to read request body', err);
+    return jsonResponse({ ok: false, error: 'invalid-payload' }, { status: 400 });
+  }
+
+  let event: Stripe.Event;
+  try {
+    event = Stripe.webhooks.constructEvent(payload, signature, secret);
+  } catch (err) {
+    console.warn('[stripe-webhook] invalid signature', err);
+    return jsonResponse({ ok: false, error: 'invalid-signature' }, { status: 400 });
+  }
+
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object as Stripe.Checkout.Session;
+    const sessionId = session.id;
+    const metadata = (session.metadata ?? {}) as Record<string, string | undefined>;
+    const email =
+      firstNonEmptyString(
+        session.customer_details?.email ?? undefined,
+        typeof session.customer_email === 'string' ? session.customer_email : undefined,
+        metadata['email']
+      ) ?? null;
+    const name =
+      firstNonEmptyString(
+        session.customer_details?.name ?? undefined,
+        metadata['name'],
+        metadata['customer_name']
+      ) ?? null;
+    const productName =
+      firstNonEmptyString(
+        metadata['product_name'],
+        metadata['product'],
+        metadata['blueprint'],
+        metadata['productName']
+      ) ?? null;
+
+    const tasks: Promise<unknown>[] = [];
+
+    if (sessionId && env.BRAIN && typeof env.BRAIN.put === 'function') {
+      const record = {
+        email,
+        name,
+        product: productName,
+        sessionId,
+        eventId: event.id,
+        receivedAt: new Date().toISOString(),
+      };
+      tasks.push(
+        env.BRAIN.put(`orders:${sessionId}`, JSON.stringify(record)).catch((err) => {
+          console.error('[stripe-webhook] failed to persist order data', err);
+        })
+      );
+    }
+
+    const taskUrl = new URL('/tasks/run', req.url);
+    const taskPayload = {
+      type: 'generateReading',
+      email,
+      product: productName,
+    };
+    tasks.push(
+      fetch(taskUrl.toString(), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(taskPayload),
+      }).catch((err) => {
+        console.error('[stripe-webhook] failed to trigger background task', err);
+      })
+    );
+
+    if (tasks.length) {
+      ctx.waitUntil(Promise.all(tasks));
+    }
+
+    const emailLabel = email ?? 'unknown-email';
+    console.log(`[stripe-webhook] ✅ Processed ${event.type} for ${emailLabel}`);
+  }
+
+  return jsonResponse({ ok: true });
 });
 
 router.post('/brain/learn', async (req, env) => {
