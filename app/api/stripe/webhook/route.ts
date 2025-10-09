@@ -79,6 +79,11 @@ export async function POST(req: NextRequest) {
   const notionToken = notionCfg.token as string;
   const payload = await req.text();
   const sig = req.headers.get('stripe-signature') || '';
+
+  console.info('[StripeWebhook] Incoming request', {
+    signature: sig,
+    payload,
+  });
   const stripe = new Stripe(stripeKey, { apiVersion: '2023-10-16' });
   let event: Stripe.Event | null = null;
   const recoverySteps: string[] = [];
