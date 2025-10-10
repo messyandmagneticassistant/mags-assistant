@@ -7,6 +7,7 @@ import { ensureTelegramWebhook } from './telegramFallback';
 import { logErrorToSheet } from '../../../../lib/maggieLogs';
 import { updateWebhookStatus } from '../../../../lib/statusStore';
 import { tgSend } from '../../../../lib/telegram';
+import { parseReadingFromSession, ReadingPayload } from '../../../../lib/stripe/parseReadingFromSession';
 
 export const runtime = 'nodejs';
 
@@ -67,6 +68,8 @@ export async function POST(req: NextRequest) {
   const startedAt = new Date().toISOString();
   const stripeCfg = await getConfig('stripe');
   const notionCfg = await getConfig('notion');
+  const makeWebhookUrl =
+    process.env.MAKE_SOUL_READING_WEBHOOK_URL || 'https://hook.us1.make.com/your-make-url';
   const missing = [] as string[];
   if (!stripeCfg.webhookSecret) missing.push('STRIPE_WEBHOOK_SECRET');
   if (!stripeCfg.secretKey) missing.push('STRIPE_SECRET_KEY');
@@ -133,6 +136,58 @@ export async function POST(req: NextRequest) {
       await upsertDonor(notion, dbId, { name, email, amount, currency, stripeId, message, date });
       await ensureTelegramWebhook({ id: stripeId, email });
     }
+
+    if (event.type === 'checkout.session.completed') {
+      const session = obj as Stripe.Checkout.Session;
+      if (!session.id) {
+        throw new Error('Stripe session missing id');
+      }
+
+      const [fullSession, lineItems] = await Promise.all([
+        stripe.checkout.sessions.retrieve(session.id, {
+          expand: ['customer', 'customer_details'],
+        }),
+        stripe.checkout.sessions.listLineItems(session.id, {
+          expand: ['data.price.product'],
+        }),
+      ]);
+
+      const readingPayloads: ReadingPayload[] = parseReadingFromSession(fullSession, lineItems.data);
+
+      if (!readingPayloads.length) {
+        throw new Error(`No line items available for Stripe session ${session.id}`);
+      }
+
+      for (const payload of readingPayloads) {
+        const response = await fetch(makeWebhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+          const body = await response.text().catch(() => '');
+          throw new Error(
+            `Soul reading automation failed with status ${response.status}${body ? `: ${body}` : ''}`
+          );
+        }
+      }
+
+      if (process.env.NODE_ENV !== 'production') {
+        const tiers = readingPayloads
+          .map((payload) => payload.metadata?.tier)
+          .filter((tier): tier is string => Boolean(tier));
+
+        console.info('[StripeWebhook] Soul reading automation dispatched', {
+          payloadCount: readingPayloads.length,
+          tiers,
+          email:
+            readingPayloads[0]?.email ||
+            fullSession.customer_details?.email ||
+            (typeof fullSession.customer_email === 'string' ? fullSession.customer_email : ''),
+        });
+      }
+    }
     await updateWebhookStatus('stripe', {
       lastSuccessAt: new Date().toISOString(),
       error: null,
@@ -154,6 +209,6 @@ export async function POST(req: NextRequest) {
       }),
       tgSend(`⚠️ Stripe webhook error at ${startedAt}: ${errorMessage}`).catch(() => undefined),
     ]);
-    return new NextResponse('internal error', { status: 500 });
+    return new NextResponse('failed to process webhook', { status: 400 });
   }
 }
