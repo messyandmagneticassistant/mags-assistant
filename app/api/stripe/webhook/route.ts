@@ -8,8 +8,54 @@ import { logErrorToSheet } from '../../../../lib/maggieLogs';
 import { updateWebhookStatus } from '../../../../lib/statusStore';
 import { tgSend } from '../../../../lib/telegram';
 import { parseReadingFromSession, ReadingPayload } from '../../../../lib/stripe/parseReadingFromSession';
+import { triggerReading } from '../../../../lib/stripe/reading';
 
 export const runtime = 'nodejs';
+
+const VALID_READING_TIERS = ['full', 'lite', 'mini'] as const;
+type ReadingTier = (typeof VALID_READING_TIERS)[number];
+
+function normalizeTier(payload: ReadingPayload): ReadingTier {
+  const rawTier = payload.metadata?.tier;
+  const stringTier =
+    typeof rawTier === 'string'
+      ? rawTier
+      : rawTier === null || rawTier === undefined
+      ? ''
+      : String(rawTier);
+  const normalized = stringTier.trim().toLowerCase();
+
+  if (!VALID_READING_TIERS.includes(normalized as ReadingTier)) {
+    throw new Error(
+      `Unsupported soul reading tier for session ${payload.sessionId || 'unknown'}: ${stringTier}`
+    );
+  }
+
+  return normalized as ReadingTier;
+}
+
+function parseBoolean(value: unknown): boolean | undefined {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') {
+    if (value === 1) return true;
+    if (value === 0) return false;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'y'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'n'].includes(normalized)) return false;
+  }
+  return undefined;
+}
+
+function extractBoolean(value: unknown): boolean {
+  const parsed = parseBoolean(value);
+  return parsed !== undefined ? parsed : false;
+}
+
+function extractOptionalBoolean(value: unknown): boolean | undefined {
+  return parseBoolean(value);
+}
 
 async function getDonorDbId(notion: Client, notionCfg: any): Promise<string> {
   const envId = process.env.DONORS_DATABASE_ID;
@@ -68,8 +114,6 @@ export async function POST(req: NextRequest) {
   const startedAt = new Date().toISOString();
   const stripeCfg = await getConfig('stripe');
   const notionCfg = await getConfig('notion');
-  const makeWebhookUrl =
-    process.env.MAKE_SOUL_READING_WEBHOOK_URL || 'https://hook.us1.make.com/your-make-url';
   const missing = [] as string[];
   if (!stripeCfg.webhookSecret) missing.push('STRIPE_WEBHOOK_SECRET');
   if (!stripeCfg.secretKey) missing.push('STRIPE_SECRET_KEY');
@@ -83,10 +127,12 @@ export async function POST(req: NextRequest) {
   const payload = await req.text();
   const sig = req.headers.get('stripe-signature') || '';
 
-  console.info('[StripeWebhook] Incoming request', {
-    signature: sig,
-    payload,
-  });
+  if (process.env.NODE_ENV !== 'production') {
+    console.info('[StripeWebhook] Incoming request', {
+      signature: sig,
+      payload,
+    });
+  }
   const stripe = new Stripe(stripeKey, { apiVersion: '2023-10-16' });
   let event: Stripe.Event | null = null;
   const recoverySteps: string[] = [];
@@ -158,24 +204,34 @@ export async function POST(req: NextRequest) {
         throw new Error(`No line items available for Stripe session ${session.id}`);
       }
 
-      for (const payload of readingPayloads) {
-        const response = await fetch(makeWebhookUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
+      await Promise.all(
+        readingPayloads.map(async (payload) => {
+          const normalizedTier = normalizeTier(payload);
+          const isAddon = extractBoolean(payload.metadata?.is_addon);
+          const childFriendly = extractOptionalBoolean(payload.metadata?.child_friendly);
 
-        if (!response.ok) {
-          const body = await response.text().catch(() => '');
-          throw new Error(
-            `Soul reading automation failed with status ${response.status}${body ? `: ${body}` : ''}`
-          );
-        }
-      }
+          await triggerReading({
+            email: payload.email,
+            metadata: {
+              tier: normalizedTier,
+              is_addon: isAddon,
+              child_friendly: childFriendly,
+            },
+            sessionId: payload.sessionId,
+            purchasedAt: payload.purchasedAt,
+          });
+        })
+      );
 
       if (process.env.NODE_ENV !== 'production') {
         const tiers = readingPayloads
-          .map((payload) => payload.metadata?.tier)
+          .map((payload) => {
+            try {
+              return normalizeTier(payload);
+            } catch {
+              return null;
+            }
+          })
           .filter((tier): tier is string => Boolean(tier));
 
         console.info('[StripeWebhook] Soul reading automation dispatched', {
