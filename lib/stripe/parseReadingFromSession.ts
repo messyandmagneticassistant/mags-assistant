@@ -32,8 +32,8 @@ const mergeMetadata = (
   productMetadata: Stripe.Metadata | null | undefined
 ): Stripe.Metadata => {
   return {
-    ...(priceMetadata ?? {}),
     ...(productMetadata ?? {}),
+    ...(priceMetadata ?? {}),
   };
 };
 
