@@ -1,0 +1,35 @@
+name: TikTok Daily Auto Post
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 4 * * *'
+
+jobs:
+  trigger-tiktok-post:
+    name: Trigger TikTok auto-post
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call TikTok Worker endpoint
+        env:
+          WORKER_URL: https://maggie.messyandmagnetic.com/api/postTikTok
+          MAGGIE_WORKER_TOKEN: ${{ secrets.MAGGIE_WORKER_TOKEN }}
+        run: |
+          set -euo pipefail
+          response=$(curl -sS -w '\n%{http_code}' -X POST "$WORKER_URL" \
+            -H "Authorization: Bearer $MAGGIE_WORKER_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data '{}')
+
+          status=$(printf '%s' "$response" | tail -n1)
+          body=$(printf '%s' "$response" | sed '$d')
+
+          echo "Response body:"
+          printf '%s\n' "$body"
+
+          if [ "$status" -ne 200 ]; then
+            echo "Request failed with status $status"
+            exit 1
+          fi
+
+          echo "Request succeeded with status $status"
