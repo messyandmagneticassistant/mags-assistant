@@ -604,6 +604,48 @@ router.get('/test-telegram', async (req, env) => {
   return jsonResponse(payload, { status });
 });
 
+const POST_TIKTOK_CORS_HEADERS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST,OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-api-key',
+};
+
+router.post('/post-tiktok', async (req, env, ctx) => {
+  try {
+    const mod: any = await import('./routes/post-tiktok');
+
+    if (typeof mod.handle === 'function') {
+      return await mod.handle(req, env, ctx);
+    }
+
+    if (typeof mod.onRequestPost === 'function') {
+      return await mod.onRequestPost({ request: req, env, ctx });
+    }
+
+    if (mod?.default && typeof mod.default.handler === 'function') {
+      return await mod.default.handler(req, env, ctx);
+    }
+
+    console.error('[worker:/post-tiktok] module loaded without handler');
+    return jsonResponse({ ok: false, error: 'post-tiktok-handler-missing' }, { status: 500 });
+  } catch (err) {
+    console.error('[worker:/post-tiktok] failed to load handler', err);
+    return jsonResponse({ ok: false, error: 'post-tiktok-load-failed' }, { status: 500 });
+  }
+});
+
+router.all('/post-tiktok', async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: POST_TIKTOK_CORS_HEADERS });
+  }
+
+  const body = { ok: false, error: 'method-not-allowed', method: req.method };
+  return new Response(JSON.stringify(body, null, 2), {
+    status: 405,
+    headers: { ...POST_TIKTOK_CORS_HEADERS, Allow: 'POST,OPTIONS', 'content-type': 'application/json; charset=utf-8' },
+  });
+});
+
 router.post('/stripe/webhook', async (req, env, ctx) => {
   const configuredSecret = (env as Record<string, unknown>).STRIPE_WEBHOOK_SECRET;
   const secret =

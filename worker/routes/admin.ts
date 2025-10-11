@@ -32,6 +32,7 @@ export const ROUTES = [
   '/tiktok/cookies',
   '/tiktok/check',
   '/tiktok/post',
+  '/post-tiktok',
   '/tiktok/eng/rules',
   '/tiktok/eng/persona',
   '/tiktok/eng/orchestrate',
