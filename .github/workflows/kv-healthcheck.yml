@@ -1,0 +1,158 @@
+name: KV Healthcheck
+
+on:
+  schedule:
+    - cron: '45 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  verify:
+    name: Verify PostQ brain.md blob
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      KV_NAMESPACE_ID: ${{ secrets.KV_NAMESPACE_ID }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - name: Inspect KV blob
+        id: check
+        shell: bash
+        env:
+          TARGET_KEY: PostQ:brain-md
+          MIN_BLOB_SIZE: '1024'
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+
+          const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+          const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+          const namespaceId = process.env.KV_NAMESPACE_ID;
+          const key = process.env.TARGET_KEY || 'PostQ:brain-md';
+          const minSize = Number(process.env.MIN_BLOB_SIZE || '1024');
+
+          const outputFile = process.env.GITHUB_OUTPUT;
+          const setOutput = (name, value) => {
+            if (!outputFile) return;
+            fs.appendFileSync(outputFile, `${name}=${value}\n`);
+          };
+
+          const finish = (status, needsResync, reason) => {
+            setOutput('status', status);
+            setOutput('needs_resync', needsResync ? 'true' : 'false');
+            if (reason) {
+              setOutput('reason', reason);
+            }
+          };
+
+          if (!accountId || !apiToken || !namespaceId) {
+            console.log('::warning::Missing Cloudflare credentials; skipping KV healthcheck.');
+            finish('skipped', false, 'Missing Cloudflare credentials');
+            process.exit(0);
+          }
+
+          const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/storage/kv/namespaces/${namespaceId}/values/${encodeURIComponent(key)}`;
+
+          (async () => {
+            try {
+              const response = await fetch(url, {
+                headers: {
+                  Authorization: `Bearer ${apiToken}`,
+                },
+              });
+
+              if (response.status === 404) {
+                console.log(`::error::KV key "${key}" not found (404).`);
+                finish('missing', true, `Missing KV key ${key}`);
+                return;
+              }
+
+              if (!response.ok) {
+                console.log(`::error::Failed to fetch "${key}" from KV: ${response.status} ${response.statusText}`);
+                finish('error', true, `Fetch failed (${response.status})`);
+                return;
+              }
+
+              const buffer = Buffer.from(await response.arrayBuffer());
+              const size = buffer.byteLength;
+              setOutput('size', String(size));
+              console.log(`[kv-healthcheck] Retrieved ${key} (${size} bytes).`);
+
+              if (size < minSize) {
+                console.log(`::warning::${key} appears too small (< ${minSize} bytes).`);
+                finish('too_small', true, `${key} below minimum size (${size} < ${minSize})`);
+                return;
+              }
+
+              const sample = buffer.toString('utf8', 0, Math.min(size, 160));
+              const looksMarkdown = /[#*>-]/.test(sample);
+
+              if (!looksMarkdown) {
+                console.log(`::warning::${key} content may be invalid (no markdown-like characters in preview).`);
+                finish('invalid_content', true, `${key} missing markdown signature`);
+                return;
+              }
+
+              console.log(`[kv-healthcheck] ${key} looks healthy.`);
+              finish('ok', false, `${key} verified (${size} bytes)`);
+            } catch (error) {
+              console.log('::error::Unexpected error while reading KV key:', error);
+              finish('exception', true, 'Exception retrieving KV key');
+            }
+          })();
+          NODE
+
+      - name: Trigger brain sync workflow
+        if: steps.check.outputs.needs_resync == 'true'
+        uses: actions/github-script@v7
+        env:
+          DISPATCH_REASON: ${{ steps.check.outputs.reason }}
+          TARGET_REF: ${{ github.ref_name || github.event.repository.default_branch || 'work' }}
+        with:
+          github-token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          script: |
+            const reason = process.env.DISPATCH_REASON || 'KV healthcheck triggered sync';
+            const ref = process.env.TARGET_REF || 'work';
+
+            core.info(`Dispatching sync-brain.yml on ref ${ref} with reason: ${reason}`);
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'sync-brain.yml',
+              ref,
+              inputs: { reason },
+            });
+            core.info('sync-brain workflow dispatched successfully.');
+
+      - name: Notify Telegram on resync
+        if: steps.check.outputs.needs_resync == 'true'
+        shell: bash
+        env:
+          TG_TOKEN: ${{ env.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT: ${{ env.TELEGRAM_CHAT_ID }}
+          REASON: ${{ steps.check.outputs.reason }}
+        run: |
+          if [ -z "${TG_TOKEN}" ] || [ -z "${TG_CHAT}" ]; then
+            echo "Telegram not configured; skipping alert."
+            exit 0
+          fi
+
+          TEXT="⚠️ KV healthcheck triggered sync-brain: ${REASON}"
+          curl -sS -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            -d chat_id="${TG_CHAT}" \
+            --data-urlencode text="$TEXT" \
+            >/dev/null
+
+      - name: Log healthcheck outcome
+        if: steps.check.outputs.needs_resync != 'true'
+        run: |
+          echo "KV healthcheck completed successfully: ${{ steps.check.outputs.reason }}"
