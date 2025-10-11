@@ -198,6 +198,50 @@ function getCodexAuthToken(env: Env): string | null {
   );
 }
 
+const SENSITIVE_KEY_PATTERN = /token|secret|password|key|credential|cookie|bearer|session|auth/i;
+
+function shouldRedactValue(key: string, value: unknown): boolean {
+  const loweredKey = key.toLowerCase();
+  if (SENSITIVE_KEY_PATTERN.test(loweredKey)) {
+    return true;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return false;
+    if (SENSITIVE_KEY_PATTERN.test(trimmed)) return true;
+    if (/^sk[_-]/i.test(trimmed)) return true;
+    if (trimmed.startsWith('-----BEGIN') || trimmed.length > 120) return true;
+  }
+
+  return false;
+}
+
+function summarizeDebugValue(key: string, value: unknown): unknown {
+  if (shouldRedactValue(key, value)) {
+    return '[redacted]';
+  }
+
+  if (value === null || typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    return value.length > 160 ? `${value.slice(0, 157)}...` : value;
+  }
+
+  if (Array.isArray(value)) {
+    return { type: 'array', length: value.length };
+  }
+
+  if (typeof value === 'object') {
+    const keys = Object.keys(value as Record<string, unknown>);
+    return { type: 'object', keys: keys.slice(0, 10) };
+  }
+
+  return String(value);
+}
+
 function coerceTagList(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value
@@ -879,6 +923,48 @@ export default {
           status: 200,
           headers: corsHeaders,
         });
+      }
+
+      if (url.pathname === '/debug/brain') {
+        if (req.method !== 'GET') {
+          const res = jsonResponse({ ok: false, error: 'method-not-allowed' }, { status: 405 });
+          res.headers.set('Allow', 'GET');
+          return res;
+        }
+
+        const kv = (env as any).PostQ ?? (env as any).POSTQ ?? env.BRAIN;
+        if (!kv || typeof kv.get !== 'function') {
+          return jsonResponse({ ok: false, error: 'kv-binding-missing' }, { status: 500 });
+        }
+
+        const raw = await kv.get('PostQ:brain', 'text');
+        console.log('[worker:/debug/brain] fetched blob:', raw);
+
+        if (!raw) {
+          return jsonResponse({ ok: false, error: 'brain-blob-missing' }, { status: 404 });
+        }
+
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(raw);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return jsonResponse({ ok: false, error: 'brain-blob-invalid-json', message }, { status: 500 });
+        }
+
+        let keysSummary: Array<{ key: string; value: unknown }> = [];
+        if (Array.isArray(parsed)) {
+          keysSummary = [{ key: 'root', value: { type: 'array', length: parsed.length } }];
+        } else if (parsed && typeof parsed === 'object') {
+          keysSummary = Object.entries(parsed as Record<string, unknown>).map(([key, value]) => ({
+            key,
+            value: summarizeDebugValue(key, value),
+          }));
+        } else {
+          keysSummary = [{ key: 'root', value: summarizeDebugValue('root', parsed) }];
+        }
+
+        return jsonResponse({ keys: keysSummary, total_keys: keysSummary.length });
       }
 
       if (url.pathname === '/' || url.pathname === '/health') {
