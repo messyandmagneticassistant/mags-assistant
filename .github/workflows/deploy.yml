@@ -18,6 +18,8 @@ jobs:
     env:
       EFFECTIVE_CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
       EFFECTIVE_CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+    outputs:
+      missing_cf_config: ${{ steps.cloudflare.outputs.missing }}
     steps:
       - name: Diagnostics
         run: |
@@ -81,3 +83,96 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ env.EFFECTIVE_CF_API_TOKEN }}
           CF_API_TOKEN: ${{ env.EFFECTIVE_CF_API_TOKEN }}
         run: pnpm exec wrangler deploy worker/worker.ts
+
+  post_deploy_verification:
+    name: Verify health endpoints + notify if broken
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: needs.deploy.result == 'success' && needs.deploy.outputs.missing_cf_config != 'true'
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      WORKER_BASE_URL: ${{ secrets.WORKER_URL || vars.WORKER_URL }}
+    steps:
+      - name: Resolve Worker base URL
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${WORKER_BASE_URL:-}" ]; then
+            echo "::error::WORKER_URL secret or variable is not configured; cannot verify deploy."
+            exit 1
+          fi
+
+          base="${WORKER_BASE_URL%/}"
+          echo "BASE_URL=$base" >> "$GITHUB_ENV"
+          echo "Using worker base URL: $base"
+
+      - name: Check Worker health endpoints
+        id: healthcheck
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+
+          if [ -z "${BASE_URL:-}" ]; then
+            echo "::error::BASE_URL was not resolved."
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          declare -a failures=()
+          declare -a urls=("/health" "/summary" "/daily")
+
+          for path in "${urls[@]}"; do
+            url="${BASE_URL}${path}"
+            echo "Checking ${url}"
+            http_code=$(curl -sS -o /tmp/response -w '%{http_code}' "$url" || printf '000')
+            echo "→ HTTP ${http_code}"
+
+            if [ "${http_code}" != "200" ]; then
+              failures+=("${url} → HTTP ${http_code}")
+            fi
+          done
+
+          if [ ${#failures[@]} -gt 0 ]; then
+            printf '%s\n' "${failures[@]}" > failed_endpoints.txt
+            printf 'failed=true\n' >> "$GITHUB_OUTPUT"
+            {
+              printf 'summary<<EOF\n'
+              printf '%s\n' "${failures[@]}"
+              printf 'EOF\n'
+            } >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          echo "All health checks passed."
+          printf 'failed=false\n' >> "$GITHUB_OUTPUT"
+
+      - name: Notify Telegram (health check failure)
+        if: steps.healthcheck.outputs.failed == 'true'
+        shell: bash
+        env:
+          SUMMARY: ${{ steps.healthcheck.outputs.summary }}
+        run: |
+          MESSAGE="❌ Worker deploy verification failed."
+          if [ -n "${SUMMARY:-}" ]; then
+            MESSAGE="${MESSAGE}"$'\n'"${SUMMARY}"
+          fi
+
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            echo "Telegram credentials missing; skipping alert."
+            echo "${SUMMARY:-No additional details.}"
+            exit 0
+          fi
+
+          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            --data-urlencode text="$MESSAGE" \
+            >/dev/null
+
+      - name: Mark verification as failed
+        if: steps.healthcheck.outputs.failed == 'true'
+        run: |
+          echo "Failing job because deploy verification did not pass."
+          exit 1
