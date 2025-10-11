@@ -300,7 +300,7 @@ async function loadStripeClient(stripe?: Stripe): Promise<Stripe> {
 
 export async function normalizeFromStripe(
   sessionId: string,
-  opts: { stripe?: Stripe; env?: any } = {}
+  opts: { stripe?: Stripe; env?: any; tierHint?: FulfillmentTier } = {}
 ): Promise<NormalizedIntake> {
   const skuMap = await loadSkuMap();
   let config: Awaited<ReturnType<typeof loadFulfillmentConfig>> | null = null;
@@ -322,7 +322,7 @@ export async function normalizeFromStripe(
   } = deriveTierFromLineItems(lineItems, skuMap);
 
   const metadataTier = normalizeTier((session.metadata?.tier as string) || session.metadata?.package || '');
-  const tier = mappedTier || metadataTier;
+  const tier = mappedTier || metadataTier || opts.tierHint;
 
   const email = session.customer_details?.email || session.customer_email || session.metadata?.email || '';
   const prefs = buildPrefsFromMetadata(session.metadata);
@@ -347,7 +347,7 @@ export async function normalizeFromStripe(
   const normalized: NormalizedIntake = {
     source: 'stripe',
     email,
-    tier: tier || 'lite',
+    tier: tier || opts.tierHint || 'lite',
     addOns: Array.from(addOns),
     fulfillmentType,
     prefs,
