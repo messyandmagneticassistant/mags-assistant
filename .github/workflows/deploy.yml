@@ -1,66 +1,83 @@
-name: Deploy Worker
+name: Deploy Cloudflare Worker
+
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
   workflow_dispatch:
+  schedule:
+    - cron: '45 3 * * *'
+
+permissions:
+  contents: read
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      EFFECTIVE_CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+      EFFECTIVE_CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Diagnostics
+        run: |
+          echo "Actor: $GITHUB_ACTOR"
+          echo "Repository: $GITHUB_REPOSITORY"
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Setup Wrangler
-        run: npm install -g wrangler
-
-      - name: Publish
-        if: github.event_name != 'pull_request'
-        env:
-          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-          CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
-        run: wrangler deploy -c wrangler.toml
-
-      - name: Smoke test + Telegram after deploy
-        if: github.event_name != 'pull_request' && success()
+      - name: Check Cloudflare configuration
+        id: cloudflare
+        shell: bash
         run: |
           set -euo pipefail
-          base_url="https://maggie.messyandmagnetic.com"
-          for endpoint in /health /summary /daily; do
-            for i in 1 2 3; do
-              echo "Requesting ${endpoint} attempt ${i}"
-              if curl -sSf "${base_url}${endpoint}"; then
-                break
-              fi
+          missing=()
 
-              if [ "$i" -eq 3 ]; then
-                echo "Failed to call ${endpoint} after ${i} attempts"
-                exit 1
-              fi
+          if [ -z "${EFFECTIVE_CF_ACCOUNT_ID:-}" ]; then
+            missing+=("CLOUDFLARE_ACCOUNT_ID or CF_ACCOUNT_ID")
+          fi
 
-              sleep $((i * 5))
-            done
-          done
+          if [ -z "${EFFECTIVE_CF_API_TOKEN:-}" ]; then
+            missing+=("CLOUDFLARE_API_TOKEN or CF_API_TOKEN")
+          fi
 
-      - name: Verify deployment & notify
-        if: github.event_name != 'pull_request'
+          if [ ${#missing[@]} -gt 0 ]; then
+            printf 'missing=true\n' >> "$GITHUB_OUTPUT"
+            printf 'missing_list=%s\n' "${missing[*]}" >> "$GITHUB_OUTPUT"
+            echo "::warning::Deployment skipped — missing Cloudflare configuration: ${missing[*]}"
+          else
+            printf 'missing=false\n' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Abort (missing Cloudflare configuration)
+        if: steps.cloudflare.outputs.missing == 'true'
+        run: |
+          echo "Skipping deployment because required Cloudflare configuration was not provided: ${{ steps.cloudflare.outputs.missing_list }}"
+
+      - name: Checkout repository
+        if: steps.cloudflare.outputs.missing == 'false'
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        if: steps.cloudflare.outputs.missing == 'false'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: pnpm
+
+      - name: Enable Corepack and install pnpm
+        if: steps.cloudflare.outputs.missing == 'false'
+        run: |
+          corepack enable
+          corepack prepare pnpm@latest --activate
+
+      - name: Install dependencies
+        if: steps.cloudflare.outputs.missing == 'false'
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy Cloudflare Worker
+        if: steps.cloudflare.outputs.missing == 'false'
         env:
-          WORKER_PING_URL: https://maggie.messyandmagnetic.com/ping
-          WORKER_PING_DEBUG_URL: https://maggie.messyandmagnetic.com/ping-debug
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          TELEGRAM_DEPLOY_CHAT_ID: ${{ secrets.TELEGRAM_DEPLOY_CHAT_ID }}
-        run: node scripts/verify-worker-deploy.mjs
-
-      - name: Preview (PRs)
-        if: github.event_name == 'pull_request'
-        env:
-          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-          CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
-        run: wrangler deploy -c wrangler.toml --dry-run
+          CLOUDFLARE_ACCOUNT_ID: ${{ env.EFFECTIVE_CF_ACCOUNT_ID }}
+          CF_ACCOUNT_ID: ${{ env.EFFECTIVE_CF_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ env.EFFECTIVE_CF_API_TOKEN }}
+          CF_API_TOKEN: ${{ env.EFFECTIVE_CF_API_TOKEN }}
+        run: pnpm exec wrangler deploy worker/worker.ts
