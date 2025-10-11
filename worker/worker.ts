@@ -32,6 +32,7 @@ import {
 } from './lib/reporting';
 import { getSendTelegram, type SendTelegramResult as TelegramHelperResult } from './lib/telegramBridge';
 import { router } from './router/router';
+import { getBrain } from '../lib/getBrain';
 // ---------------- CORS helpers ----------------
 const CORS_BASE: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -586,6 +587,23 @@ router.get(
     new Response('Maggie is online! 🌸 Welcome to Messy & Magnetic.', {
       headers: { 'content-type': 'text/plain; charset=utf-8' },
     }),
+  { stage: 'pre' }
+);
+
+router.get(
+  '/brain',
+  async () => {
+    try {
+      const content = await getBrain();
+      return new Response(content, {
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('[worker:/brain] failed to load brain', message);
+      return jsonResponse({ ok: false, error: 'brain-fetch-failed', message }, { status: 500 });
+    }
+  },
   { stage: 'pre' }
 );
 
