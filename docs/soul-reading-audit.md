@@ -6,10 +6,10 @@ This document captures the current state of the soul reading automation that sho
 ## Findings
 
 ### 1. Stripe webhook → internal trigger
-- `app/api/stripe/webhook/route.ts` still posts payloads to whatever URL is stored in `MAKE_SOUL_READING_WEBHOOK_URL` via `triggerReading(...)`, so the Next.js app is *not* invoking the internal fulfillment pipeline yet. 【F:app/api/stripe/webhook/route.ts†L1-L74】【F:lib/stripe/reading.ts†L1-L46】
-- A newer webhook lives at `app/api/webhook/stripe/route.ts` that *does* call `runOrder({ kind: 'stripe-session', ... })`, but Stripe would have to be reconfigured to point at `/api/webhook/stripe` for that flow to run. 【F:app/api/webhook/stripe/route.ts†L1-L86】
+- `app/api/stripe/webhook/route.ts` now calls `triggerReading(...)` per qualifying line item, and that helper runs the full internal fulfillment pipeline (normalization → blueprint → icons → schedule → delivery/logging) instead of posting to Make.com. 【F:app/api/stripe/webhook/route.ts†L1-L74】【F:lib/stripe/reading.ts†L1-L187】
+- Stripe payload metadata is still parsed via `buildReadingPayloads` and `normalizeFromStripe`, so add-ons and cohort details propagate into fulfillment. 【F:lib/stripe/buildReadingPayloads.ts†L1-L119】【F:src/fulfillment/intake.ts†L210-L367】
 
-**Recommendation:** swap the webhook target (or update `triggerReading`) to call `runOrder`/`enqueueFulfillmentJob` directly so the internal pipeline runs without Make.
+**Status:** Make.com webhook calls are fully deprecated for soul readings; the Next.js app invokes the internal runner directly.
 
 ### 2. Reading tier metadata
 - `buildReadingPayloads` infers the tier from Stripe price/product metadata and includes it in the webhook payload. 【F:lib/stripe/buildReadingPayloads.ts†L1-L119】
@@ -26,16 +26,20 @@ This document captures the current state of the soul reading automation that sho
 ### 5. Bundle/add-on handling
 - `normalizeFromStripe` pulls SKU mappings from `config/sku-map.json`, detects add-ons (magnet kits, extra icons, bonus systems), figures out fulfillment type (digital/physical/cricut), and captures household info where available. 【F:src/fulfillment/intake.ts†L1-L367】【F:config/sku-map.json†L1-L15】
 
-### 6. External webhooks (Make.com)
-- The legacy path still depends on `MAKE_SOUL_READING_WEBHOOK_URL`. No alternate internal handler is referenced inside `triggerReading`. 【F:lib/stripe/reading.ts†L16-L46】
+### 6. Delivery & logging
+- `triggerReading` loads Gmail/Resend/Notion/Sheets credentials from `getConfig()` + `.env`, so deliveries and operational logging stay online even if secrets come from KV. 【F:lib/stripe/reading.ts†L19-L165】
+- `runOrder` now emits structured logs for each step (workspace prep, blueprint, icons, schedule, delivery, logging) to aid observability. 【F:src/fulfillment/runner.ts†L81-L130】
+- Telegram alerts remain stubbed in local development; production credentials continue to pass through fulfillment config. 【F:src/lib/telegram.ts†L1-L5】【F:src/fulfillment/deliver.ts†L113-L146】
 
-### 7. Failure visibility
-- The legacy webhook only logs to `console.error` on failures, so misfires can silently disappear in production without operator alerts. 【F:app/api/stripe/webhook/route.ts†L40-L74】
-- The internal runner’s error handling is much richer (Sheets + Telegram), reinforcing the need to migrate traffic to it. 【F:src/fulfillment/runner.ts†L116-L151】
+### 7. Post-fulfillment brain sync
+- After successful delivery, `triggerReading` updates the brain document (primary KV + local log) so assistants see the latest fulfillment metadata. Failures are caught and logged without blocking delivery. 【F:lib/stripe/reading.ts†L167-L187】【F:lib/updateBrain.ts†L1-L180】
+- Queue + KV summaries (`setLastOrderSummary`) still run after each order to feed dashboards and ops tooling. 【F:src/fulfillment/runner.ts†L107-L138】【F:src/queue.ts†L133-L162】
+
+### 8. Failure visibility
+- The webhook continues to bubble Stripe verification failures, while fulfillment retries once internally and surfaces errors via logs and Sheets. 【F:app/api/stripe/webhook/route.ts†L40-L74】【F:src/fulfillment/runner.ts†L133-L164】
 
 ## Next Steps
-1. Point the Stripe webhook to `/api/webhook/stripe` (or refactor `triggerReading`) so we stop relying on Make.
-2. Remove the Make.com dependency once traffic is migrated, or keep it as a fallback with explicit monitoring.
-3. Confirm Gmail/Resend credentials plus Notion/Sheet IDs are present in production so delivery/logging succeed.
-4. Backfill any missing tier mappings in `config/sku-map.json` (e.g., realignment tier) before cutting over fully.
+1. Monitor telemetry from the new logging to ensure blueprint/icon/schedule steps stay healthy under load.
+2. Wire subscription renewals into the same fulfillment pipeline (currently TODO inside `triggerReading`).
+3. Backfill any missing tier mappings in `config/sku-map.json` (e.g., realignment tier) before a full marketing push.
 

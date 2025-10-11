@@ -82,6 +82,18 @@ export async function runOrder(ref: OrderReference, opts: RunOptions = {}): Prom
   if (!intake.fulfillmentType) {
     intake = { ...intake, fulfillmentType: 'digital' };
   }
+  console.info('[fulfillment.runner] Resolved intake', {
+    email: intake.email,
+    tier: intake.tier,
+    source: intake.source,
+    fulfillmentType: intake.fulfillmentType,
+    reference:
+      typeof ref === 'string'
+        ? ref
+        : 'kind' in ref
+        ? `${ref.kind}${'sessionId' in ref ? `:${ref.sessionId}` : ''}`
+        : 'intake',
+  });
   let lastError: any = null;
   let record: FulfillmentRecord | null = null;
   const config = await loadFulfillmentConfig(opts);
@@ -89,9 +101,28 @@ export async function runOrder(ref: OrderReference, opts: RunOptions = {}): Prom
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const workspace = await ensureOrderWorkspace(intake, opts);
+      console.info('[fulfillment.runner] Workspace ready', {
+        email: intake.email,
+        folderUrl: workspace.orderFolderUrl,
+        attempt: attempt + 1,
+      });
       const blueprint = await generateBlueprint(intake, { workspace });
+      console.info('[fulfillment.runner] Blueprint generated', {
+        email: intake.email,
+        docUrl: blueprint.docUrl,
+      });
       const icons = await buildIconBundle(intake, { workspace });
+      console.info('[fulfillment.runner] Icon bundle prepared', {
+        email: intake.email,
+        bundleUrl: icons.bundleFolderUrl,
+        helperBots: icons.helperBots?.length || 0,
+      });
       const schedule = await makeScheduleKit(intake, { workspace });
+      console.info('[fulfillment.runner] Schedule bundle created', {
+        email: intake.email,
+        scheduleUrl: schedule.scheduleFolderUrl,
+        fileCount: schedule.files.length,
+      });
       const deliveryResult = await deliverFulfillment(intake, blueprint, icons, schedule, {
         env: opts.env,
         workspace,
@@ -99,6 +130,11 @@ export async function runOrder(ref: OrderReference, opts: RunOptions = {}): Prom
       const delivery = deliveryResult.receipts;
       const outputs: FulfillmentOutput[] = deliveryResult.outputs;
       record = { intake, blueprint, icons, schedule, delivery, outputs, workspace };
+      console.info('[fulfillment.runner] Delivery dispatched', {
+        email: intake.email,
+        receipts: delivery.map((receipt) => receipt.channel),
+        outputs: outputs.length,
+      });
 
       const summary: OrderSummary = {
         email: intake.email,
@@ -114,6 +150,13 @@ export async function runOrder(ref: OrderReference, opts: RunOptions = {}): Prom
       await recordOrderSummary(summary);
       await setLastOrderSummary(summary, opts.env);
       await updateNotion(record, opts.env);
+      console.info('[fulfillment.runner] Fulfillment summary recorded', {
+        email: intake.email,
+        sheetLogged: Boolean(workspace.config.sheetId),
+        notionLogged: Boolean(
+          workspace.config.notionDatabaseId || process.env.FULFILLMENT_NOTION_DB_ID
+        ),
+      });
       return record;
     } catch (err) {
       lastError = err;
