@@ -14,6 +14,9 @@ export type Env = {
   GITHUB_TOKEN?: string;
   GITHUB_PAT?: string;
   GITHUB_REF_NAME?: string;
+  POSTQ_KV_ID?: string;
+  POSTQ_KV_NAMESPACE?: string;
+  POSTQ_KV_TOKEN?: string;
   CODEX_SYNC_URL?: string;
   CODEX_ENDPOINT?: string;
   CODEX_LEARN_URL?: string;
