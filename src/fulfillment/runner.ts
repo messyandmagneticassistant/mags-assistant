@@ -1,4 +1,10 @@
-import type { NormalizedIntake, FulfillmentRecord, OrderSummary, FulfillmentOutput } from './types';
+import type {
+  NormalizedIntake,
+  FulfillmentRecord,
+  OrderSummary,
+  FulfillmentOutput,
+  FulfillmentTier,
+} from './types';
 import { normalizeFromStripe, normalizeFromTally } from './intake';
 import { generateBlueprint } from './blueprint';
 import { buildIconBundle } from './icons';
@@ -15,12 +21,20 @@ import { setLastOrderSummary } from '../queue';
 
 export type OrderReference =
   | string
-  | { kind: 'stripe-session'; sessionId: string; env?: any }
+  | { kind: 'stripe-session'; sessionId: string; env?: any; productId?: string; tierHint?: FulfillmentTier }
   | { kind: 'tally'; payload: any; env?: any }
   | { kind: 'intake'; intake: NormalizedIntake };
 
 interface RunOptions {
   env?: any;
+  order?: {
+    tier: FulfillmentTier;
+    productId?: string;
+    priceId?: string;
+    description?: string | null;
+    isAddon?: boolean;
+    quantity?: number;
+  };
 }
 
 function formatFiles(record: FulfillmentRecord): string[] {
@@ -65,11 +79,14 @@ async function updateNotion(record: FulfillmentRecord, env?: any) {
 
 async function resolveIntake(ref: OrderReference, opts: RunOptions): Promise<NormalizedIntake> {
   if (typeof ref === 'string') {
-    return normalizeFromStripe(ref, { env: opts.env });
+    return normalizeFromStripe(ref, { env: opts.env, tierHint: opts.order?.tier });
   }
   if ('intake' in ref) return ref.intake;
   if (ref.kind === 'stripe-session') {
-    return normalizeFromStripe(ref.sessionId, { env: ref.env || opts.env });
+    return normalizeFromStripe(ref.sessionId, {
+      env: ref.env || opts.env,
+      tierHint: ref.tierHint || opts.order?.tier,
+    });
   }
   if (ref.kind === 'tally') {
     return normalizeFromTally(ref.payload, { env: ref.env || opts.env });
@@ -87,6 +104,9 @@ export async function runOrder(ref: OrderReference, opts: RunOptions = {}): Prom
     tier: intake.tier,
     source: intake.source,
     fulfillmentType: intake.fulfillmentType,
+    productId: opts.order?.productId,
+    priceId: opts.order?.priceId,
+    quantity: opts.order?.quantity,
     reference:
       typeof ref === 'string'
         ? ref

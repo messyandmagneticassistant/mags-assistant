@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
-import { buildReadingPayloads } from '../../../../lib/stripe/buildReadingPayloads';
-import { triggerReading } from '../../../../lib/stripe/reading';
+import { triggerReading, type TriggerReadingPayload } from '../../../../lib/stripe/reading';
 
 const stripeApiVersion: Stripe.LatestApiVersion = '2023-10-16';
 
@@ -45,9 +44,9 @@ export async function POST(req: NextRequest) {
       expand: ['data.price.product'],
     });
 
-    const readingPayloads = buildReadingPayloads(session, lineItems.data);
+    const payload = buildTriggerPayload(session, lineItems.data);
 
-    if (!readingPayloads.length) {
+    if (!payload.lineItems.length) {
       if (process.env.NODE_ENV !== 'production') {
         console.info('[StripeWebhook] No soul reading metadata found', {
           sessionId: session.id,
@@ -57,14 +56,14 @@ export async function POST(req: NextRequest) {
       return new NextResponse('No reading items', { status: 200 });
     }
 
-    await Promise.all(readingPayloads.map((payload) => triggerReading(payload)));
+    const records = await triggerReading(payload);
 
     if (process.env.NODE_ENV !== 'production') {
       console.info('[StripeWebhook] Soul reading automation dispatched', {
         sessionId: session.id,
-        payloadCount: readingPayloads.length,
-        tiers: readingPayloads.map((payload) => payload.metadata.tier),
-        email: readingPayloads[0]?.email ?? '',
+        fulfilled: records.length,
+        tiers: records.map((record) => record.intake.tier),
+        email: payload.email,
         lineItems: lineItems.data.length,
       });
     }
@@ -75,4 +74,51 @@ export async function POST(req: NextRequest) {
   }
 
   return new NextResponse('OK', { status: 200 });
+}
+
+function buildTriggerPayload(
+  session: Stripe.Checkout.Session,
+  lineItems: Stripe.LineItem[]
+): TriggerReadingPayload {
+  const email =
+    session.customer_details?.email ||
+    (typeof session.customer_email === 'string' ? session.customer_email : '') ||
+    '';
+  const name = session.customer_details?.name || '';
+  const purchasedAt = new Date(((session.created ?? Date.now() / 1000) as number) * 1000).toISOString();
+  const sessionId = session.id ?? '';
+
+  const items: TriggerReadingPayload['lineItems'] = lineItems.map((item) => {
+    const price = item.price;
+    const product = price?.product;
+    const productId = typeof product === 'string' ? product : product?.id;
+    const productMetadata =
+      product && typeof product !== 'string' && product.metadata ? product.metadata : {};
+    const priceMetadata = price?.metadata ?? {};
+    const combinedMetadata: Record<string, string | boolean | null | undefined> = {
+      ...productMetadata,
+      ...priceMetadata,
+    };
+
+    return {
+      id: item.id || '',
+      productId: productId || undefined,
+      priceId: price?.id || undefined,
+      description:
+        item.description ||
+        (typeof product !== 'string' ? product?.name : undefined) ||
+        price?.nickname ||
+        null,
+      quantity: item.quantity ?? 1,
+      metadata: combinedMetadata,
+    };
+  });
+
+  return {
+    email,
+    name,
+    sessionId,
+    purchasedAt,
+    lineItems: items,
+  };
 }

@@ -2,18 +2,59 @@ import type { FulfillmentRecord } from '../../src/fulfillment/types';
 import { runOrder } from '../../src/fulfillment/runner';
 import { getConfig } from '../../utils/config';
 import { updateBrain } from '../brain';
+import { resolveTierFromProduct } from '../../utils/product';
+
+const TIER_KEYS = ['reading_tier', 'tier', 'level', 'reading-tier'] as const;
+const ADDON_KEYS = ['is_addon', 'addon', 'isAddon', 'is-addon'] as const;
+
+type TierKey = (typeof TIER_KEYS)[number];
+type AddOnKey = (typeof ADDON_KEYS)[number];
+
+function firstMetadataValue(
+  metadata: Record<string, string | boolean | null | undefined>,
+  keys: readonly string[]
+): string | boolean | null | undefined {
+  for (const key of keys) {
+    if (key in metadata) {
+      return metadata[key];
+    }
+  }
+  return undefined;
+}
+
+function parseBoolean(value: string | boolean | null | undefined): boolean | undefined {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (['true', '1', 'yes', 'y'].includes(normalized)) return true;
+  if (['false', '0', 'no', 'n'].includes(normalized)) return false;
+  return undefined;
+}
+
+function parseTier(value: string | null | undefined): 'full' | 'lite' | 'mini' | undefined {
+  if (!value) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'full' || normalized === 'lite' || normalized === 'mini') {
+    return normalized;
+  }
+  return undefined;
+}
+
+export interface TriggerReadingLineItem {
+  id: string;
+  productId?: string;
+  priceId?: string;
+  description?: string | null;
+  quantity: number;
+  metadata: Record<string, string | boolean | null | undefined>;
+}
 
 export interface TriggerReadingPayload {
   email: string;
   name: string;
-  metadata: {
-    tier: 'full' | 'lite' | 'mini';
-    is_addon: boolean;
-    child_friendly?: boolean;
-    [key: string]: string | boolean | null | undefined;
-  };
   sessionId: string;
   purchasedAt: string;
+  lineItems: TriggerReadingLineItem[];
 }
 
 const FULFILLMENT_ENV_KEYS = [
@@ -283,48 +324,97 @@ async function syncBrain(record: FulfillmentRecord) {
   }
 }
 
+function resolveTier(metadata: TriggerReadingLineItem['metadata'], productId?: string | null) {
+  const metadataTier = parseTier(firstMetadataValue(metadata, TIER_KEYS as readonly TierKey[]));
+  const mappedTier = resolveTierFromProduct(productId);
+  return metadataTier || mappedTier;
+}
+
+function isAddon(metadata: TriggerReadingLineItem['metadata']): boolean {
+  const raw = firstMetadataValue(metadata, ADDON_KEYS as readonly AddOnKey[]);
+  return Boolean(parseBoolean(raw));
+}
+
 // TODO: handle subscription renewals (invoices) so repeat deliveries run automatically.
-export async function triggerReading(payload: TriggerReadingPayload): Promise<FulfillmentRecord> {
+export async function triggerReading(payload: TriggerReadingPayload): Promise<FulfillmentRecord[]> {
   if (!payload.sessionId) {
     throw new Error('triggerReading requires a Stripe checkout session id');
   }
 
-  const start = Date.now();
-  const context = {
+  console.info('[reading.trigger] Received checkout fulfillment request', {
     sessionId: payload.sessionId,
-    tier: payload.metadata?.tier,
     email: payload.email,
-    isAddon: payload.metadata?.is_addon,
-  };
-
-  console.info('[reading.trigger] Received checkout fulfillment request', context);
+    lineItems: payload.lineItems?.length || 0,
+  });
   const fulfillmentEnv = await ensureFulfillmentEnv();
+  const records: FulfillmentRecord[] = [];
+  const lineItems = payload.lineItems || [];
 
-  if (payload.metadata?.is_addon) {
-    console.info('[reading.trigger] Line item marked as add-on; reusing primary reading session context', {
+  for (const item of lineItems) {
+    const tier = resolveTier(item.metadata, item.productId);
+    const addon = isAddon(item.metadata);
+    const lineContext = {
       sessionId: payload.sessionId,
+      productId: item.productId,
+      priceId: item.priceId,
+      tier,
+      email: payload.email,
+      addon,
+    };
+
+    if (addon) {
+      console.info('[reading.trigger] Skipping add-on line item', lineContext);
+      continue;
+    }
+
+    if (!tier) {
+      console.warn('[reading.trigger] Unable to map product to reading tier', {
+        ...lineContext,
+        description: item.description,
+      });
+      continue;
+    }
+
+    const start = Date.now();
+    try {
+      console.info('[reading.trigger] Launching fulfillment pipeline', lineContext);
+      const record = await runOrder(
+        { kind: 'stripe-session', sessionId: payload.sessionId, productId: item.productId, tierHint: tier },
+        {
+          env: fulfillmentEnv,
+          order: {
+            tier,
+            productId: item.productId,
+            priceId: item.priceId,
+            description: item.description,
+            isAddon: addon,
+            quantity: item.quantity,
+          },
+        }
+      );
+      const durationMs = Date.now() - start;
+      console.info('[reading.trigger] Fulfillment pipeline complete', {
+        ...lineContext,
+        durationMs,
+        summary: describeRecord(record),
+      });
+      await syncBrain(record);
+      records.push(record);
+    } catch (err) {
+      console.error('[reading.trigger] Fulfillment pipeline failed', {
+        ...lineContext,
+        error: err instanceof Error ? err.message : err,
+      });
+      throw err;
+    }
+  }
+
+  if (!records.length) {
+    console.warn('[reading.trigger] No qualifying soul reading line items found', {
+      sessionId: payload.sessionId,
+      lineItems: lineItems.length,
     });
   }
 
-  try {
-    console.info('[reading.trigger] Launching fulfillment pipeline', {
-      sessionId: payload.sessionId,
-      tier: payload.metadata?.tier,
-    });
-    const record = await runOrder({ kind: 'stripe-session', sessionId: payload.sessionId }, { env: fulfillmentEnv });
-    const durationMs = Date.now() - start;
-    console.info('[reading.trigger] Fulfillment pipeline complete', {
-      ...context,
-      durationMs,
-      summary: describeRecord(record),
-    });
-    await syncBrain(record);
-    return record;
-  } catch (err) {
-    console.error('[reading.trigger] Fulfillment pipeline failed', {
-      ...context,
-      error: err instanceof Error ? err.message : err,
-    });
-    throw err;
-  }
+  return records;
 }

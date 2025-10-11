@@ -1,7 +1,6 @@
-import type Stripe from 'stripe';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { buildReadingPayloads } from '../lib/stripe/buildReadingPayloads';
+import type { TriggerReadingPayload } from '../lib/stripe/reading';
 
 const runOrderMock = vi.fn();
 const updateBrainMock = vi.fn();
@@ -73,62 +72,79 @@ describe('Stripe soul reading automation', () => {
     }
   });
 
-  it('builds reading payloads with price metadata priority', () => {
-    const session = {
-      id: 'cs_test_123',
-      customer_details: { email: 'reader@example.com', name: 'Reader Example' },
-      customer_email: null,
-      created: Math.floor(Date.now() / 1000),
-    } as Stripe.Checkout.Session;
-
-    const lineItems = [
-      {
-        id: 'li_test_123',
-        price: {
-          id: 'price_test_123',
+  it('prioritizes price metadata tier ahead of product mapping', async () => {
+    const payload: TriggerReadingPayload = {
+      email: 'reader@example.com',
+      name: 'Reader Example',
+      sessionId: 'cs_test_123',
+      purchasedAt: new Date().toISOString(),
+      lineItems: [
+        {
+          id: 'li_test_123',
+          productId: 'prod_full_soul_blueprint',
+          priceId: 'price_test_123',
+          description: 'Full Soul Blueprint',
+          quantity: 1,
           metadata: {
             reading_tier: 'lite',
             is_addon: 'false',
-          },
-          product: {
-            id: 'prod_test_123',
-            metadata: {
-              reading_tier: 'full',
-              is_addon: 'true',
-              child_friendly: 'true',
-              special_note: 'thank you',
-            },
+            child_friendly: 'true',
+            special_note: 'thank you',
           },
         },
-      },
-    ] as unknown as Stripe.LineItem[];
+      ],
+    };
 
-    const payloads = buildReadingPayloads(session, lineItems);
-
-    expect(payloads).toHaveLength(1);
-    expect(payloads[0]).toMatchObject({
+    const fulfillmentRecord: ReturnType<typeof buildFulfillmentRecord> = buildFulfillmentRecord({
       email: 'reader@example.com',
-      name: 'Reader Example',
-      metadata: {
-        tier: 'lite',
-        is_addon: false,
-        child_friendly: true,
-        special_note: 'thank you',
-      },
-      sessionId: 'cs_test_123',
+      tier: 'lite',
     });
+
+    getConfigMock.mockResolvedValue({});
+    runOrderMock.mockResolvedValue(fulfillmentRecord);
+    updateBrainMock.mockResolvedValue(undefined);
+
+    const records = await triggerReading(payload);
+
+    expect(records).toEqual([fulfillmentRecord]);
+    expect(runOrderMock).toHaveBeenCalledWith(
+      {
+        kind: 'stripe-session',
+        sessionId: 'cs_test_123',
+        productId: 'prod_full_soul_blueprint',
+        tierHint: 'lite',
+      },
+      {
+        env: expect.any(Object),
+        order: expect.objectContaining({
+          tier: 'lite',
+          productId: 'prod_full_soul_blueprint',
+          priceId: 'price_test_123',
+          description: 'Full Soul Blueprint',
+          quantity: 1,
+        }),
+      }
+    );
   });
 
   it('runs the internal fulfillment pipeline and syncs the brain', async () => {
-    const payload = {
+    const payload: TriggerReadingPayload = {
       email: 'reader@example.com',
       name: 'Reader Example',
-      metadata: {
-        tier: 'lite' as const,
-        is_addon: false,
-      },
       sessionId: 'cs_test_123',
       purchasedAt: new Date().toISOString(),
+      lineItems: [
+        {
+          id: 'li_test_123',
+          productId: 'prod_lite_soul_blueprint',
+          priceId: 'price_test_123',
+          description: 'Lite Soul Blueprint',
+          quantity: 1,
+          metadata: {
+            is_addon: 'false',
+          },
+        },
+      ],
     };
 
     const fulfillmentRecord: ReturnType<typeof buildFulfillmentRecord> = buildFulfillmentRecord({
@@ -166,13 +182,18 @@ describe('Stripe soul reading automation', () => {
     runOrderMock.mockResolvedValue(fulfillmentRecord);
     updateBrainMock.mockResolvedValue(undefined);
 
-    const record = await triggerReading(payload);
+    const records = await triggerReading(payload);
 
-    expect(record).toEqual(fulfillmentRecord);
+    expect(records).toEqual([fulfillmentRecord]);
     expect(getConfigMock).toHaveBeenCalledTimes(1);
 
     expect(runOrderMock).toHaveBeenCalledWith(
-      { kind: 'stripe-session', sessionId: 'cs_test_123' },
+      {
+        kind: 'stripe-session',
+        sessionId: 'cs_test_123',
+        productId: 'prod_lite_soul_blueprint',
+        tierHint: 'lite',
+      },
       {
         env: expect.objectContaining({
           RESEND_API_KEY: 'resend-key',
@@ -191,6 +212,12 @@ describe('Stripe soul reading automation', () => {
           GOOGLE_KEY_URL: 'https://example.com/google-key',
           FETCH_PASS: 'secret-pass',
         }),
+        order: expect.objectContaining({
+          tier: 'lite',
+          productId: 'prod_lite_soul_blueprint',
+          priceId: 'price_test_123',
+          quantity: 1,
+        }),
       }
     );
 
@@ -202,15 +229,21 @@ describe('Stripe soul reading automation', () => {
   });
 
   it('continues even if brain sync fails', async () => {
-    const payload = {
+    const payload: TriggerReadingPayload = {
       email: 'reader@example.com',
       name: 'Reader Example',
-      metadata: {
-        tier: 'lite' as const,
-        is_addon: false,
-      },
       sessionId: 'cs_test_987',
       purchasedAt: new Date().toISOString(),
+      lineItems: [
+        {
+          id: 'li_test_987',
+          productId: 'prod_lite_soul_blueprint',
+          priceId: 'price_test_987',
+          description: 'Lite Soul Blueprint',
+          quantity: 1,
+          metadata: {},
+        },
+      ],
     };
 
     getConfigMock.mockResolvedValue({});
@@ -218,11 +251,38 @@ describe('Stripe soul reading automation', () => {
       buildFulfillmentRecord({ email: 'reader@example.com', tier: 'lite' })
     );
     updateBrainMock.mockRejectedValue(new Error('network down'));
-
-    await expect(triggerReading(payload)).resolves.toMatchObject({
-      intake: expect.objectContaining({ email: 'reader@example.com' }),
-    });
+    await expect(triggerReading(payload)).resolves.toHaveLength(1);
     expect(updateBrainMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('logs a warning for unknown products', async () => {
+    const payload: TriggerReadingPayload = {
+      email: 'reader@example.com',
+      name: 'Reader Example',
+      sessionId: 'cs_test_456',
+      purchasedAt: new Date().toISOString(),
+      lineItems: [
+        {
+          id: 'li_test_456',
+          productId: 'prod_unknown',
+          priceId: 'price_test_456',
+          description: 'Mystery Item',
+          quantity: 1,
+          metadata: {},
+        },
+      ],
+    };
+
+    getConfigMock.mockResolvedValue({});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const records = await triggerReading(payload);
+
+    expect(records).toEqual([]);
+    expect(runOrderMock).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalled();
+
+    warnSpy.mockRestore();
   });
 });
 
