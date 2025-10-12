@@ -1,4 +1,6 @@
-type GetConfigFn = ((scope: string) => Promise<any>) | undefined;
+type GetConfigFn = (scope: string) => Promise<any>;
+
+const fallbackGetConfig: GetConfigFn = async () => ({});
 
 let resolvedGetConfig: GetConfigFn | null = null;
 
@@ -10,24 +12,25 @@ function normalizeString(value: unknown): string | undefined {
 }
 
 async function loadGetConfig(): Promise<GetConfigFn> {
-  if (resolvedGetConfig !== null) {
+  if (resolvedGetConfig) {
     return resolvedGetConfig;
   }
 
   const candidates = ['../utils/config.js', '../utils/config.ts'];
   for (const candidate of candidates) {
     try {
-      const mod = await import(candidate);
-      if (typeof mod.getConfig === 'function') {
-        resolvedGetConfig = mod.getConfig;
-        return resolvedGetConfig;
-      }
+        const mod = await import(candidate);
+        if (typeof mod.getConfig === 'function') {
+          const getConfig = mod.getConfig as GetConfigFn;
+          resolvedGetConfig = getConfig;
+          return getConfig;
+        }
     } catch {
       // Ignore resolution errors and continue to the next candidate.
     }
   }
 
-  resolvedGetConfig = undefined;
+  resolvedGetConfig = fallbackGetConfig;
   return resolvedGetConfig;
 }
 

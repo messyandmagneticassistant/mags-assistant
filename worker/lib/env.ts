@@ -1,4 +1,6 @@
-export type Env = {
+import type { BrainSyncEnv } from '../../lib/putConfig';
+
+export type Env = BrainSyncEnv & {
   BRAIN: KVNamespace;
   PostQ?: KVNamespace;
   TELEGRAM_TOKEN?: string;
@@ -10,10 +12,14 @@ export type Env = {
   THREAD_STATE_BRANCH?: string;
   THREAD_STATE_REPO?: string;
   THREAD_STATE_PATH?: string;
+  BRAIN_DOC_GITHUB_PATH?: string;
   GITHUB_REPOSITORY?: string;
   GITHUB_TOKEN?: string;
   GITHUB_PAT?: string;
   GITHUB_REF_NAME?: string;
+  POSTQ_KV_ID?: string;
+  POSTQ_KV_NAMESPACE?: string;
+  POSTQ_KV_TOKEN?: string;
   CODEX_SYNC_URL?: string;
   CODEX_ENDPOINT?: string;
   CODEX_LEARN_URL?: string;
