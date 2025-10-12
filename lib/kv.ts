@@ -11,7 +11,7 @@ function normalizeString(value: unknown): string | undefined {
 
 async function loadGetConfig(): Promise<GetConfigFn> {
   if (resolvedGetConfig !== null) {
-    return resolvedGetConfig;
+    return resolvedGetConfig ?? undefined;
   }
 
   const candidates = ['../utils/config.js', '../utils/config.ts'];
@@ -19,8 +19,9 @@ async function loadGetConfig(): Promise<GetConfigFn> {
     try {
       const mod = await import(candidate);
       if (typeof mod.getConfig === 'function') {
-        resolvedGetConfig = mod.getConfig;
-        return resolvedGetConfig;
+        const fn = mod.getConfig as (scope: string) => Promise<any>;
+        resolvedGetConfig = fn;
+        return fn;
       }
     } catch {
       // Ignore resolution errors and continue to the next candidate.
@@ -28,7 +29,7 @@ async function loadGetConfig(): Promise<GetConfigFn> {
   }
 
   resolvedGetConfig = undefined;
-  return resolvedGetConfig;
+  return undefined;
 }
 
 interface ResolveOptions {

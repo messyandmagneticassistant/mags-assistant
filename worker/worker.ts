@@ -13,6 +13,7 @@ import {
 } from './brain';
 import type { Env } from './lib/env';
 import { syncThreadStateFromGitHub, syncBrainDocFromGitHub } from './lib/threadStateSync';
+import { putBrainToKV } from '../lib/putConfig';
 import { serveStaticSite } from './lib/site';
 import {
   bootstrapWorker,
@@ -32,7 +33,30 @@ import {
 } from './lib/reporting';
 import { getSendTelegram, type SendTelegramResult as TelegramHelperResult } from './lib/telegramBridge';
 import { router } from './router/router';
-import { getBrain } from '../lib/getBrain';
+
+let bootBrainSyncPromise: Promise<void> | null = null;
+
+function ensureBootBrainSync(env: Env): Promise<void> {
+  if (!bootBrainSyncPromise) {
+    bootBrainSyncPromise = (async () => {
+      try {
+        const result = await putBrainToKV(env);
+        if (result.ok) {
+          console.log('[worker.boot] brain auto-sync complete', {
+            key: 'PostQ:thread-state',
+            bytes: result.bytes ?? null,
+            warnings: result.warnings ?? [],
+          });
+        } else {
+          console.warn('[worker.boot] brain auto-sync skipped', result);
+        }
+      } catch (err) {
+        console.error('[worker.boot] brain auto-sync failed', err);
+      }
+    })();
+  }
+  return bootBrainSyncPromise ?? Promise.resolve();
+}
 // ---------------- CORS helpers ----------------
 const CORS_BASE: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -590,23 +614,6 @@ router.get(
   { stage: 'pre' }
 );
 
-router.get(
-  '/brain',
-  async () => {
-    try {
-      const content = await getBrain();
-      return new Response(content, {
-        headers: { 'content-type': 'text/plain; charset=utf-8' },
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error('[worker:/brain] failed to load brain', message);
-      return jsonResponse({ ok: false, error: 'brain-fetch-failed', message }, { status: 500 });
-    }
-  },
-  { stage: 'pre' }
-);
-
 router.get('/test-telegram', async (req, env) => {
   const unauthorized = requireAdminAuthorization(req, env);
   if (unauthorized) {
@@ -947,6 +954,9 @@ export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
 
+    const bootSync = ensureBootBrainSync(env);
+    if (bootSync) ctx.waitUntil(bootSync);
+
     const preBootstrapResponse = await router.handlePreBootstrap(req, env, ctx);
     if (preBootstrapResponse) {
       return preBootstrapResponse;
@@ -1042,6 +1052,34 @@ export default {
       if (url.pathname === '/diag/brain-state') {
         const snapshot = await getBrainStateSnapshot(env, { recentLimit: 5 });
         return jsonResponse(snapshot);
+      }
+
+      if (url.pathname === '/refresh-brain') {
+        if (req.method !== 'POST') {
+          const res = jsonResponse({ ok: false, error: 'method-not-allowed' }, { status: 405 });
+          res.headers.set('Allow', 'POST');
+          return res;
+        }
+
+        const unauthorized = requireAdminAuthorization(req, env);
+        if (unauthorized) return unauthorized;
+
+        try {
+          const result = await putBrainToKV(env);
+          console.log('[worker:/refresh-brain] manual sync result', result);
+          return jsonResponse({
+            ok: result.ok,
+            skipped: Boolean(result.skipped),
+            reason: result.reason ?? null,
+            warnings: result.warnings ?? [],
+            syncedAt: result.syncedAt ?? null,
+            bytes: result.bytes ?? null,
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'brain-sync-failed';
+          console.error('[worker:/refresh-brain] manual sync crashed', err);
+          return jsonResponse({ ok: false, error: message }, { status: 500 });
+        }
       }
 
       if (url.pathname === '/status') {
@@ -1427,6 +1465,9 @@ export default {
 
   // ------------- Cron (Cloudflare scheduled triggers) -------------
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    const bootSync = ensureBootBrainSync(env);
+    if (bootSync) ctx.waitUntil(bootSync);
+
     // Optional warm ping (harmless if unset)
     try {
       const warmUrl = env?.APPS_SCRIPT_EXEC || env?.APPS_SCRIPT_WEBAPP_URL;
