@@ -95,57 +95,77 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ env.EFFECTIVE_GITHUB_TOKEN || github.token }}
+          fetch-depth: 0
 
-      - name: Verify brain sources
+      - name: Ensure default branch content
         if: steps.secrets.outputs.missing == 'false'
         shell: bash
         run: |
           set -euo pipefail
-          if [ ! -f config/kv-state.json ]; then
-            echo 'config/kv-state.json missing; cannot continue.'
+          default_branch=$(git remote show origin | sed -n '/HEAD branch/s/.*: //p')
+          if [ -z "$default_branch" ]; then
+            echo '::warning::Unable to determine default branch from origin; assuming main.'
+            default_branch=main
+          fi
+          echo "Using default branch: $default_branch"
+          git fetch origin "$default_branch"
+          git checkout --quiet "origin/$default_branch"
+          echo "Checked out commit $(git rev-parse HEAD) from $default_branch"
+
+      - name: Locate brain document
+        if: steps.secrets.outputs.missing == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f brain/brain.md ]; then
+            echo 'brain/brain.md not found on the default branch; aborting.'
             exit 1
           fi
-
-          if [ -f docs/.brain.md ]; then
-            echo 'Found docs/.brain.md for context.'
-          elif [ -f brain/index.ts ]; then
-            echo 'Found brain/index.ts for context.'
-          else
-            echo '::warning::No docs/.brain.md or brain/index.ts found.'
-          fi
+          echo "Found brain document with $(wc -c < brain/brain.md) bytes."
 
       - name: Setup Node.js
         if: steps.secrets.outputs.missing == 'false'
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: pnpm
 
-      - name: Enable Corepack and install pnpm
+      - name: Install Wrangler CLI
         if: steps.secrets.outputs.missing == 'false'
-        run: |
-          corepack enable
-          corepack prepare pnpm@latest --activate
+        run: npm install -g wrangler@3
 
-      - name: Install dependencies
+      - name: Upload brain to Cloudflare KV
         if: steps.secrets.outputs.missing == 'false'
-        run: pnpm install --frozen-lockfile
-
-      - name: Sync brain to KV
-        if: steps.secrets.outputs.missing == 'false'
-        run: pnpm updateBrain
-
-      - name: Verify remote brain payload
-        if: steps.secrets.outputs.missing == 'false'
-        run: pnpm exec tsx scripts/brainPing.ts
-
-      - name: Output brain sync log
-        if: steps.secrets.outputs.missing == 'false'
+        env:
+          KV_NAMESPACE_ID: ${{ env.KV_NAMESPACE_ID }}
+          CF_API_TOKEN: ${{ env.CF_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ env.CLOUDFLARE_API_TOKEN }}
         shell: bash
         run: |
-          if [ -f brain-status.log ]; then
-            echo 'Brain sync log:'
-            cat brain-status.log
+          set -euo pipefail
+          echo 'Uploading brain/brain.md to Cloudflare KV as brain/latest...'
+          wrangler kv:key put \
+            brain/latest \
+            --namespace-id "$KV_NAMESPACE_ID" \
+            --path brain/brain.md
+          echo 'Brain upload complete.'
+
+      - name: Verify brain endpoint (diagnostic)
+        if: steps.secrets.outputs.missing == 'false'
+        continue-on-error: true
+        env:
+          VERIFY_PHRASE: "# Soul Blueprint Systems"
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'Fetching remote brain endpoint for verification...'
+          response=$(curl -fsS https://maggie.messyandmagnetic.com/brain || true)
+          if [ -z "$response" ]; then
+            echo '::warning::Unable to fetch remote brain endpoint.'
+            exit 1
+          fi
+          if echo "$response" | grep -Fq "$VERIFY_PHRASE"; then
+            echo 'Verified remote brain contains expected phrase.'
           else
-            echo 'brain-status.log was not produced.'
+            echo '::warning::Remote brain response does not contain the expected phrase.'
+            exit 1
           fi
