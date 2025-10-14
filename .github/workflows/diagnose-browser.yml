@@ -1,0 +1,21 @@
+name: Diagnose Browserless
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - run: pnpm install
+      - run: pnpm exec tsx scripts/diagnose-browserless.ts
+        env:
+          BROWSERLESS_API_KEY: ${{ secrets.BROWSERLESS_API_KEY }}
+          TIKTOK_SESSION_MAIN: ${{ secrets.TIKTOK_SESSION_MAIN }}
