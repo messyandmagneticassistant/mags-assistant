@@ -34,6 +34,79 @@ import {
 import { getSendTelegram, type SendTelegramResult as TelegramHelperResult } from './lib/telegramBridge';
 import { router } from './router/router';
 
+const BRAIN_LATEST_KV_KEY = 'brain/latest';
+const DEFAULT_BRAIN_KV_FALLBACK_KEY = 'PostQ:thread-state';
+const DEFAULT_GITHUB_REPOSITORY = 'messyandmagneticassistant/mags-assistant';
+const DEFAULT_GITHUB_REF = 'main';
+
+type BrainSnapshot = { key: string; value: string; bytes: number };
+
+type CodexSyncResult = {
+  ok: boolean;
+  skipped?: boolean;
+  key?: string;
+  status?: number;
+  reason?: string;
+};
+
+type BrainSyncDispatchResult = {
+  ok: boolean;
+  reason: string;
+  repo: string;
+  ref: string;
+  workflowAttempted: boolean;
+  workflowStatus?: number;
+  repositoryAttempted: boolean;
+  repositoryStatus?: number;
+  error?: string;
+};
+
+function computeByteLength(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+function collectBrainKvCandidates(env: Env): string[] {
+  const keys = new Set<string>();
+  keys.add(BRAIN_LATEST_KV_KEY);
+
+  const configured = typeof env.BRAIN_DOC_KEY === 'string' ? env.BRAIN_DOC_KEY.trim() : '';
+  if (configured) keys.add(configured);
+
+  keys.add(DEFAULT_BRAIN_KV_FALLBACK_KEY);
+
+  const legacy = typeof env.SECRET_BLOB === 'string' ? env.SECRET_BLOB.trim() : '';
+  if (legacy) keys.add(legacy);
+  keys.add('thread-state');
+
+  return Array.from(keys);
+}
+
+async function readBrainSnapshotFromKv(env: Env): Promise<BrainSnapshot | null> {
+  const kv = env?.BRAIN;
+  if (!kv || typeof kv.get !== 'function') {
+    console.warn('[worker:brain] BRAIN KV binding missing; brain snapshot unavailable.');
+    return null;
+  }
+
+  const candidates = collectBrainKvCandidates(env);
+  for (const key of candidates) {
+    try {
+      const value = await kv.get(key, 'text');
+      if (typeof value === 'string' && value.length) {
+        if (key !== BRAIN_LATEST_KV_KEY) {
+          console.warn(`[worker:brain] ${BRAIN_LATEST_KV_KEY} missing; using fallback key "${key}".`);
+        }
+        return { key, value, bytes: computeByteLength(value) };
+      }
+    } catch (err) {
+      console.warn(`[worker:brain] Failed to read KV key ${key}`, err);
+    }
+  }
+
+  console.warn('[worker:brain] No brain snapshot found in KV for candidates', candidates);
+  return null;
+}
+
 let bootBrainSyncPromise: Promise<void> | null = null;
 
 function ensureBootBrainSync(env: Env): Promise<void> {
@@ -47,6 +120,15 @@ function ensureBootBrainSync(env: Env): Promise<void> {
             bytes: result.bytes ?? null,
             warnings: result.warnings ?? [],
           });
+          const codexResult = await syncCodexBrainSnapshot(env);
+          if (codexResult.ok) {
+            console.log('[worker.boot] codex brain snapshot synced', {
+              key: codexResult.key ?? null,
+              status: codexResult.status ?? null,
+            });
+          } else if (!codexResult.skipped) {
+            console.warn('[worker.boot] codex brain snapshot sync skipped', codexResult);
+          }
         } else {
           console.warn('[worker.boot] brain auto-sync skipped', result);
         }
@@ -221,6 +303,236 @@ function getCodexAuthToken(env: Env): string | null {
       env.SYNC_KEY
     ) ?? null
   );
+}
+
+async function syncCodexBrainSnapshot(env: Env): Promise<CodexSyncResult> {
+  const codexUrl = getCodexSyncUrl(env);
+  if (!codexUrl) {
+    console.warn('[worker:codex] CODEX sync URL missing; skipping brain snapshot sync.');
+    return { ok: false, skipped: true, reason: 'codex-url-missing' };
+  }
+
+  const snapshot = await readBrainSnapshotFromKv(env);
+  if (!snapshot) {
+    return { ok: false, skipped: true, reason: 'brain-snapshot-missing' };
+  }
+
+  const headers = new Headers({ 'content-type': 'application/json' });
+  const codexToken = getCodexAuthToken(env);
+  if (codexToken) headers.set('authorization', `Bearer ${codexToken}`);
+
+  const payload = {
+    type: 'brain-snapshot',
+    key: snapshot.key,
+    blob: snapshot.value,
+    bytes: snapshot.bytes,
+    updatedAt: new Date().toISOString(),
+  };
+
+  try {
+    const response = await fetch(codexUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const message = await response.text().catch(() => '');
+      console.warn('[worker:codex] brain snapshot push failed', {
+        status: response.status,
+        message,
+      });
+      return {
+        ok: false,
+        status: response.status,
+        key: snapshot.key,
+        reason: message || 'codex-sync-failed',
+      };
+    }
+
+    console.log('[worker:codex] brain snapshot synced', {
+      key: snapshot.key,
+      status: response.status,
+      bytes: snapshot.bytes,
+    });
+
+    return { ok: true, status: response.status, key: snapshot.key };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    console.warn('[worker:codex] brain snapshot sync error', reason);
+    return { ok: false, key: snapshot.key, reason };
+  }
+}
+
+function pickGitHubDispatchToken(env: Env): string | null {
+  const record = env as Record<string, unknown>;
+  const candidates = [
+    record.GH_PAT,
+    env.GITHUB_PAT,
+    env.GITHUB_TOKEN,
+    record.GH_TOKEN,
+    record.GITHUB_TOKEN,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+
+  return null;
+}
+
+function determineBrainSyncRepository(env: Env): string {
+  const record = env as Record<string, unknown>;
+  return (
+    firstNonEmptyString(
+      record.BRAIN_SYNC_REPO as string | undefined | null,
+      env.THREAD_STATE_REPO,
+      env.GITHUB_REPOSITORY,
+      record.GITHUB_REPOSITORY as string | undefined | null
+    ) ?? DEFAULT_GITHUB_REPOSITORY
+  );
+}
+
+function determineBrainSyncRef(env: Env): string {
+  const record = env as Record<string, unknown>;
+  return (
+    firstNonEmptyString(
+      record.BRAIN_SYNC_BRANCH as string | undefined | null,
+      env.THREAD_STATE_BRANCH,
+      record.THREAD_STATE_REF as string | undefined | null,
+      env.GITHUB_REF_NAME,
+      record.GITHUB_REF_NAME as string | undefined | null
+    ) ?? DEFAULT_GITHUB_REF
+  );
+}
+
+async function triggerBrainSyncDispatch(
+  env: Env,
+  reason: string | null
+): Promise<BrainSyncDispatchResult> {
+  const token = pickGitHubDispatchToken(env);
+  const repo = determineBrainSyncRepository(env);
+  const ref = determineBrainSyncRef(env);
+  const trimmedReason = (reason ?? '').trim().slice(0, 120) || 'worker-manual-trigger';
+
+  if (!token) {
+    console.warn('[worker:/brain/sync] GitHub token missing; cannot dispatch brain sync.');
+    return {
+      ok: false,
+      reason: trimmedReason,
+      repo,
+      ref,
+      workflowAttempted: false,
+      repositoryAttempted: false,
+      error: 'github-token-missing',
+    };
+  }
+
+  const buildHeaders = () =>
+    new Headers({
+      authorization: `Bearer ${token}`,
+      accept: 'application/vnd.github+json',
+      'content-type': 'application/json',
+      'user-agent': 'maggie-worker-brain-sync',
+    });
+
+  let workflowStatus: number | undefined;
+  let workflowAttempted = false;
+  let workflowError: string | undefined;
+
+  try {
+    workflowAttempted = true;
+    const workflowUrl = `https://api.github.com/repos/${repo}/actions/workflows/sync-brain.yml/dispatches`;
+    const response = await fetch(workflowUrl, {
+      method: 'POST',
+      headers: buildHeaders(),
+      body: JSON.stringify({ ref, inputs: { reason: trimmedReason } }),
+    });
+    workflowStatus = response.status;
+    if (response.ok) {
+      console.log('[worker:/brain/sync] Dispatched sync-brain workflow', {
+        repo,
+        ref,
+        status: response.status,
+        reason: trimmedReason,
+      });
+      return {
+        ok: true,
+        reason: trimmedReason,
+        repo,
+        ref,
+        workflowAttempted,
+        workflowStatus,
+        repositoryAttempted: false,
+      };
+    }
+    workflowError = await response.text().catch(() => '');
+    console.warn('[worker:/brain/sync] Workflow dispatch failed', {
+      status: response.status,
+      reason: workflowError,
+    });
+  } catch (err) {
+    workflowError = err instanceof Error ? err.message : String(err);
+    console.error('[worker:/brain/sync] Workflow dispatch error', err);
+  }
+
+  let repositoryStatus: number | undefined;
+  let repositoryAttempted = false;
+  let repositoryError: string | undefined;
+
+  try {
+    repositoryAttempted = true;
+    const repoUrl = `https://api.github.com/repos/${repo}/dispatches`;
+    const response = await fetch(repoUrl, {
+      method: 'POST',
+      headers: buildHeaders(),
+      body: JSON.stringify({
+        event_type: 'brain-sync',
+        client_payload: { reason: trimmedReason, ref },
+      }),
+    });
+    repositoryStatus = response.status;
+    if (response.ok) {
+      console.log('[worker:/brain/sync] Dispatched repository brain-sync event', {
+        repo,
+        ref,
+        status: response.status,
+        reason: trimmedReason,
+      });
+      return {
+        ok: true,
+        reason: trimmedReason,
+        repo,
+        ref,
+        workflowAttempted,
+        workflowStatus,
+        repositoryAttempted,
+        repositoryStatus,
+      };
+    }
+    repositoryError = await response.text().catch(() => '');
+    console.warn('[worker:/brain/sync] Repository dispatch failed', {
+      status: response.status,
+      reason: repositoryError,
+    });
+  } catch (err) {
+    repositoryError = err instanceof Error ? err.message : String(err);
+    console.error('[worker:/brain/sync] Repository dispatch error', err);
+  }
+
+  return {
+    ok: false,
+    reason: trimmedReason,
+    repo,
+    ref,
+    workflowAttempted,
+    workflowStatus,
+    repositoryAttempted,
+    repositoryStatus,
+    error: repositoryError ?? workflowError,
+  };
 }
 
 const SENSITIVE_KEY_PATTERN = /token|secret|password|key|credential|cookie|bearer|session|auth/i;
@@ -771,6 +1083,66 @@ router.post('/stripe/webhook', async (req, env, ctx) => {
   }
 
   return jsonResponse({ ok: true });
+});
+
+router.get('/brain/verify', async (req, env) => {
+  const unauthorized = requireAdminAuthorization(req, env);
+  if (unauthorized) return unauthorized;
+
+  const snapshot = await readBrainSnapshotFromKv(env);
+  if (!snapshot) {
+    return jsonResponse({ ok: false, error: 'brain-snapshot-missing' }, { status: 404 });
+  }
+
+  const payload = {
+    ok: true,
+    key: snapshot.key,
+    bytes: snapshot.bytes,
+    retrievedAt: new Date().toISOString(),
+    preview: snapshot.value.slice(0, 512),
+    value: snapshot.value,
+  };
+
+  const response = jsonResponse(payload);
+  response.headers.set('cache-control', 'no-store');
+  return response;
+});
+
+router.post('/brain/sync', async (req, env) => {
+  const unauthorized = requireAdminAuthorization(req, env);
+  if (unauthorized) return unauthorized;
+
+  const url = new URL(req.url);
+  let reason = url.searchParams.get('reason');
+  if (reason) reason = reason.trim();
+
+  if (!reason) {
+    const contentType = req.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      try {
+        const body = (await req.json()) as { reason?: unknown };
+        if (typeof body?.reason === 'string') {
+          reason = body.reason.trim();
+        }
+      } catch (err) {
+        console.warn('[worker:/brain/sync] invalid JSON body', err);
+      }
+    }
+  }
+
+  const dispatchResult = await triggerBrainSyncDispatch(env, reason ?? null);
+  const codexResult = await syncCodexBrainSnapshot(env);
+
+  const status = dispatchResult.ok ? 200 : 502;
+  return jsonResponse(
+    {
+      ok: dispatchResult.ok,
+      reason: dispatchResult.reason,
+      dispatch: dispatchResult,
+      codex: codexResult,
+    },
+    { status }
+  );
 });
 
 router.post('/brain/learn', async (req, env) => {
