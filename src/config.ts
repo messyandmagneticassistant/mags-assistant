@@ -48,11 +48,39 @@ export async function getSecrets(env: any) {
   return fallback ?? {};
 }
 
+function collectBrainKeys(env: any): string[] {
+  const keys = new Set<string>();
+  keys.add('brain/latest');
+
+  const configured = typeof env.BRAIN_DOC_KEY === 'string' ? env.BRAIN_DOC_KEY.trim() : '';
+  if (configured) keys.add(configured);
+
+  keys.add('PostQ:thread-state');
+
+  const legacy = typeof env.SECRET_BLOB === 'string' ? env.SECRET_BLOB.trim() : '';
+  if (legacy) keys.add(legacy);
+  keys.add('thread-state');
+
+  return Array.from(keys);
+}
+
 export async function getBrainDoc(env: any) {
-  const k = env.BRAIN_DOC_KEY || 'PostQ:thread-state';
-  const v = await readFromKV(env, k);
-  if (typeof v === 'string' && v.length) return v;
+  for (const key of collectBrainKeys(env)) {
+    const v = await readFromKV(env, key);
+    if (typeof v === 'string' && v.length) {
+      if (key !== 'brain/latest') {
+        console.warn(`[config] brain/latest missing; using fallback key "${key}".`);
+      }
+      return v;
+    }
+  }
 
   const fallback = await loadFallback();
-  return fallback ? JSON.stringify(fallback) : '';
+  if (fallback) {
+    console.warn('[config] brain KV keys missing; falling back to bundled snapshot.');
+    return JSON.stringify(fallback);
+  }
+
+  console.warn('[config] brain KV keys missing and fallback unavailable; returning empty brain blob.');
+  return '{}';
 }
