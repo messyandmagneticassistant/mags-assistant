@@ -19,6 +19,7 @@ type AnyEnv = Record<string, unknown> & {
 
 const FRONT_MATTER_REGEX = /^---\s*\n([\s\S]*?)\n---\s*\n?/;
 const KV_BRAIN_KEY = 'PostQ:thread-state';
+const KV_BRAIN_SNAPSHOT_KEY = 'brain/latest';
 
 function parseScalar(value: string): unknown {
   if (value === 'true') return true;
@@ -194,7 +195,128 @@ export type PutBrainResult = {
   warnings?: string[];
   syncedAt?: string;
   bytes?: number;
+  snapshot?: {
+    ok: boolean;
+    skipped?: boolean;
+    reason?: string;
+    warnings?: string[];
+    bytes?: number;
+  };
 };
+
+type SnapshotCredentials = {
+  accountId?: string;
+  namespaceId?: string;
+  apiToken?: string;
+};
+
+function cloneFrontMatter(frontMatter: Record<string, unknown>): Record<string, unknown> {
+  return JSON.parse(JSON.stringify(frontMatter)) as Record<string, unknown>;
+}
+
+function buildSnapshotPayload(
+  frontMatter: Record<string, unknown> | null,
+  syncedAt: string
+): Record<string, unknown> | null {
+  if (!frontMatter || typeof frontMatter !== 'object' || Array.isArray(frontMatter)) {
+    return null;
+  }
+
+  const snapshot = cloneFrontMatter(frontMatter);
+  snapshot.lastUpdated = syncedAt;
+  snapshot.lastSynced = syncedAt;
+  return snapshot;
+}
+
+async function putSnapshotToKv(
+  env: AnyEnv,
+  snapshot: Record<string, unknown>,
+  credentials: SnapshotCredentials
+): Promise<{ bytes: number }> {
+  const json = `${JSON.stringify(snapshot, null, 2)}\n`;
+
+  const accountId = credentials.accountId ?? pickAccountId(env);
+  const namespaceId = credentials.namespaceId ?? pickNamespaceId(env);
+  const apiToken = credentials.apiToken ?? pickApiToken(env);
+
+  await putConfigToCloudflare(KV_BRAIN_SNAPSHOT_KEY, json, {
+    accountId,
+    namespaceId,
+    apiToken,
+    contentType: 'application/json',
+  });
+
+  const bytes = textSize(json);
+  console.log('[putBrainSnapshot] Updated brain snapshot in KV', {
+    key: KV_BRAIN_SNAPSHOT_KEY,
+    bytes,
+  });
+  return { bytes };
+}
+
+async function putBrainSnapshotFromParsed(
+  env: AnyEnv,
+  parsed: ReturnType<typeof parseBrainMarkdown>,
+  syncedAt: string,
+  credentials: SnapshotCredentials
+): Promise<PutBrainResult> {
+  const warnings: string[] = [];
+  const snapshot = buildSnapshotPayload(parsed.frontMatter, syncedAt);
+  if (!snapshot) {
+    warnings.push('snapshot-front-matter-missing');
+    return {
+      ok: false,
+      skipped: true,
+      reason: 'snapshot-front-matter-missing',
+      warnings,
+      syncedAt,
+    };
+  }
+
+  try {
+    const { bytes } = await putSnapshotToKv(env, snapshot, credentials);
+    return {
+      ok: true,
+      bytes,
+      syncedAt,
+      warnings: warnings.length ? warnings : undefined,
+    };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    console.warn('[putBrainSnapshot] Failed to update brain/latest snapshot', reason);
+    return {
+      ok: false,
+      reason,
+      warnings: [...warnings, 'snapshot-sync-failed'],
+      syncedAt,
+    };
+  }
+}
+
+export async function putBrainSnapshot(env: AnyEnv): Promise<PutBrainResult> {
+  const brainMarkdown = await getBrain(env);
+  if (!brainMarkdown || brainMarkdown.trim().length === 0) {
+    console.warn('[putBrainSnapshot] brain.md fetch returned empty payload');
+    return { ok: false, skipped: true, reason: 'brain-empty' };
+  }
+
+  const parsed = parseBrainMarkdown(brainMarkdown);
+  const syncedAt = new Date().toISOString();
+  const baseWarnings = [...(parsed.warnings ?? [])];
+
+  const result = await putBrainSnapshotFromParsed(env, parsed, syncedAt, {
+    accountId: pickAccountId(env),
+    namespaceId: pickNamespaceId(env),
+    apiToken: pickApiToken(env),
+  });
+
+  const warnings = [...baseWarnings, ...(result.warnings ?? [])];
+  return {
+    ...result,
+    warnings: warnings.length ? warnings : undefined,
+    syncedAt,
+  };
+}
 
 export async function putBrainToKV(env: AnyEnv): Promise<PutBrainResult> {
   const brainMarkdown = await getBrain(env);
@@ -205,6 +327,17 @@ export async function putBrainToKV(env: AnyEnv): Promise<PutBrainResult> {
 
   const parsed = parseBrainMarkdown(brainMarkdown);
   const warnings = [...(parsed.warnings ?? [])];
+
+  const syncedAt = new Date().toISOString();
+
+  const credentials = {
+    accountId: pickAccountId(env),
+    namespaceId: pickNamespaceId(env),
+    apiToken: pickApiToken(env),
+  };
+
+  const snapshotResult = await putBrainSnapshotFromParsed(env, parsed, syncedAt, credentials);
+  if (snapshotResult.warnings) warnings.push(...snapshotResult.warnings);
 
   let existing: Record<string, unknown> = {};
   try {
@@ -220,7 +353,6 @@ export async function putBrainToKV(env: AnyEnv): Promise<PutBrainResult> {
     console.warn('[putBrainToKV] Unable to read existing KV state', err);
   }
 
-  const syncedAt = new Date().toISOString();
   const brainEntry = {
     markdown: brainMarkdown,
     content: parsed.content,
@@ -233,20 +365,22 @@ export async function putBrainToKV(env: AnyEnv): Promise<PutBrainResult> {
   const nextState = { ...existing, brain: brainEntry };
   const json = JSON.stringify(nextState, null, 2);
 
-  const accountId = pickAccountId(env);
-  const namespaceId = pickNamespaceId(env);
-  const apiToken = pickApiToken(env);
-
   await putConfigToCloudflare(KV_BRAIN_KEY, json, {
-    accountId,
-    namespaceId,
-    apiToken,
+    accountId: credentials.accountId,
+    namespaceId: credentials.namespaceId,
+    apiToken: credentials.apiToken,
     contentType: 'application/json',
   });
 
   const bytes = textSize(json);
   console.log('[putBrainToKV] Updated brain blob in KV', { key: KV_BRAIN_KEY, bytes });
-  return { ok: true, syncedAt, bytes, warnings: warnings.length ? warnings : undefined };
+  return {
+    ok: true,
+    syncedAt,
+    bytes,
+    warnings: warnings.length ? warnings : undefined,
+    snapshot: snapshotResult,
+  };
 }
 
 export const putConfig = putConfigToCloudflare;
