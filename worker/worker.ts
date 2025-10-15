@@ -1085,27 +1085,8 @@ router.post('/stripe/webhook', async (req, env, ctx) => {
   return jsonResponse({ ok: true });
 });
 
-router.get('/brain/verify', async (req, env) => {
-  const unauthorized = requireAdminAuthorization(req, env);
-  if (unauthorized) return unauthorized;
-
-  const snapshot = await readBrainSnapshotFromKv(env);
-  if (!snapshot) {
-    return jsonResponse({ ok: false, error: 'brain-snapshot-missing' }, { status: 404 });
-  }
-
-  const payload = {
-    ok: true,
-    key: snapshot.key,
-    bytes: snapshot.bytes,
-    retrievedAt: new Date().toISOString(),
-    preview: snapshot.value.slice(0, 512),
-    value: snapshot.value,
-  };
-
-  const response = jsonResponse(payload);
-  response.headers.set('cache-control', 'no-store');
-  return response;
+router.get('/brain/verify', () => {
+  return jsonResponse({ status: 'ok', message: 'Brain route reachable' });
 });
 
 router.post('/brain/sync', async (req, env) => {
