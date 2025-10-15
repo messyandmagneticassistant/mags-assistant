@@ -308,6 +308,7 @@ async function run() {
       normalizeValue(process.env.CF_KV_POSTQ_NAMESPACE_ID) ||
       normalizeValue(process.env.CF_KV_NAMESPACE_ID);
 
+    let snapshotError: string | null = null;
     try {
       await putConfig(KV_KEY, payload, {
         accountId,
@@ -318,6 +319,20 @@ async function run() {
       console.log(
         `✅ Synced ${KV_KEY} from brain/brain.md to Cloudflare KV at ${timestamp}.`
       );
+
+      try {
+        await putConfig('brain/latest', payload, {
+          accountId,
+          apiToken,
+          namespaceId,
+          contentType: 'application/json',
+        });
+        console.log('[updateBrain] Synced brain/latest snapshot to Cloudflare KV.');
+      } catch (err) {
+        snapshotError = err instanceof Error ? err.message : String(err);
+        console.error('[updateBrain] Failed to sync brain/latest snapshot to Cloudflare KV.');
+        console.error(snapshotError);
+      }
     } catch (err) {
       status = 'failed';
       if (err instanceof Error) {
@@ -335,6 +350,12 @@ async function run() {
         console.error('❌ Failed to sync Maggie brain config to Cloudflare KV.');
         console.error(err);
       }
+    }
+
+    if (snapshotError) {
+      status = 'failed';
+      const message = `brain/latest: ${snapshotError}`;
+      errorMessage = errorMessage ? `${errorMessage}; ${message}` : message;
     }
   }
 

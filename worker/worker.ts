@@ -118,6 +118,7 @@ function ensureBootBrainSync(env: Env): Promise<void> {
           console.log('[worker.boot] brain auto-sync complete', {
             key: 'PostQ:thread-state',
             bytes: result.bytes ?? null,
+            snapshot: result.snapshot ?? null,
             warnings: result.warnings ?? [],
           });
           const codexResult = await syncCodexBrainSnapshot(env);
@@ -1427,6 +1428,7 @@ export default {
             warnings: result.warnings ?? [],
             syncedAt: result.syncedAt ?? null,
             bytes: result.bytes ?? null,
+            snapshot: result.snapshot ?? null,
           });
         } catch (err) {
           const message = err instanceof Error ? err.message : 'brain-sync-failed';
