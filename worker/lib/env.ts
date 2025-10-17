@@ -1,5 +1,7 @@
 export type Env = {
   BRAIN: KVNamespace;
+  MAGGIE?: KVNamespace;
+  MAGGIE_KV?: KVNamespace;
   PostQ?: KVNamespace;
   TELEGRAM_TOKEN?: string;
   TELEGRAM_BOT_TOKEN?: string;
@@ -28,6 +30,8 @@ export type Env = {
   CODEX_LEARN_KEY?: string;
   SYNC_KEY?: string;
   LEARN_URL?: string;
+  OPENAI_API_KEY?: string;
+  OPENAI_MODEL?: string;
   GEMINI_API_KEY?: string;
   GEMINI_MODEL?: string;
   GEMINI_API_BASE?: string;

@@ -23,6 +23,17 @@ BRAIN_DOC_KEY = "PostQ:thread-state"  # the human-readable brain doc key in KV
 binding = "BRAIN"
 id = "1b8cbbc4a2f8426194368cb39baded79"
 
+[[kv_namespaces]]
+# Alias of BRAIN for Codex health checks and status mirroring.
+# Update the ID if a dedicated Maggie KV namespace is provisioned.
+binding = "MAGGIE"
+id = "1b8cbbc4a2f8426194368cb39baded79"
+
+[[kv_namespaces]]
+# Optional secondary alias used by some scripts during migrations.
+binding = "MAGGIE_KV"
+id = "1b8cbbc4a2f8426194368cb39baded79"
+
 # === Routes (Worker only) ===
 [[routes]]
 pattern = "maggie.messyandmagnetic.com/*"

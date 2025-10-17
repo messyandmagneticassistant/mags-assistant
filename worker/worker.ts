@@ -33,6 +33,7 @@ import {
 } from './lib/reporting';
 import { getSendTelegram, type SendTelegramResult as TelegramHelperResult } from './lib/telegramBridge';
 import { router } from './router/router';
+import { codexRouter } from './codex/router';
 
 const BRAIN_LATEST_KV_KEY = 'brain/latest';
 const DEFAULT_BRAIN_KV_FALLBACK_KEY = 'PostQ:thread-state';
@@ -1307,6 +1308,10 @@ export default {
   // ---------------- HTTP entry ----------------
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
+
+    if (url.pathname.startsWith('/codex')) {
+      return codexRouter(req, env, ctx);
+    }
 
     const bootSync = ensureBootBrainSync(env);
     if (bootSync) ctx.waitUntil(bootSync);
