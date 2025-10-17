@@ -33,6 +33,7 @@ import {
 } from './lib/reporting';
 import { getSendTelegram, type SendTelegramResult as TelegramHelperResult } from './lib/telegramBridge';
 import { router } from './router/router';
+import { registerCodexRoutes } from './routes/codex';
 
 const BRAIN_LATEST_KV_KEY = 'brain/latest';
 const DEFAULT_BRAIN_KV_FALLBACK_KEY = 'PostQ:thread-state';
@@ -926,6 +927,8 @@ router.get(
     }),
   { stage: 'pre' }
 );
+
+registerCodexRoutes(router, (req, env) => requireAdminAuthorization(req, env));
 
 router.get('/test-telegram', async (req, env) => {
   const unauthorized = requireAdminAuthorization(req, env);
