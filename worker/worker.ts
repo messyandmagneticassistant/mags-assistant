@@ -33,7 +33,7 @@ import {
 } from './lib/reporting';
 import { getSendTelegram, type SendTelegramResult as TelegramHelperResult } from './lib/telegramBridge';
 import { router } from './router/router';
-import { codexRouter } from './codex/router';
+import { codexRouter, registerCodexRoutes } from './codex';
 
 const BRAIN_LATEST_KV_KEY = 'brain/latest';
 const DEFAULT_BRAIN_KV_FALLBACK_KEY = 'PostQ:thread-state';
@@ -723,6 +723,8 @@ function requireAdminAuthorization(req: Request, env: Env): Response | null {
   return buildUnauthorizedResponse(401, 'admin-secret-invalid');
 }
 
+registerCodexRoutes({ authorize: requireAdminAuthorization });
+
 async function runDailyReport(env: Env, host: string | null): Promise<DailyReportResult> {
   const metrics = await gatherDailyMetrics(env, { host: host ?? undefined });
   const message = buildDailyMessage(metrics);
@@ -1310,6 +1312,11 @@ export default {
     const url = new URL(req.url);
 
     if (url.pathname.startsWith('/codex')) {
+      const unauthorized = requireAdminAuthorization(req, env);
+      if (unauthorized) {
+        return unauthorized;
+      }
+
       return codexRouter(req, env, ctx);
     }
 
