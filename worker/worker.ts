@@ -956,7 +956,7 @@ router.post('/post-tiktok', async (req, env, ctx) => {
     const mod: any = await import('./routes/post-tiktok');
 
     if (typeof mod.handle === 'function') {
-      return await mod.handle(req, env, ctx);
+      return await mod.handle(req, env);
     }
 
     if (typeof mod.onRequestPost === 'function') {
@@ -972,6 +972,26 @@ router.post('/post-tiktok', async (req, env, ctx) => {
   } catch (err) {
     console.error('[worker:/post-tiktok] failed to load handler', err);
     return jsonResponse({ ok: false, error: 'post-tiktok-load-failed' }, { status: 500 });
+  }
+});
+
+router.post('/github/webhook', async (req, env, ctx) => {
+  try {
+    const mod: any = await import('./routes/github-webhook');
+
+    if (typeof mod.handle === 'function') {
+      return await mod.handle(req, env);
+    }
+
+    if (typeof mod.onRequestPost === 'function') {
+      return await mod.onRequestPost({ request: req, env, ctx });
+    }
+
+    console.error('[worker:/github/webhook] module missing handler');
+    return jsonResponse({ ok: false, error: 'github-webhook-handler-missing' }, { status: 500 });
+  } catch (err) {
+    console.error('[worker:/github/webhook] unexpected error', err);
+    return jsonResponse({ ok: false, error: 'github-webhook-error' }, { status: 500 });
   }
 });
 
@@ -1875,6 +1895,19 @@ export default {
             console.error('[worker.cron] daily report failed', err);
           }
         })().catch((err) => console.error('[worker.cron] daily report crashed', err))
+      );
+    }
+
+    if (event.cron === '0 * * * *') {
+      ctx.waitUntil(
+        (async () => {
+          try {
+            const { runHourlyHealthCheck } = await import('./healthCheck');
+            await runHourlyHealthCheck(env);
+          } catch (err) {
+            console.error('[worker.cron] hourly health check failed', err);
+          }
+        })()
       );
     }
 
