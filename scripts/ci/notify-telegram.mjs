@@ -12,14 +12,20 @@ const status = (process.env.DEPLOY_STATUS || '').toLowerCase();
 const outcome = (process.env.DEPLOY_STEP_STATUS || '').toLowerCase();
 const success = status === 'success' && (outcome === '' || outcome === 'success');
 const cancelled = status === 'cancelled';
+const failureCount = Number(process.env.DEPLOY_FAIL_COUNT || process.env.DEPLOY_FAILURE_COUNT || '0');
 const indicator = success ? '✅' : cancelled ? '⚪️' : '❌';
+
+if (!success && !cancelled && failureCount > 0 && failureCount < 2) {
+  console.log('[notify-telegram] Deploy failed but suppressing notification until it fails twice consecutively.');
+  process.exit(0);
+}
 
 const repo = process.env.GITHUB_REPOSITORY || 'unknown-repo';
 const ref = process.env.GITHUB_REF || 'unknown-ref';
 const sha = (process.env.GITHUB_SHA || '').slice(0, 7);
 const workflow = process.env.GITHUB_WORKFLOW || 'Deploy';
 const url = process.env.DEPLOY_URL;
-const error = process.env.DEPLOY_ERROR;
+const errorSummary = process.env.DEPLOY_ERROR_SUMMARY || process.env.DEPLOY_ERROR;
 
 const lines = [
   `${indicator} Maggie deploy ${success ? 'succeeded' : cancelled ? 'was cancelled' : 'failed'}.`,
@@ -30,7 +36,8 @@ const lines = [
 if (sha) lines.push(`Commit: ${sha}`);
 lines.push(`Workflow: ${workflow}`);
 if (url) lines.push(`URL: ${url}`);
-if (error) lines.push(`Error: ${error}`);
+if (failureCount > 1) lines.push(`Attempts: ${failureCount}`);
+if (errorSummary) lines.push(`Error: ${errorSummary}`);
 
 const text = lines.join('\n');
 
