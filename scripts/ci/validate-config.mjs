@@ -39,15 +39,67 @@ if (fallbackJson && fallbackJson.trim()) {
   }
 }
 
+function normalizePart(part) {
+  return part
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/[^a-zA-Z0-9]+/g, '_')
+    .replace(/_{2,}/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .toUpperCase();
+}
+
+function buildFallbackIndex(value, prefix = []) {
+  const out = {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return out;
+  }
+
+  for (const [key, nestedValue] of Object.entries(value)) {
+    const parts = [...prefix, key];
+    if (nestedValue && typeof nestedValue === 'object' && !Array.isArray(nestedValue)) {
+      Object.assign(out, buildFallbackIndex(nestedValue, parts));
+      continue;
+    }
+
+    const normalized = normalizePart(parts.join('_'));
+    if (!normalized) continue;
+    out[normalized] = nestedValue;
+  }
+  return out;
+}
+
+const fallbackIndex = buildFallbackIndex(fallback);
+
+const FALLBACK_ALIASES = {
+  POSTQ_KV_NAMESPACE: ['CLOUDFLARE_KV_POSTQ_NAMESPACE_ID', 'CLOUDFLARE_KV_NAMESPACE_ID', 'MAGGIE_KV_NAMESPACE_ID'],
+  POSTQ_KV_TOKEN: ['CLOUDFLARE_KV_POSTQ_TOKEN', 'CLOUDFLARE_KV_TOKEN', 'MAGGIE_KV_TOKEN'],
+};
+
+function isMeaningful(value) {
+  if (value === undefined || value === null) return false;
+  if (typeof value === 'string') return value.trim().length > 0;
+  return true;
+}
+
 function resolveValue(key) {
   const envValue = process.env[key];
-  if (typeof envValue === 'string' && envValue.trim().length > 0) {
+  if (isMeaningful(envValue)) {
     return { present: true, via: 'env' };
   }
 
-  const fbValue = fallback[key];
-  if (fbValue !== undefined && fbValue !== null && String(fbValue).trim().length > 0) {
+  if (isMeaningful(fallback[key])) {
     return { present: true, via: 'fallback' };
+  }
+
+  if (isMeaningful(fallbackIndex[key])) {
+    return { present: true, via: 'fallback' };
+  }
+
+  const aliases = FALLBACK_ALIASES[key] || [];
+  for (const alias of aliases) {
+    if (isMeaningful(fallbackIndex[alias])) {
+      return { present: true, via: 'fallback' };
+    }
   }
 
   return { present: false };
