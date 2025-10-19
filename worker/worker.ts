@@ -34,6 +34,8 @@ import {
 import { getSendTelegram, type SendTelegramResult as TelegramHelperResult } from './lib/telegramBridge';
 import { router } from './router/router';
 import { codexRouter, registerCodexRoutes } from './codex';
+import { hydrateEnvWithConfig } from './lib/config';
+import { resetState } from './lib/state';
 
 const BRAIN_LATEST_KV_KEY = 'brain/latest';
 const DEFAULT_BRAIN_KV_FALLBACK_KEY = 'PostQ:thread-state';
@@ -930,6 +932,12 @@ router.get(
   { stage: 'pre' }
 );
 
+router.get(
+  '/health',
+  (_req, env) => handleHealth(env),
+  { stage: 'pre' }
+);
+
 router.get('/test-telegram', async (req, env) => {
   const unauthorized = requireAdminAuthorization(req, env);
   if (unauthorized) {
@@ -943,6 +951,29 @@ router.get('/test-telegram', async (req, env) => {
   });
 
   return jsonResponse(payload, { status });
+});
+
+router.post('/maggie/restart', async (req, env, ctx) => {
+  await resetState(env);
+
+  ctx.waitUntil(
+    (async () => {
+      try {
+        await bootstrapWorker(env, req, ctx);
+      } catch (err) {
+        console.warn('[worker:/maggie/restart] bootstrap failed', err);
+      }
+    })(),
+  );
+
+  return jsonResponse(
+    {
+      ok: true,
+      status: 'restart-scheduled',
+      restartedAt: new Date().toISOString(),
+    },
+    { status: 202 },
+  );
 });
 
 const POST_TIKTOK_CORS_HEADERS: Record<string, string> = {
@@ -1311,6 +1342,12 @@ export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
 
+    try {
+      await hydrateEnvWithConfig(env);
+    } catch (err) {
+      console.warn('[worker] config hydration failed', err);
+    }
+
     if (url.pathname.startsWith('/codex')) {
       const unauthorized = requireAdminAuthorization(req, env);
       if (unauthorized) {
@@ -1403,7 +1440,7 @@ export default {
         return jsonResponse({ keys: keysSummary, total_keys: keysSummary.length });
       }
 
-      if (url.pathname === '/' || url.pathname === '/health') {
+      if (url.pathname === '/') {
         return await handleHealth(env);
       }
       if (['/diag/config', '/status', '/summary', '/diag/brain-state'].includes(url.pathname)) {
