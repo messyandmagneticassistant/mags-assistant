@@ -10,6 +10,7 @@ import {
 } from './scheduler';
 import { maybeSendDailySummary } from './summary';
 import { buildDeploymentMessage, getWorkerRoutes, getWorkerVersion } from './lib/reporting';
+import { logDeploymentToGitHub } from './lib/github';
 // @ts-ignore - worker bundles runtime helper from shared source
 import { getSendTelegram } from './lib/telegramBridge';
 
@@ -52,6 +53,11 @@ async function maybeSendDeployNotification(env: Env, request: Request): Promise<
   const telegram = await sendTelegramNotification(message, { env });
   if (!telegram.ok) {
     console.warn('[worker] deployment telegram failed', telegram);
+  }
+
+  const githubResult = await logDeploymentToGitHub(env as any, { message, host, commit, timestamp });
+  if (!githubResult.ok && !githubResult.skipped) {
+    console.warn('[worker] deployment GitHub log failed', githubResult);
   }
 
   (state as any)[DEPLOY_PING_LABEL] = { commit, timestamp, ok: telegram.ok };

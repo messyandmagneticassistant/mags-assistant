@@ -60,6 +60,9 @@ schedule = "0 7 * * *"
 [[triggers]]
 schedule = "30 3 * * *"
 
+[[triggers]]
+schedule = "0 * * * *"
+
 # === Cloudflare Pages (UI app) ===
 [pages]
 project_name = "mags-site"
