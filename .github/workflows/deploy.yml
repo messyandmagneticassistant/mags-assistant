@@ -1,12 +1,9 @@
-name: Deploy Cloudflare Worker
+name: Deploy Maggie Worker
 
 on:
   push:
     branches:
       - main
-  workflow_dispatch:
-  schedule:
-    - cron: '45 3 * * *'
 
 permissions:
   contents: read
@@ -14,165 +11,66 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      EFFECTIVE_CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
-      EFFECTIVE_CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
-    outputs:
-      missing_cf_config: ${{ steps.cloudflare.outputs.missing }}
     steps:
-      - name: Diagnostics
-        run: |
-          echo "Actor: $GITHUB_ACTOR"
-          echo "Repository: $GITHUB_REPOSITORY"
-
-      - name: Check Cloudflare configuration
-        id: cloudflare
-        shell: bash
-        run: |
-          set -euo pipefail
-          missing=()
-
-          if [ -z "${EFFECTIVE_CF_ACCOUNT_ID:-}" ]; then
-            missing+=("CLOUDFLARE_ACCOUNT_ID or CF_ACCOUNT_ID")
-          fi
-
-          if [ -z "${EFFECTIVE_CF_API_TOKEN:-}" ]; then
-            missing+=("CLOUDFLARE_API_TOKEN or CF_API_TOKEN")
-          fi
-
-          if [ ${#missing[@]} -gt 0 ]; then
-            printf 'missing=true\n' >> "$GITHUB_OUTPUT"
-            printf 'missing_list=%s\n' "${missing[*]}" >> "$GITHUB_OUTPUT"
-            echo "::warning::Deployment skipped — missing Cloudflare configuration: ${missing[*]}"
-          else
-            printf 'missing=false\n' >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Abort (missing Cloudflare configuration)
-        if: steps.cloudflare.outputs.missing == 'true'
-        run: |
-          echo "Skipping deployment because required Cloudflare configuration was not provided: ${{ steps.cloudflare.outputs.missing_list }}"
-
       - name: Checkout repository
-        if: steps.cloudflare.outputs.missing == 'false'
         uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10.15.0
+
       - name: Setup Node.js
-        if: steps.cloudflare.outputs.missing == 'false'
         uses: actions/setup-node@v4
         with:
-          node-version: '20.x'
-          cache: pnpm
-
-      - name: Enable Corepack and install pnpm
-        if: steps.cloudflare.outputs.missing == 'false'
-        run: |
-          corepack enable
-          corepack prepare pnpm@latest --activate
+          node-version: '20'
+          cache: 'pnpm'
 
       - name: Install dependencies
-        if: steps.cloudflare.outputs.missing == 'false'
         run: pnpm install --frozen-lockfile
 
-      - name: Deploy Cloudflare Worker
-        if: steps.cloudflare.outputs.missing == 'false'
+      - name: Validate configuration
+        run: node scripts/ci/validate-config.mjs
         env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ env.EFFECTIVE_CF_ACCOUNT_ID }}
-          CF_ACCOUNT_ID: ${{ env.EFFECTIVE_CF_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ env.EFFECTIVE_CF_API_TOKEN }}
-          CF_API_TOKEN: ${{ env.EFFECTIVE_CF_API_TOKEN }}
-        run: pnpm exec wrangler deploy worker/worker.ts
+          MAGGIE_CONFIG_JSON: ${{ secrets.MAGGIE_CONFIG_JSON }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          STRIPE_KEY: ${{ secrets.STRIPE_KEY }}
+          STRIPE_API_KEY: ${{ secrets.STRIPE_API_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GITHUB_PAT: ${{ secrets.GITHUB_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TALLY_FORM_ID: ${{ secrets.TALLY_FORM_ID }}
+          NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
+          BROWSERLESS_KEY: ${{ secrets.BROWSERLESS_KEY }}
+          BROWSERLESS_API_KEY: ${{ secrets.BROWSERLESS_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CODEX_SYNC_URL: ${{ secrets.CODEX_SYNC_URL }}
+          CODEX_AUTH_TOKEN: ${{ secrets.CODEX_AUTH_TOKEN }}
+          POST_THREAD_SECRET: ${{ secrets.POST_THREAD_SECRET }}
+          SECRET_BLOB: ${{ secrets.SECRET_BLOB }}
+          BRAIN_DOC_KEY: ${{ secrets.BRAIN_DOC_KEY }}
+          POSTQ_KV_NAMESPACE: ${{ secrets.POSTQ_KV_NAMESPACE }}
+          POSTQ_KV_TOKEN: ${{ secrets.POSTQ_KV_TOKEN }}
 
-  post_deploy_verification:
-    name: Verify health endpoints + notify if broken
-    runs-on: ubuntu-latest
-    needs: deploy
-    if: needs.deploy.result == 'success' && needs.deploy.outputs.missing_cf_config != 'true'
-    env:
-      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      WORKER_BASE_URL: ${{ secrets.WORKER_URL || vars.WORKER_URL }}
-    steps:
-      - name: Resolve Worker base URL
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [ -z "${WORKER_BASE_URL:-}" ]; then
-            echo "::error::WORKER_URL secret or variable is not configured; cannot verify deploy."
-            exit 1
-          fi
-
-          base="${WORKER_BASE_URL%/}"
-          echo "BASE_URL=$base" >> "$GITHUB_ENV"
-          echo "Using worker base URL: $base"
-
-      - name: Check Worker health endpoints
-        id: healthcheck
-        shell: bash
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-
-          if [ -z "${BASE_URL:-}" ]; then
-            echo "::error::BASE_URL was not resolved."
-            echo "failed=true" >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
-
-          declare -a failures=()
-          declare -a urls=("/health" "/summary" "/daily")
-
-          for path in "${urls[@]}"; do
-            url="${BASE_URL}${path}"
-            echo "Checking ${url}"
-            http_code=$(curl -sS -o /tmp/response -w '%{http_code}' "$url" || printf '000')
-            echo "→ HTTP ${http_code}"
-
-            if [ "${http_code}" != "200" ]; then
-              failures+=("${url} → HTTP ${http_code}")
-            fi
-          done
-
-          if [ ${#failures[@]} -gt 0 ]; then
-            printf '%s\n' "${failures[@]}" > failed_endpoints.txt
-            printf 'failed=true\n' >> "$GITHUB_OUTPUT"
-            {
-              printf 'summary<<EOF\n'
-              printf '%s\n' "${failures[@]}"
-              printf 'EOF\n'
-            } >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
-
-          echo "All health checks passed."
-          printf 'failed=false\n' >> "$GITHUB_OUTPUT"
-
-      - name: Notify Telegram (health check failure)
-        if: steps.healthcheck.outputs.failed == 'true'
-        shell: bash
+      - name: Deploy to Cloudflare Workers
+        id: publish
         env:
-          SUMMARY: ${{ steps.healthcheck.outputs.summary }}
-        run: |
-          MESSAGE="❌ Worker deploy verification failed."
-          if [ -n "${SUMMARY:-}" ]; then
-            MESSAGE="${MESSAGE}"$'\n'"${SUMMARY}"
-          fi
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm dlx wrangler deploy --config wrangler.toml
 
-          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
-            echo "Telegram credentials missing; skipping alert."
-            echo "${SUMMARY:-No additional details.}"
-            exit 0
-          fi
-
-          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d chat_id="${TELEGRAM_CHAT_ID}" \
-            --data-urlencode text="$MESSAGE" \
-            >/dev/null
-
-      - name: Mark verification as failed
-        if: steps.healthcheck.outputs.failed == 'true'
-        run: |
-          echo "Failing job because deploy verification did not pass."
-          exit 1
+      - name: Notify Telegram
+        if: always()
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_THREAD_ID: ${{ secrets.TELEGRAM_THREAD_ID }}
+          DEPLOY_STATUS: ${{ job.status }}
+          DEPLOY_STEP_STATUS: ${{ steps.publish.outcome }}
+        run: node scripts/ci/notify-telegram.mjs

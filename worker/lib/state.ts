@@ -34,6 +34,10 @@ export async function saveState(env: Env, state: MaggieState): Promise<void> {
   }
 }
 
+export async function resetState(env: Env): Promise<void> {
+  await saveState(env, {} as MaggieState);
+}
+
 type TrendEntry = MaggieTrend & { id?: string };
 
 function coerceTrendId(value: unknown): string | undefined {
