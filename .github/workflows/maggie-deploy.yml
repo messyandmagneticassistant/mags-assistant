@@ -1,0 +1,53 @@
+name: Deploy Maggie
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Sync + Deploy Maggie
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+
+      - name: Install Dependencies
+        run: |
+          npm install -g wrangler
+          sudo apt-get install jq
+
+      - name: Export GitHub Secrets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh secret list --repo messyandmagnetic/maggie --json name,value > ./github-secrets.json
+          jq 'map({key: .name, value: .value}) 
+              | from_entries 
+              | with_entries(.key |= gsub("OPENAI_API_KEY";"OPENAI_KEY") 
+              | .key |= gsub("TELEGRAM_BOT_TOKEN";"TELEGRAM_TOKEN"))' \
+              ./github-secrets.json > ./thread-state.json
+
+      - name: Upload to Cloudflare KV (POSTQ)
+        run: |
+          npx wrangler kv:key put --binding=POSTQ PostQ:thread-state --path ./thread-state.json --env production
+
+      - name: Deploy Cloudflare Worker
+        run: |
+          npx wrangler whoami
+          export SENTRY_RELEASE=$(git rev-parse --short HEAD)
+          npx wrangler deploy --minify --env production --var SENTRY_RELEASE=$SENTRY_RELEASE
+
+      - name: Restart Maggie
+        run: |
+          WORKER_URL=$(npx wrangler kv:key get --binding=POSTQ PostQ:thread-state --env production | jq -r '.WORKER_URL')
+          curl -sS -X POST "$WORKER_URL/maggie/restart" \
+            -H "Authorization: Bearer ${{ secrets.INTERNAL_ADMIN_TOKEN }}" \
+            -d '{}' | jq .
+
+      - name: Verify Health
+        run: |
+          curl -sS "$WORKER_URL/health" | jq .
