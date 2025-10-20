@@ -27,6 +27,11 @@ binding = "BRAIN"
 id = "1b8cbbc4a2f8426194368cb39baded79"
 
 [[kv_namespaces]]
+# Canonical namespace alias expected by Maggie deployment workflows.
+binding = "POSTQ"
+id = "1b8cbbc4a2f8426194368cb39baded79"
+
+[[kv_namespaces]]
 # Alias of BRAIN for Codex health checks and status mirroring.
 # Update the ID if a dedicated Maggie KV namespace is provisioned.
 binding = "MAGGIE"
@@ -67,3 +72,28 @@ schedule = "0 * * * *"
 [pages]
 project_name = "mags-site"
 build_output_dir = "ui/dist"
+
+[env.production]
+name = "mags-assistant"
+workers_dev = false
+
+[env.production.vars]
+ENV = "prod"
+SECRET_BLOB = "thread-state"
+BRAIN_DOC_KEY = "PostQ:thread-state"
+
+[[env.production.kv_namespaces]]
+binding = "BRAIN"
+id = "1b8cbbc4a2f8426194368cb39baded79"
+
+[[env.production.kv_namespaces]]
+binding = "POSTQ"
+id = "1b8cbbc4a2f8426194368cb39baded79"
+
+[[env.production.kv_namespaces]]
+binding = "MAGGIE"
+id = "1b8cbbc4a2f8426194368cb39baded79"
+
+[[env.production.kv_namespaces]]
+binding = "MAGGIE_KV"
+id = "1b8cbbc4a2f8426194368cb39baded79"
