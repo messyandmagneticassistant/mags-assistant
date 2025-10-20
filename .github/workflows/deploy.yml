@@ -81,7 +81,7 @@ jobs:
             }
 
             const value = String(rawValue);
-            // Do not manually escape newlines — GitHub masks multiline secrets correctly
+            // Keep the raw value so GitHub masks multiline secrets correctly
             core.setSecret(value);
             fs.appendFileSync(envFile, `${key}<<__MAGGIE__\n${value}\n__MAGGIE__\n`);
             exported.push(key);
