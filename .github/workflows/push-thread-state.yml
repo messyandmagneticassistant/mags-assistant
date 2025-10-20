@@ -1,0 +1,35 @@
+name: Push THREAD_STATE_JSON to Cloudflare KV
+
+on:
+  workflow_dispatch:
+
+jobs:
+  push-kv:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (not strictly needed)
+        uses: actions/checkout@v4
+
+      - name: Get THREAD_STATE_JSON from GitHub secret
+        run: |
+          # This reads a repo secret called THREAD_STATE_JSON (paste the full .env there)
+          echo "${{ secrets.THREAD_STATE_JSON }}" > thread_state.env
+          # optional: show size for troubleshooting (won't display content)
+          echo "size: $(wc -c thread_state.env) bytes"
+
+      - name: Put into Cloudflare KV (single key)
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_POSTQ_NAMESPACE_ID }}
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          KEY="THREAD_STATE_JSON"
+          # URL for direct KV put
+          URL="https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/storage/kv/namespaces/${CF_NAMESPACE_ID}/values/${KEY}"
+          # Upload (binary-safe)
+          curl -sS -X PUT "$URL" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary @thread_state.env \
+            -o /tmp/cf_response.json || true
+          cat /tmp/cf_response.json
