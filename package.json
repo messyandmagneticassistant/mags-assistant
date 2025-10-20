@@ -71,6 +71,7 @@
     "stripe": "^18.5.0"
   },
   "devDependencies": {
+    "@actions/core": "^1.11.1",
     "@cloudflare/workers-types": "^4.20250927.0",
     "@types/node": "^24.6.0",
     "autoprefixer": "^10.4.21",
