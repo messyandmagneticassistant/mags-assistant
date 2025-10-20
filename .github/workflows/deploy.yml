@@ -29,48 +29,81 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Hydrate secrets from blob
+        env:
+          SECRET_BLOB_PAYLOAD: ${{ secrets.SECRET_BLOB }}
+        run: |
+          node <<'EOF'
+          const fs = require('fs');
+
+          const payload = process.env.SECRET_BLOB_PAYLOAD;
+          if (!payload || !payload.trim()) {
+            console.warn('[secret-blob] No SECRET_BLOB payload provided; skipping hydration.');
+            process.exit(0);
+          }
+
+          const envFile = process.env.GITHUB_ENV;
+          if (!envFile) {
+            console.error('[secret-blob] GITHUB_ENV is not defined.');
+            process.exit(1);
+          }
+
+          let decoded;
+          try {
+            decoded = Buffer.from(payload.trim(), 'base64').toString('utf8');
+          } catch (err) {
+            console.error('[secret-blob] Failed to decode SECRET_BLOB payload:', err?.message || err);
+            process.exit(1);
+          }
+
+          let parsed;
+          try {
+            parsed = JSON.parse(decoded);
+          } catch (err) {
+            console.error('[secret-blob] SECRET_BLOB payload was not valid JSON:', err?.message || err);
+            process.exit(1);
+          }
+
+          const exported = [];
+          for (const [key, rawValue] of Object.entries(parsed)) {
+            if (rawValue === undefined || rawValue === null) {
+              continue;
+            }
+
+            if (typeof rawValue === 'object') {
+              console.warn(`[secret-blob] Skipping nested value for ${key}; expected a primitive.`);
+              continue;
+            }
+
+            if (process.env[key] && String(process.env[key]).trim().length > 0) {
+              continue;
+            }
+
+            const value = String(rawValue);
+            console.log(`::add-mask::${value}`);
+            fs.appendFileSync(envFile, `${key}<<__MAGGIE__\n${value}\n__MAGGIE__\n`);
+            exported.push(key);
+          }
+
+          if (exported.length === 0) {
+            console.warn('[secret-blob] No secrets were exported from the blob payload.');
+          } else {
+            console.log(`[secret-blob] Exported ${exported.length} secrets: ${exported.join(', ')}`);
+          }
+          EOF
+
       - name: Validate configuration
         run: node scripts/ci/validate-config.mjs
         env:
           MAGGIE_CONFIG_JSON: ${{ secrets.MAGGIE_CONFIG_JSON }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          STRIPE_KEY: ${{ secrets.STRIPE_KEY }}
-          STRIPE_API_KEY: ${{ secrets.STRIPE_API_KEY }}
-          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          GITHUB_PAT: ${{ secrets.GITHUB_PAT }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TALLY_FORM_ID: ${{ secrets.TALLY_FORM_ID }}
-          NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
-          BROWSERLESS_KEY: ${{ secrets.BROWSERLESS_KEY }}
-          BROWSERLESS_API_KEY: ${{ secrets.BROWSERLESS_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          CODEX_SYNC_URL: ${{ secrets.CODEX_SYNC_URL }}
-          CODEX_AUTH_TOKEN: ${{ secrets.CODEX_AUTH_TOKEN }}
-          POST_THREAD_SECRET: ${{ secrets.POST_THREAD_SECRET }}
-          SECRET_BLOB: ${{ secrets.SECRET_BLOB }}
-          BRAIN_DOC_KEY: ${{ secrets.BRAIN_DOC_KEY }}
-          POSTQ_KV_NAMESPACE: ${{ secrets.POSTQ_KV_NAMESPACE }}
-          POSTQ_KV_TOKEN: ${{ secrets.POSTQ_KV_TOKEN }}
 
       - name: Deploy to Cloudflare Workers
         id: publish
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node scripts/ci/run-wrangler-deploy.mjs --config wrangler.toml
 
       - name: Notify Telegram
         if: always()
         env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          TELEGRAM_THREAD_ID: ${{ secrets.TELEGRAM_THREAD_ID }}
           DEPLOY_STATUS: ${{ job.status }}
           DEPLOY_STEP_STATUS: ${{ steps.publish.outcome }}
         run: node scripts/ci/notify-telegram.mjs
