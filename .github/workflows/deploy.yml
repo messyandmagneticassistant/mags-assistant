@@ -35,6 +35,7 @@ jobs:
         run: |
           node <<'EOF'
           const fs = require('fs');
+          const core = require('@actions/core');
 
           const payload = process.env.SECRET_BLOB_PAYLOAD;
           if (!payload || !payload.trim()) {
@@ -80,7 +81,7 @@ jobs:
             }
 
             const value = String(rawValue);
-            console.log(`::add-mask::${value}`);
+            core.setSecret(value.replace(/\r?\n/g, '%0D%0A'));
             fs.appendFileSync(envFile, `${key}<<__MAGGIE__\n${value}\n__MAGGIE__\n`);
             exported.push(key);
           }
