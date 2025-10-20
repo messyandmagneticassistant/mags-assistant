@@ -29,8 +29,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: "\U0001F9E0 Inject config from SECRET_BLOB"
+        run: |
+          echo "$SECRET_BLOB" > blob.json
+          export $(jq -r 'to_entries | map("\(.key)=\(.value)") | .[]' blob.json)
+          echo "✅ Parsed and exported config from SECRET_BLOB"
+        env:
+          SECRET_BLOB: ${{ secrets.SECRET_BLOB }}
+
       - name: Validate configuration
-        run: node scripts/ci/validate-config.mjs
+        run: pnpm run validate-config
         env:
           MAGGIE_CONFIG_JSON: ${{ secrets.MAGGIE_CONFIG_JSON }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
