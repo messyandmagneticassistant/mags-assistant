@@ -10,6 +10,9 @@ jobs:
   deploy:
     name: Sync + Deploy Maggie
     runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
     steps:
       - name: Checkout Repo
@@ -20,16 +23,73 @@ jobs:
           npm install -g wrangler
           sudo apt-get install jq
 
-      - name: Export GitHub Secrets
+      - name: Build thread-state.json
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          THREAD_STATE_SOURCE: ${{ secrets.THREAD_STATE_JSON }}
         run: |
-          gh secret list --repo messyandmagnetic/maggie --json name,value > ./github-secrets.json
-          jq 'map({key: .name, value: .value}) 
-              | from_entries 
-              | with_entries(.key |= gsub("OPENAI_API_KEY";"OPENAI_KEY") 
-              | .key |= gsub("TELEGRAM_BOT_TOKEN";"TELEGRAM_TOKEN"))' \
-              ./github-secrets.json > ./thread-state.json
+          node <<'NODE'
+          const fs = require('fs');
+
+          const raw = process.env.THREAD_STATE_SOURCE ?? '';
+          if (!raw.trim()) {
+            console.error('THREAD_STATE_JSON secret is empty or missing.');
+            process.exit(1);
+          }
+
+          const normalizeKey = (key) => {
+            if (!key) {
+              throw new Error('Encountered an empty key while parsing THREAD_STATE_JSON.');
+            }
+            return key
+              .replace(/OPENAI_API_KEY/g, 'OPENAI_KEY')
+              .replace(/TELEGRAM_BOT_TOKEN/g, 'TELEGRAM_TOKEN');
+          };
+
+          const writeThreadState = (data) => {
+            if (Array.isArray(data) || data === null || typeof data !== 'object') {
+              throw new Error('thread-state must be a flat JSON object.');
+            }
+            const normalized = Object.fromEntries(
+              Object.entries(data).map(([key, value]) => [normalizeKey(key), value])
+            );
+            fs.writeFileSync('thread-state.json', JSON.stringify(normalized, null, 2));
+          };
+
+          const toObject = (content) => {
+            const result = {};
+            const lines = content.split(/\r?\n/);
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed || trimmed.startsWith('#')) continue;
+              const idx = trimmed.indexOf('=');
+              if (idx === -1) {
+                throw new Error(`Invalid line in THREAD_STATE_JSON: "${line}"`);
+              }
+              const key = normalizeKey(trimmed.slice(0, idx).trim());
+              const value = trimmed.slice(idx + 1).trim();
+              result[key] = value;
+            }
+            return result;
+          };
+
+          const input = raw.trim();
+          try {
+            const parsed = JSON.parse(input);
+            writeThreadState(parsed);
+            console.log('✅ Parsed THREAD_STATE_JSON as JSON.');
+          } catch (jsonError) {
+            try {
+              const asEnv = toObject(input);
+              writeThreadState(asEnv);
+              console.log('ℹ️ THREAD_STATE_JSON parsed as .env and converted to JSON.');
+            } catch (envError) {
+              console.error('Failed to parse THREAD_STATE_JSON as JSON or .env');
+              console.error('JSON parse error:', jsonError.message);
+              console.error('ENV parse error:', envError.message);
+              process.exit(1);
+            }
+          }
+          NODE
 
       - name: Upload to Cloudflare KV (POSTQ)
         run: |
