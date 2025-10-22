@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import process from 'node:process';
 import { sendTelegramMessage } from './lib/telegramClient';
+import { getConfig } from '../utils/config';
 
 const SITE_PREFIX = 'site:';
 const RESERVED_KEYS = new Set([`${SITE_PREFIX}manifest`]);
@@ -123,23 +124,83 @@ function sha256(buffer: Buffer): string {
   return crypto.createHash('sha256').update(buffer).digest('hex');
 }
 
-function getCloudflareCredentials(): CloudflareCredentials {
-  const accountId =
-    process.env.CLOUDFLARE_ACCOUNT_ID ||
-    process.env.CF_ACCOUNT_ID ||
-    '';
-  const apiToken =
-    process.env.CLOUDFLARE_API_TOKEN ||
-    process.env.CF_API_TOKEN ||
-    '';
-  const namespaceId =
-    process.env.CF_KV_POSTQ_NAMESPACE_ID ||
-    process.env.CF_KV_NAMESPACE_ID ||
-    '';
+function pickString(...values: Array<unknown>): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return undefined;
+}
+
+async function getCloudflareCredentials(): Promise<CloudflareCredentials> {
+  let accountId = pickString(
+    process.env.CLOUDFLARE_ACCOUNT_ID,
+    process.env.CF_ACCOUNT_ID,
+    process.env.ACCOUNT_ID,
+  );
+  let apiToken = pickString(
+    process.env.CLOUDFLARE_API_TOKEN,
+    process.env.CLOUDFLARE_TOKEN,
+    process.env.CF_API_TOKEN,
+    process.env.API_TOKEN,
+  );
+  let namespaceId = pickString(
+    process.env.CF_KV_POSTQ_NAMESPACE_ID,
+    process.env.CF_KV_NAMESPACE_ID,
+    process.env.CLOUDFLARE_KV_POSTQ_NAMESPACE_ID,
+  );
+
+  try {
+    if (!accountId || !apiToken || !namespaceId) {
+      const config = await getConfig();
+      if (config && typeof config === 'object') {
+        const snapshot = config as Record<string, any>;
+        const cloudflare = (snapshot.cloudflare ?? {}) as Record<string, any>;
+        accountId ||= pickString(
+          cloudflare.accountId,
+          cloudflare.cloudflareAccountId,
+          cloudflare.accountID,
+          snapshot.CLOUDFLARE_ACCOUNT_ID,
+          snapshot.PostQ?.accountId,
+        );
+        namespaceId ||= pickString(
+          cloudflare.kvNamespaceId,
+          cloudflare.cloudflareKvNamespaceId,
+          cloudflare.namespaceId,
+          cloudflare.namespaceID,
+          cloudflare.kv?.namespaceId,
+          cloudflare.kv?.id,
+          snapshot.CLOUDFLARE_KV_POSTQ_NAMESPACE_ID,
+          snapshot.CF_KV_POSTQ_NAMESPACE_ID,
+          snapshot.CF_KV_NAMESPACE_ID,
+          snapshot.PostQ?.namespaceId,
+          snapshot.PostQ?.kvNamespaceId,
+        );
+        apiToken ||= pickString(
+          cloudflare.apiToken,
+          cloudflare.cloudflareApiToken,
+          cloudflare.apiKey,
+          cloudflare.token,
+          cloudflare.cloudflareToken,
+          cloudflare.workerToken,
+          cloudflare.postqToken,
+          cloudflare.kvToken,
+          snapshot.CLOUDFLARE_TOKEN,
+          snapshot.cloudflareToken,
+          snapshot.tokens?.cloudflare,
+          snapshot.PostQ?.token,
+          snapshot.PostQ?.cloudflareToken,
+        );
+      }
+    }
+  } catch (err) {
+    console.warn('[publishSite] Failed to resolve Cloudflare credentials from Maggie config', err);
+  }
 
   if (!accountId || !apiToken || !namespaceId) {
     throw new Error(
-      'Missing Cloudflare credentials. Ensure CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, and CF_KV_POSTQ_NAMESPACE_ID are set.',
+      'Missing Cloudflare credentials. Ensure CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN (or CLOUDFLARE_TOKEN), and CF_KV_POSTQ_NAMESPACE_ID are set.',
     );
   }
 
@@ -259,7 +320,7 @@ export async function publishSite(options: PublishSiteOptions = {}): Promise<Pub
 
   const deployedAt = new Date().toISOString();
   const records = await buildAssetRecords(siteDir, files, deployedAt);
-  const creds = getCloudflareCredentials();
+  const creds = await getCloudflareCredentials();
 
   console.log(`📦 Publishing ${records.length} assets to Cloudflare KV...`);
 

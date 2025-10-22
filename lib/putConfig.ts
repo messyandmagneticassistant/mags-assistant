@@ -181,7 +181,13 @@ function pickNamespaceId(env: AnyEnv): string | undefined {
 }
 
 function pickApiToken(env: AnyEnv): string | undefined {
-  return pickFirstString(env.POSTQ_KV_TOKEN, env.CLOUDFLARE_API_TOKEN, env.CF_API_TOKEN, env.API_TOKEN);
+  return pickFirstString(
+    env.POSTQ_KV_TOKEN,
+    env.CLOUDFLARE_API_TOKEN,
+    (env as AnyEnv & { CLOUDFLARE_TOKEN?: string }).CLOUDFLARE_TOKEN,
+    env.CF_API_TOKEN,
+    env.API_TOKEN,
+  );
 }
 
 function textSize(text: string): number {

@@ -12,7 +12,12 @@ type MutableEnv = Record<string, unknown> & { BRAIN?: KvBinding };
 function hasCloudflareCredentials(env: NodeJS.ProcessEnv): boolean {
   const account = env.POSTQ_KV_ID || env.CLOUDFLARE_ACCOUNT_ID || env.CF_ACCOUNT_ID || env.ACCOUNT_ID;
   const namespace = env.POSTQ_KV_NAMESPACE || env.CF_KV_POSTQ_NAMESPACE_ID || env.CF_KV_NAMESPACE_ID;
-  const token = env.POSTQ_KV_TOKEN || env.CLOUDFLARE_API_TOKEN || env.CF_API_TOKEN || env.API_TOKEN;
+  const token =
+    env.POSTQ_KV_TOKEN ||
+    env.CLOUDFLARE_API_TOKEN ||
+    env.CLOUDFLARE_TOKEN ||
+    env.CF_API_TOKEN ||
+    env.API_TOKEN;
   return Boolean(account && namespace && token);
 }
 

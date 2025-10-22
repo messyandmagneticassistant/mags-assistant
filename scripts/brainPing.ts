@@ -37,12 +37,16 @@ async function readLocalState(): Promise<{ raw: string; data: BrainState | null 
 
 async function main() {
   const account = process.env.CLOUDFLARE_ACCOUNT_ID;
-  const token = process.env.CLOUDFLARE_API_TOKEN;
+  const token =
+    process.env.CLOUDFLARE_API_TOKEN ||
+    process.env.CLOUDFLARE_TOKEN ||
+    process.env.CF_API_TOKEN ||
+    process.env.API_TOKEN;
   const namespaceId =
     process.env.CF_KV_POSTQ_NAMESPACE_ID || process.env.CF_KV_NAMESPACE_ID;
   if (!account || !token || !namespaceId) {
     console.error(
-      'Missing CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, or CF_KV_NAMESPACE_ID'
+      'Missing Cloudflare credentials. Ensure CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN (or CLOUDFLARE_TOKEN), and CF_KV_NAMESPACE_ID are set.'
     );
     process.exit(1);
   }
