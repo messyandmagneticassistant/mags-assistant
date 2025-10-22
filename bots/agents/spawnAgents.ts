@@ -3,8 +3,8 @@ import { loadConfigFromKV } from '@/utils/loadConfigFromKV'
 import { threadStateKey } from '@/config/env'
 
 export async function spawnAgent(agentName: string): Promise<Agent> {
-  const config = await loadConfigFromKV(threadStateKey)
-  const agentConfig = config?.agents?.[agentName]
+  const result = await loadConfigFromKV(threadStateKey)
+  const agentConfig = result.config?.agents?.[agentName]
 
   if (!agentConfig) {
     throw new Error(`Agent "${agentName}" not found in thread-state`)
