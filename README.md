@@ -50,6 +50,30 @@ stripe + Tally funnels with the rest of the stack.
    dependencies, validates config with KV fallbacks, deploys via Wrangler, and
    pings Telegram when it succeeds (or fails).
 
+### Uploading data to Cloudflare KV with Wrangler
+
+When you need to write a one-off value directly into the configured KV
+namespace, use Wrangler's [`kv key put`](https://developers.cloudflare.com/workers/wrangler/commands/#kv-key-put)
+command. This works against any binding defined in `wrangler.toml` (for Maggie
+the brain namespace is bound as `BRAIN`). The command below writes a JSON blob
+to the `PostQ:thread-state` key by reading the contents of `brain/brain.json`:
+
+```bash
+pnpm wrangler kv key put \
+  --binding BRAIN \
+  --path brain/brain.json \
+  "PostQ:thread-state"
+```
+
+You can also inline smaller values without `--path`:
+
+```bash
+pnpm wrangler kv key put --binding BRAIN "feature-flag" "enabled"
+```
+
+Wrangler will prompt for confirmation before overwriting an existing key and
+reports the namespace, key name, and write status when the upload succeeds.
+
 ## Blob-based KV config
 Maggie's canonical configuration lives in the KV blob stored at
 `PostQ:thread-state`. On every request the Worker:
