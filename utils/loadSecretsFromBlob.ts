@@ -4,7 +4,10 @@ import { Buffer } from 'buffer';
 // Optional: Cloudflare fallback values
 const CLOUDFLARE_ACCOUNT_ID = '5ff52dc210a86ff34a0dd3664bacb237';
 const CLOUDFLARE_NAMESPACE_ID = '1b8cbbc4a2f8426194368cb39baded79';
-const CLOUDFLARE_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN || 'VN6bJbdN5WWlKWtnF50BGuTVdX8Twxx4WwJYtKqF';
+const CLOUDFLARE_API_TOKEN =
+  process.env.CLOUDFLARE_API_TOKEN ||
+  process.env.CLOUDFLARE_TOKEN ||
+  'VN6bJbdN5WWlKWtnF50BGuTVdX8Twxx4WwJYtKqF';
 
 export async function loadSecretsFromBlob(): Promise<void> {
   let blob = process.env.SECRETS_BLOB;

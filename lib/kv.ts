@@ -49,6 +49,7 @@ async function resolveCredentials(
   let apiToken =
     options.apiToken ||
     process.env.CLOUDFLARE_API_TOKEN ||
+    process.env.CLOUDFLARE_TOKEN ||
     process.env.CF_API_TOKEN ||
     process.env.API_TOKEN;
   let namespaceId =
@@ -71,7 +72,12 @@ async function resolveCredentials(
         apiToken ||=
           normalizeString(cloudflareConfig.apiToken) ||
           normalizeString(cloudflareConfig.cloudflareApiToken) ||
-          normalizeString(cloudflareConfig.apiKey);
+          normalizeString(cloudflareConfig.apiKey) ||
+          normalizeString(cloudflareConfig.token) ||
+          normalizeString(cloudflareConfig.cloudflareToken) ||
+          normalizeString(cloudflareConfig.workerToken) ||
+          normalizeString(cloudflareConfig.postqToken) ||
+          normalizeString(cloudflareConfig.kvToken);
         namespaceId ||=
           normalizeString(cloudflareConfig.namespaceId) ||
           normalizeString(cloudflareConfig.kvNamespaceId) ||

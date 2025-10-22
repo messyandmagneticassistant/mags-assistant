@@ -298,15 +298,24 @@ async function run() {
     const apiToken =
       normalizeValue(cloudflareConfig.cloudflareApiToken) ||
       normalizeValue(cloudflareConfig.apiToken) ||
+      normalizeValue(cloudflareConfig.cloudflareToken) ||
+      normalizeValue(cloudflareConfig.token) ||
+      normalizeValue(cloudflareConfig.workerToken) ||
+      normalizeValue(cloudflareConfig.postqToken) ||
+      normalizeValue(cloudflareConfig.kvToken) ||
       normalizeValue(process.env.CLOUDFLARE_API_TOKEN) ||
+      normalizeValue(process.env.CLOUDFLARE_TOKEN) ||
       normalizeValue(process.env.CF_API_TOKEN) ||
       normalizeValue(process.env.API_TOKEN);
     const namespaceId =
       normalizeValue(cloudflareConfig.kvNamespaceId) ||
       normalizeValue(cloudflareConfig.cloudflareKvNamespaceId) ||
       normalizeValue(cloudflareConfig.namespaceId) ||
+      normalizeValue((cloudflareConfig.kv as Record<string, unknown> | undefined)?.namespaceId) ||
+      normalizeValue((cloudflareConfig.kv as Record<string, unknown> | undefined)?.id) ||
       normalizeValue(process.env.CF_KV_POSTQ_NAMESPACE_ID) ||
-      normalizeValue(process.env.CF_KV_NAMESPACE_ID);
+      normalizeValue(process.env.CF_KV_NAMESPACE_ID) ||
+      normalizeValue(process.env.CLOUDFLARE_KV_POSTQ_NAMESPACE_ID);
 
     let snapshotError: string | null = null;
     try {
@@ -339,7 +348,7 @@ async function run() {
         errorMessage = err.message;
         if (err.message.includes('credentials')) {
           console.error(
-            '❌ Failed to sync Maggie brain config. Missing CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, or CF_KV_POSTQ_NAMESPACE_ID?'
+            '❌ Failed to sync Maggie brain config. Missing CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN (or CLOUDFLARE_TOKEN), or CF_KV_POSTQ_NAMESPACE_ID?'
           );
         } else {
           console.error('❌ Failed to sync Maggie brain config to Cloudflare KV.');

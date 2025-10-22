@@ -19,13 +19,18 @@ async function putKV(account: string, token: string, namespaceId: string, key: s
 
 async function main() {
   const account = process.env.CF_ACCOUNT_ID;
-  const token = process.env.CF_API_TOKEN;
+  const token =
+    process.env.CF_API_TOKEN ||
+    process.env.CLOUDFLARE_API_TOKEN ||
+    process.env.CLOUDFLARE_TOKEN;
   const namespaceId = process.env.CF_KV_POSTQ_NAMESPACE_ID;
   const threadState = process.env.THREAD_STATE_JSON;
   const brainDoc = process.env.BRAIN_DOC_JSON || process.env.BRAIN_DOC_MD;
 
   if (!account || !token || !namespaceId) {
-    console.error('Missing CF_ACCOUNT_ID, CF_API_TOKEN, or CF_KV_POSTQ_NAMESPACE_ID');
+    console.error(
+      'Missing Cloudflare credentials. Ensure CF_ACCOUNT_ID, CF_API_TOKEN (or CLOUDFLARE_API_TOKEN/CLOUDFLARE_TOKEN), and CF_KV_POSTQ_NAMESPACE_ID are set.'
+    );
     process.exit(1);
   }
   if (!threadState || !brainDoc) {

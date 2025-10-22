@@ -148,6 +148,7 @@ async function recordDeployHistory(entry: DeployHistoryEntry): Promise<void> {
 async function resolveCloudflareToken(): Promise<string | null> {
   const directEnv = [
     process.env.CLOUDFLARE_API_TOKEN,
+    process.env.CLOUDFLARE_TOKEN,
     process.env.CF_API_TOKEN,
     process.env.API_TOKEN,
   ];
@@ -164,12 +165,35 @@ async function resolveCloudflareToken(): Promise<string | null> {
       cloudflareConfig.apiToken ||
       cloudflareConfig.cloudflareApiToken ||
       cloudflareConfig.token ||
-      cloudflareConfig.workerToken;
+      cloudflareConfig.cloudflareToken ||
+      cloudflareConfig.workerToken ||
+      cloudflareConfig.postqToken ||
+      cloudflareConfig.kvToken;
     if (typeof possible === 'string' && possible.trim().length > 0) {
       return possible.trim();
     }
   } catch (err) {
     console.warn('[deployMaggie] Failed to load Cloudflare token from config', err);
+  }
+
+  try {
+    const snapshot = await getConfig();
+    const fallbacks =
+      (snapshot && typeof snapshot === 'object' ? (snapshot as Record<string, any>) : null) ?? {};
+    const candidates = [
+      fallbacks.CLOUDFLARE_TOKEN,
+      fallbacks.cloudflareToken,
+      fallbacks.tokens?.cloudflare,
+      fallbacks.PostQ?.token,
+      fallbacks.PostQ?.cloudflareToken,
+    ];
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string' && candidate.trim().length > 0) {
+        return candidate.trim();
+      }
+    }
+  } catch (err) {
+    console.warn('[deployMaggie] Unable to load global config for Cloudflare token', err);
   }
 
   if (FALLBACK_TOKEN) {
