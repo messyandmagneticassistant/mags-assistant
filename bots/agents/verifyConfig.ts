@@ -5,10 +5,11 @@ import { threadStateKey } from '@/config/env';
 import { postTelegram } from '../utils/notifyTelegram'; // Optional: Only if you're using Telegram notifications
 
 export async function verifyConfig() {
-  const config = await loadConfigFromKV(threadStateKey);
+  const result = await loadConfigFromKV(threadStateKey);
+  const config = result.config;
 
   if (!config) {
-    const msg = '❌ Failed to load config from thread-state.';
+    const msg = `❌ Failed to load config from thread-state (${result.error || 'no payload'})`;
     console.error(msg);
     await postTelegram?.(msg);
     return;
