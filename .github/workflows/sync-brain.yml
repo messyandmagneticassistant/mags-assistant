@@ -1,3 +1,7 @@
+permissions:
+  contents: write
+  actions: write
+
 name: Sync Brain to Cloudflare KV
 
 on:
@@ -16,18 +20,15 @@ on:
         type: string
         default: "manual"
 
-permissions:
-  contents: read
-
 jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      EFFECTIVE_GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
-      GH_PAT: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
-      GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
-      GITHUB_PAT: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+      EFFECTIVE_GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+      GH_PAT: ${{ secrets.GH_PAT }}
+      GH_TOKEN: ${{ secrets.GH_PAT }}
+      GITHUB_PAT: ${{ secrets.GH_PAT }}
 
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -94,7 +95,7 @@ jobs:
         if: steps.secrets.outputs.missing == 'false'
         uses: actions/checkout@v4
         with:
-          token: ${{ env.EFFECTIVE_GITHUB_TOKEN || github.token }}
+          token: ${{ env.EFFECTIVE_GITHUB_TOKEN }}
           fetch-depth: 0
 
       - name: Ensure default branch content
