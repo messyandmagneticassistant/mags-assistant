@@ -1,0 +1,41 @@
+name: GH PAT Smoke Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check GH_PAT presence
+        run: |
+          if [ -z "${{ secrets.GH_PAT }}" ]; then
+            echo "GH_PAT is not set."
+            exit 1
+          else
+            echo "GH_PAT is set."
+          fi
+
+      - name: Curl GitHub user endpoint
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          set -euo pipefail
+          curl -i \
+            -H "Authorization: token ${GH_PAT}" \
+            -H "User-Agent: gh-pat-smoke-test" \
+            https://api.github.com/user
+
+      - name: Curl list workflows
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          curl -i \
+            -H "Authorization: token ${GH_PAT}" \
+            -H "User-Agent: gh-pat-smoke-test" \
+            "https://api.github.com/repos/${REPO}/actions/workflows"
