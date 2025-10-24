@@ -49,6 +49,11 @@ export type Env = {
   GEMINI_API_KEY?: string;
   GEMINI_MODEL?: string;
   GEMINI_API_BASE?: string;
+  THREAD_STATE_JSON?: string;
+  RUNTIME_CONFIG_JSON?: string;
+  CONFIG_JSON?: string;
+  ALLOW_KV_WRITES?: string | boolean;
+  DISABLE_KV_WRITES?: string | boolean;
   [k: string]: unknown;
 };
 

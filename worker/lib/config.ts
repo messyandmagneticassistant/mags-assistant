@@ -4,8 +4,10 @@ const DEFAULT_SECRET_BLOB = "thread-state";
 const DEFAULT_BRAIN_DOC_KEY = "PostQ:thread-state";
 const RUNTIME_CONFIG_SYMBOL = "__maggieRuntimeConfig";
 
+type ConfigSource = "kv" | "env" | "secret";
+
 export type ConfigHydrationSummary = {
-  source: "kv" | "env";
+  source: ConfigSource;
   key: string | null;
   binding: string | null;
   keys: string[];
@@ -121,6 +123,37 @@ function collectEnvFallback(env: AnyObj): AnyObj {
   return snapshot;
 }
 
+function readConfigFromEnvSecret(env: AnyObj): { result: { config: AnyObj; key: string; bytes: number } | null; warnings: string[] } {
+  const warnings: string[] = [];
+  const encoder = new TextEncoder();
+  const candidates: Array<[string, unknown]> = [
+    ["THREAD_STATE_JSON", env.THREAD_STATE_JSON],
+    ["RUNTIME_CONFIG_JSON", env.RUNTIME_CONFIG_JSON],
+    ["CONFIG_JSON", env.CONFIG_JSON],
+  ];
+
+  for (const [name, value] of candidates) {
+    if (typeof value !== "string") continue;
+    const raw = value.trim();
+    if (!raw) continue;
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return {
+          result: { config: parsed as AnyObj, key: `env:${name}`, bytes: encoder.encode(raw).length },
+          warnings,
+        };
+      }
+      warnings.push(`Env secret ${name} is not a JSON object.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      warnings.push(`Failed to parse env secret ${name}: ${message}`);
+    }
+  }
+
+  return { result: null, warnings };
+}
+
 export async function hydrateEnvWithConfig(env: AnyObj): Promise<ConfigHydrationSummary> {
   const runtimeEnv = env as AnyObj & { [RUNTIME_CONFIG_SYMBOL]?: RuntimeConfigCache };
   const cached = runtimeEnv[RUNTIME_CONFIG_SYMBOL];
@@ -137,9 +170,17 @@ export async function hydrateEnvWithConfig(env: AnyObj): Promise<ConfigHydration
   let bytes: number | null = null;
   const warnings: string[] = [];
   const binding = kvInfo?.binding ?? null;
-  let source: "kv" | "env" = "env";
+  let source: ConfigSource = "env";
 
-  if (kvInfo) {
+  const { result: secretConfig, warnings: secretWarnings } = readConfigFromEnvSecret(env);
+  warnings.push(...secretWarnings);
+
+  if (secretConfig) {
+    config = secretConfig.config;
+    key = secretConfig.key;
+    bytes = secretConfig.bytes;
+    source = "secret";
+  } else if (kvInfo) {
     const result = await readConfigFromKv(kvInfo.binding, kvInfo.namespace, candidateKeys);
     warnings.push(...result.warnings);
     if (result.key) {
@@ -156,16 +197,25 @@ export async function hydrateEnvWithConfig(env: AnyObj): Promise<ConfigHydration
     Object.assign(env, config);
   }
 
-  const fallbackSnapshot = source === "kv" ? null : collectEnvFallback(env);
-  if (source !== "kv" && warnings.length === 0) {
+  if (source === "secret") {
+    Object.assign(env, config);
+  }
+
+  const fallbackSnapshot = source === "kv" || source === "secret" ? null : collectEnvFallback(env);
+  if (source === "env" && warnings.length === 0) {
     warnings.push("Using environment variables because no KV config was available.");
   }
+
+  const keyList =
+    source === "kv" || source === "secret"
+      ? Object.keys(config).sort()
+      : Object.keys(fallbackSnapshot ?? {}).sort();
 
   const summary: ConfigHydrationSummary = {
     source,
     key,
     binding,
-    keys: source === "kv" ? Object.keys(config).sort() : Object.keys(fallbackSnapshot ?? {}).sort(),
+    keys: keyList,
     bytes,
     warnings,
     loadedAt: timestamp,

@@ -1,5 +1,6 @@
 import type { KVNamespace } from '@cloudflare/workers-types';
 import type { Env } from '../../worker/lib/env';
+import { isKvWriteAllowed } from '../../shared/kvWrites';
 import brainState from '../../brain/brain.json';
 
 const JSON_HEADERS: Record<string, string> = {
@@ -47,6 +48,13 @@ function buildPayload(): { json: string; timestamp: string } {
 }
 
 export const putConfig: Handler = async (_request, env) => {
+  const secondary = typeof process === 'undefined' ? undefined : process.env;
+  if (!isKvWriteAllowed(env, secondary)) {
+    return new Response(
+      JSON.stringify({ ok: false, error: 'kv-writes-disabled' }),
+      { status: 503, headers: JSON_HEADERS }
+    );
+  }
   const namespace = pickWritableNamespace(env);
   if (!namespace) {
     return new Response(

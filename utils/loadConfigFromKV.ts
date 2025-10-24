@@ -8,7 +8,7 @@ import {
   threadStateFallbackPaths,
 } from '../config/env.ts';
 
-export type ThreadStateSource = 'kv' | 'fallback' | 'empty';
+export type ThreadStateSource = 'kv' | 'local' | 'secret' | 'empty';
 
 export interface ThreadStateLoadResult {
   config: Record<string, any> | null;
@@ -21,6 +21,7 @@ export interface ThreadStateLoadResult {
   fetchedAt: string;
   error?: string;
   fallbackPath?: string;
+  secretName?: string;
 }
 
 interface KvFetchOptions {
@@ -88,7 +89,7 @@ async function loadFromFallback(paths: string[]): Promise<ThreadStateLoadResult 
     return {
       config: parsed,
       raw,
-      source: 'fallback',
+      source: 'local',
       key: path.basename(relPath),
       accountId: cloudflareAccountId,
       namespaceId: cloudflareNamespaceId,
@@ -97,6 +98,38 @@ async function loadFromFallback(paths: string[]): Promise<ThreadStateLoadResult 
       fallbackPath: path.resolve(relPath),
     };
   }
+  return null;
+}
+
+function loadFromEnvSecrets(): ThreadStateLoadResult | null {
+  if (typeof process === 'undefined' || typeof process.env === 'undefined') {
+    return null;
+  }
+
+  const candidates: Array<[string, string | undefined]> = [
+    ['THREAD_STATE_JSON', process.env.THREAD_STATE_JSON],
+    ['RUNTIME_CONFIG_JSON', process.env.RUNTIME_CONFIG_JSON],
+    ['CONFIG_JSON', process.env.CONFIG_JSON],
+  ];
+
+  for (const [name, value] of candidates) {
+    const raw = typeof value === 'string' ? value.trim() : '';
+    if (!raw) continue;
+    const parsed = parseJson(raw);
+    if (!parsed) continue;
+    return {
+      config: parsed,
+      raw,
+      source: 'secret',
+      key: `env:${name}`,
+      accountId: cloudflareAccountId,
+      namespaceId: cloudflareNamespaceId,
+      bytes: Buffer.byteLength(raw),
+      fetchedAt: new Date().toISOString(),
+      secretName: name,
+    };
+  }
+
   return null;
 }
 
@@ -112,15 +145,26 @@ export interface LoadConfigOptions {
 export async function loadConfigFromKV(key?: string, options: LoadConfigOptions = {}): Promise<ThreadStateLoadResult> {
   const env = resolveThreadStateEnv();
 
+  const accountId = options.accountId || env.accountId;
+  const namespaceId = options.namespaceId || env.namespaceId;
+  const apiToken = options.apiToken || env.apiToken;
+
+  const secretResult = loadFromEnvSecrets();
+  if (secretResult) {
+    return secretResult;
+  }
+
+  const fallbackPaths = options.fallbackPaths || threadStateFallbackPaths;
+  const local = await loadFromFallback(fallbackPaths);
+  if (local) {
+    return local;
+  }
+
   const keysToTry = [options.key || key || env.key];
   const fallbackKey = options.fallbackKey || env.fallbackKey;
   if (fallbackKey && !keysToTry.includes(fallbackKey)) {
     keysToTry.push(fallbackKey);
   }
-
-  const accountId = options.accountId || env.accountId;
-  const namespaceId = options.namespaceId || env.namespaceId;
-  const apiToken = options.apiToken || env.apiToken;
 
   const attemptedErrors: string[] = [];
 
@@ -147,18 +191,12 @@ export async function loadConfigFromKV(key?: string, options: LoadConfigOptions 
         namespaceId,
         bytes,
         fetchedAt: new Date().toISOString(),
+        error: attemptedErrors.length ? attemptedErrors.join(' | ') : undefined,
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       attemptedErrors.push(`Key "${candidateKey}" — ${message}`);
     }
-  }
-
-  const fallbackPaths = options.fallbackPaths || threadStateFallbackPaths;
-  const fallback = await loadFromFallback(fallbackPaths);
-  if (fallback) {
-    fallback.error = attemptedErrors.join(' | ') || undefined;
-    return fallback;
   }
 
   return {

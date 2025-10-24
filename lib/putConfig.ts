@@ -1,4 +1,5 @@
 import type { KVNamespace } from '@cloudflare/workers-types';
+import { isKvWriteAllowed } from '../shared/kvWrites';
 import { getConfigValue, putConfig as putConfigToCloudflare } from './kv';
 import { getBrain } from './getBrain';
 
@@ -16,6 +17,11 @@ type AnyEnv = Record<string, unknown> & {
   CF_KV_POSTQ_NAMESPACE_ID?: string;
   CF_KV_NAMESPACE_ID?: string;
 };
+
+function kvWritesEnabled(env: AnyEnv): boolean {
+  const secondary = typeof process === 'undefined' ? undefined : process.env;
+  return isKvWriteAllowed(env, secondary);
+}
 
 const FRONT_MATTER_REGEX = /^---\s*\n([\s\S]*?)\n---\s*\n?/;
 const KV_BRAIN_KEY = 'PostQ:thread-state';
@@ -351,6 +357,10 @@ async function putBrainSnapshotFromParsed(
 }
 
 export async function putBrainSnapshot(env: AnyEnv): Promise<PutBrainResult> {
+  if (!kvWritesEnabled(env)) {
+    console.warn('[putBrainSnapshot] KV writes disabled; skipping snapshot update.');
+    return { ok: false, skipped: true, reason: 'kv-writes-disabled' };
+  }
   const brainMarkdown = await getBrain(env);
   if (!brainMarkdown || brainMarkdown.trim().length === 0) {
     console.warn('[putBrainSnapshot] brain.md fetch returned empty payload');
@@ -376,6 +386,10 @@ export async function putBrainSnapshot(env: AnyEnv): Promise<PutBrainResult> {
 }
 
 export async function putBrainToKV(env: AnyEnv): Promise<PutBrainResult> {
+  if (!kvWritesEnabled(env)) {
+    console.warn('[putBrainToKV] KV writes disabled; skipping brain sync.');
+    return { ok: false, skipped: true, reason: 'kv-writes-disabled' };
+  }
   const brainMarkdown = await getBrain(env);
   if (!brainMarkdown || brainMarkdown.trim().length === 0) {
     console.warn('[putBrainToKV] brain.md fetch returned empty payload');

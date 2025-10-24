@@ -36,6 +36,7 @@ import { router } from './router/router';
 import { codexRouter, registerCodexRoutes } from './codex';
 import { hydrateEnvWithConfig } from './lib/config';
 import { resetState } from './lib/state';
+import { applyKvWriteGuards } from './lib/kvGuard';
 
 const BRAIN_LATEST_KV_KEY = 'brain/latest';
 const DEFAULT_BRAIN_KV_FALLBACK_KEY = 'PostQ:thread-state';
@@ -1340,6 +1341,8 @@ export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
 
+    applyKvWriteGuards(env);
+
     try {
       await hydrateEnvWithConfig(env);
     } catch (err) {
@@ -1867,6 +1870,7 @@ export default {
 
   // ------------- Cron (Cloudflare scheduled triggers) -------------
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    applyKvWriteGuards(env);
     const bootSync = ensureBootBrainSync(env);
     if (bootSync) ctx.waitUntil(bootSync);
 

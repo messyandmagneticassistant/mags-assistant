@@ -11,8 +11,8 @@ on:
         description: "Why are we running this?"
         required: false
         default: "manual"
-  schedule:
-    - cron: '30 3 * * *'  # 03:30 UTC (21:30 ABQ during DST)
+  # schedule:
+  #   - cron: '30 3 * * *'  # disabled to prevent automatic KV writes
   workflow_call:
     inputs:
       reason:
@@ -134,21 +134,9 @@ jobs:
         if: steps.secrets.outputs.missing == 'false'
         run: npm install -g wrangler@3
 
-      - name: Upload brain to Cloudflare KV
-        if: steps.secrets.outputs.missing == 'false'
-        env:
-          KV_NAMESPACE_ID: ${{ env.KV_NAMESPACE_ID }}
-          CF_API_TOKEN: ${{ env.CF_API_TOKEN }}
-          CLOUDFLARE_API_TOKEN: ${{ env.CLOUDFLARE_API_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo 'Uploading brain/brain.md to Cloudflare KV as brain/latest...'
-          wrangler kv:key put \
-            brain/latest \
-            --namespace-id "$KV_NAMESPACE_ID" \
-            --path brain/brain.md
-          echo 'Brain upload complete.'
+      - name: Upload brain to Cloudflare KV (disabled)
+        if: steps.secrets.outputs.missing == 'false' && false
+        run: echo 'KV writes disabled; skipping brain upload.'
 
       - name: Verify brain endpoint (diagnostic)
         if: steps.secrets.outputs.missing == 'false'
