@@ -1,4 +1,5 @@
 import type { Env } from '../lib/env';
+import { putConfig } from '../handlers/putConfig';
 
 export type RouteHandler = (
   request: Request,
@@ -107,3 +108,5 @@ export type WorkerRouter = typeof router;
 export function getRouterRegisteredPaths(): string[] {
   return router.getRegisteredPaths();
 }
+
+router.get('/putConfig', putConfig);
