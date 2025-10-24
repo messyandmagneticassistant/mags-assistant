@@ -45,13 +45,13 @@ async function loadGetConfig(): Promise<GetConfigFn> {
   return undefined;
 }
 
-interface ResolveOptions {
+export interface ResolveOptions {
   accountId?: string;
   apiToken?: string;
   namespaceId?: string;
 }
 
-async function resolveCredentials(
+export async function resolveKvCredentials(
   options: ResolveOptions = {}
 ): Promise<{ accountId: string; apiToken: string; namespaceId: string }> {
   let accountId =
@@ -181,7 +181,7 @@ export async function putConfig(
     console.warn(`[kv] putConfig skipped for key "${key}" because KV writes are disabled.`);
     return kvWriteDisabledResult();
   }
-  const { accountId, apiToken, namespaceId } = await resolveCredentials(options);
+  const { accountId, apiToken, namespaceId } = await resolveKvCredentials(options);
   const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/storage/kv/namespaces/${namespaceId}/values/${encodeURIComponent(
     key
   )}`;
@@ -214,7 +214,7 @@ export async function getConfigValue<T = unknown>(
   key: string,
   options: GetConfigOptions = {}
 ): Promise<T | string> {
-  const { accountId, apiToken, namespaceId } = await resolveCredentials(options);
+  const { accountId, apiToken, namespaceId } = await resolveKvCredentials(options);
   const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/storage/kv/namespaces/${namespaceId}/values/${encodeURIComponent(
     key
   )}`;

@@ -2,10 +2,40 @@ name: Seed KV
 
 on:
   workflow_dispatch:
+    inputs:
+      dry_run:
+        type: boolean
+        default: false
+        description: "Run in dry-run mode (do not push to KV)"
+      min_writes_remaining:
+        type: number
+        default: 100
+        description: "Minimum writes remaining required to proceed"
+      window_seconds:
+        type: number
+        default: 86400
+        description: "Usage window (seconds) for quota check"
+      expect_idle:
+        type: boolean
+        default: false
+        description: "Fail if writes observed in the window"
+      reason:
+        type: string
+        default: manual
+        description: "Why are we syncing KV right now?"
 
 jobs:
   seed:
     runs-on: ubuntu-latest
+    env:
+      ALLOW_KV_WRITES: true
+      KV_SYNC_SAFE_MODE: true
+      KV_SYNC_ENFORCE_QUOTA: true
+      KV_SYNC_MIN_WRITES: ${{ inputs.min_writes_remaining }}
+      KV_SYNC_USAGE_WINDOW: ${{ inputs.window_seconds }}
+      KV_SYNC_DRY_RUN: ${{ inputs.dry_run }}
+      KV_USAGE_EXPECT_IDLE: ${{ inputs.expect_idle }}
+      KV_USAGE_WINDOW_SECONDS: ${{ inputs.window_seconds }}
     steps:
       - uses: actions/checkout@v4
       - name: Setup Node
@@ -34,8 +64,25 @@ jobs:
       - name: Corepack version (non-blocking)
         run: corepack --version || true
 
+      - name: Log sync reason
+        env:
+          KV_SYNC_REASON: ${{ inputs.reason }}
+        run: |
+          if [ -n "$KV_SYNC_REASON" ]; then
+            echo "KV sync reason: $KV_SYNC_REASON"
+          else
+            echo "KV sync reason: (not provided)"
+          fi
+
       - name: Install deps
         run: pnpm install --frozen-lockfile
+
+      - name: Check KV usage before sync
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_KV_POSTQ_NAMESPACE_ID: ${{ secrets.CF_KV_POSTQ_NAMESPACE_ID }}
+        run: pnpm run kv:usage -- --window ${{ inputs.window_seconds }}
 
       - name: Seed KV
         env:
@@ -44,4 +91,8 @@ jobs:
           CF_KV_POSTQ_NAMESPACE_ID: ${{ secrets.CF_KV_POSTQ_NAMESPACE_ID }}
           THREAD_STATE_JSON: ${{ secrets.THREAD_STATE_JSON }}
           BRAIN_DOC_MD: ${{ secrets.BRAIN_DOC_MD }}
-        run: pnpm run seed:kv
+          BRAIN_DOC_JSON: ${{ secrets.BRAIN_DOC_JSON }}
+          CF_KV_NAMESPACE_ID: ${{ secrets.CF_KV_POSTQ_NAMESPACE_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+        run: pnpm run kv:sync

@@ -1,0 +1,53 @@
+name: Monitor Cloudflare KV usage
+
+on:
+  schedule:
+    - cron: '0 */3 * * *'
+  workflow_dispatch:
+    inputs:
+      window_seconds:
+        description: 'Usage window in seconds'
+        default: 86400
+        type: number
+      idle_threshold:
+        description: 'Allowed writes within the window before alerting'
+        default: 20
+        type: number
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    env:
+      KV_USAGE_WINDOW_SECONDS: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.window_seconds) || 86400 }}
+      KV_USAGE_WARN_REMAINING: 150
+      KV_USAGE_ERROR_REMAINING: 100
+      KV_USAGE_EXPECT_IDLE: true
+      KV_USAGE_IDLE_THRESHOLD: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.idle_threshold) || 20 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup PNPM
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+          run_install: false
+
+      - name: Enable Corepack
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.12.0 --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Inspect KV usage
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_KV_POSTQ_NAMESPACE_ID: ${{ secrets.CF_KV_POSTQ_NAMESPACE_ID }}
+        run: pnpm run kv:usage -- --window ${{ env.KV_USAGE_WINDOW_SECONDS }}

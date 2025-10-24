@@ -57,6 +57,9 @@
     "stripe:sync": "tsx scripts/stripe-sync.ts",
     "seed:stripe": "tsx scripts/seed/stripe.ts",
     "seed:kv": "tsx scripts/seedKV.ts",
+    "kv:sync": "tsx scripts/seedKV.ts --safe",
+    "kv:sync:dry": "tsx scripts/seedKV.ts --dry-run --safe",
+    "kv:usage": "tsx scripts/checkKvUsage.ts",
     "telegram:auto-repair": "tsx scripts/telegram-auto-repair.ts",
     "telegram:auto-repair:watch": "tsx scripts/telegram-auto-repair.ts --watch"
   },
