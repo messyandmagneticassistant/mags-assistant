@@ -1,4 +1,17 @@
+import { isKvWriteAllowed } from '../shared/kvWrites';
+
 type GetConfigFn = ((scope: string) => Promise<any>) | undefined;
+
+type KvWriteResult = { ok: boolean; skipped?: boolean; reason?: string };
+
+function kvWritesPermitted(): boolean {
+  const env = typeof process === 'undefined' ? undefined : process.env;
+  return isKvWriteAllowed(env);
+}
+
+function kvWriteDisabledResult(): KvWriteResult {
+  return { ok: false, skipped: true, reason: 'kv-writes-disabled' } as const;
+}
 
 let resolvedGetConfig: GetConfigFn | null = null;
 
@@ -117,7 +130,11 @@ export interface PutConfigOptions extends ResolveOptions {
   contentType?: string;
 }
 
-export async function saveToKV(key: string, value: any) {
+export async function saveToKV(key: string, value: any): Promise<KvWriteResult> {
+  if (!kvWritesPermitted()) {
+    console.warn(`[kv] saveToKV skipped for key "${key}" because KV writes are disabled.`);
+    return kvWriteDisabledResult();
+  }
   let base = process.env.WORKER_URL;
   let auth = process.env.WORKER_KEY;
 
@@ -152,14 +169,18 @@ export async function saveToKV(key: string, value: any) {
   if (!res.ok) {
     throw new Error(`Failed to write to KV: ${res.status}`);
   }
-  return { ok: true };
+  return { ok: true } as const;
 }
 
 export async function putConfig(
   key: string,
   value: unknown,
   options: PutConfigOptions = {}
-) {
+): Promise<KvWriteResult> {
+  if (!kvWritesPermitted()) {
+    console.warn(`[kv] putConfig skipped for key "${key}" because KV writes are disabled.`);
+    return kvWriteDisabledResult();
+  }
   const { accountId, apiToken, namespaceId } = await resolveCredentials(options);
   const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/storage/kv/namespaces/${namespaceId}/values/${encodeURIComponent(
     key

@@ -91,9 +91,9 @@ jobs:
           }
           NODE
 
-      - name: Upload to Cloudflare KV (POSTQ)
-        run: |
-          npx wrangler kv:key put --binding=POSTQ PostQ:thread-state --path ./thread-state.json --env production
+      - name: Upload to Cloudflare KV (POSTQ) — disabled
+        if: ${{ false }}
+        run: echo 'KV writes disabled; skipping upload to Cloudflare KV.'
 
       - name: Deploy Cloudflare Worker
         run: |

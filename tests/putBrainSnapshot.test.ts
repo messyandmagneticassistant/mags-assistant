@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterAll } from 'vitest';
 
 const putConfigMock = vi.hoisted(() => {
   const fn = vi.fn<
@@ -21,9 +21,20 @@ vi.mock('../lib/getBrain', () => ({
 const SAMPLE_BRAIN = `---\nname: Example Brain\nrole: assistant\n---\nThis is the brain content.`;
 
 describe('putBrainSnapshot', () => {
+  const originalAllowKv = process.env.ALLOW_KV_WRITES;
+
   beforeEach(() => {
+    process.env.ALLOW_KV_WRITES = 'true';
     putConfigMock.mockClear();
     getBrainMock.mockReset();
+  });
+
+  afterAll(() => {
+    if (typeof originalAllowKv === 'undefined') {
+      delete process.env.ALLOW_KV_WRITES;
+    } else {
+      process.env.ALLOW_KV_WRITES = originalAllowKv;
+    }
   });
 
   it('stores the snapshot under the brain/latest KV key', async () => {
