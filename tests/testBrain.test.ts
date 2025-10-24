@@ -16,7 +16,7 @@ describe('brain/readBrain', () => {
 
     const threadState = brain.threadState as Record<string, unknown>;
     expect(threadState.kvKey).toBe('PostQ:thread-state');
-    expect(threadState.workflow).toContain('sync-brain.yml');
+    expect(threadState.workflow).toContain('seed-kv.yml');
   });
 
   it('includes maggie logic and soul blueprint sections for downstream sync', async () => {

@@ -16,9 +16,9 @@
   - Schedule, caption, and upload drafts with trending overlays and safe batching.
   - Retry flops automatically, report recoveries, and rebalance queue volume.
 - **Sync routine:**
-  - Run `pnpm updateBrain` after edits to `brain/brain.md` to push Cloudflare KV.
-  - GitHub Action `.github/workflows/sync-brain.yml` refreshes timestamps nightly at 03:30 UTC.
-  - Worker cron `syncThreadStateFromGitHub` backfills `thread-state` + `PostQ:thread-state` if GitHub diverges.
+  - Run `pnpm updateBrain` after edits to `brain/brain.md` to refresh repo snapshots.
+  - GitHub Action `.github/workflows/seed-kv.yml` (manual) or `pnpm kv:sync` pushes config + secrets when quota allows.
+  - Monitor `.github/workflows/kv-usage-monitor.yml` to alert if automated processes resume KV writes.
 
 ## Soul Blueprint
 - **Guiding principles:**
@@ -50,8 +50,8 @@
 ## Thread State Sync
 - **KV key:** `PostQ:thread-state`
 - **Worker:** `maggie.messyandmagnetic.com`
-- **GitHub Action:** .github/workflows/sync-brain.yml
-- **Cron cadence:** 30 3 * * *
+- **GitHub Action:** .github/workflows/seed-kv.yml (manual trigger)
+- **Cron cadence:** manual
 
 ## Integrations
 - notion
@@ -63,4 +63,4 @@
 - gemini
 
 ## Notes
-- Blob maintained by nightly GitHub Action `sync-brain.yml` and worker cron fallbacks.
+- Blob maintained by manual GitHub Action `seed-kv.yml` with KV usage guardrails.

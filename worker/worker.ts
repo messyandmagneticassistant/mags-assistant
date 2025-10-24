@@ -420,6 +420,22 @@ async function triggerBrainSyncDispatch(
   const token = pickGitHubDispatchToken(env);
   const repo = determineBrainSyncRepository(env);
   const ref = determineBrainSyncRef(env);
+  const record = env as Record<string, unknown>;
+  const minWrites =
+    firstNonEmptyString(
+      record.KV_SYNC_MIN_WRITES as string | undefined | null,
+      record.BRAIN_SYNC_MIN_WRITES as string | undefined | null
+    ) ?? '100';
+  const windowSeconds =
+    firstNonEmptyString(
+      record.KV_SYNC_USAGE_WINDOW as string | undefined | null,
+      record.BRAIN_SYNC_WINDOW_SECONDS as string | undefined | null
+    ) ?? '86400';
+  const expectIdle =
+    firstNonEmptyString(
+      record.KV_USAGE_EXPECT_IDLE as string | undefined | null,
+      record.BRAIN_SYNC_EXPECT_IDLE as string | undefined | null
+    ) ?? 'false';
   const trimmedReason = (reason ?? '').trim().slice(0, 120) || 'worker-manual-trigger';
 
   if (!token) {
@@ -449,15 +465,24 @@ async function triggerBrainSyncDispatch(
 
   try {
     workflowAttempted = true;
-    const workflowUrl = `https://api.github.com/repos/${repo}/actions/workflows/sync-brain.yml/dispatches`;
+    const workflowUrl = `https://api.github.com/repos/${repo}/actions/workflows/seed-kv.yml/dispatches`;
     const response = await fetch(workflowUrl, {
       method: 'POST',
       headers: buildHeaders(),
-      body: JSON.stringify({ ref, inputs: { reason: trimmedReason } }),
+      body: JSON.stringify({
+        ref,
+        inputs: {
+          reason: trimmedReason,
+          dry_run: 'false',
+          min_writes_remaining: minWrites,
+          window_seconds: windowSeconds,
+          expect_idle: expectIdle,
+        },
+      }),
     });
     workflowStatus = response.status;
     if (response.ok) {
-      console.log('[worker:/brain/sync] Dispatched sync-brain workflow', {
+      console.log('[worker:/brain/sync] Dispatched seed-kv workflow', {
         repo,
         ref,
         status: response.status,

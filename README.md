@@ -50,29 +50,32 @@ stripe + Tally funnels with the rest of the stack.
    dependencies, validates config with KV fallbacks, deploys via Wrangler, and
    pings Telegram when it succeeds (or fails).
 
-### Uploading data to Cloudflare KV with Wrangler
+### Cloudflare KV sync workflow
 
-When you need to write a one-off value directly into the configured KV
-namespace, use Wrangler's [`kv key put`](https://developers.cloudflare.com/workers/wrangler/commands/#kv-key-put)
-command. This works against any binding defined in `wrangler.toml` (for Maggie
-the brain namespace is bound as `BRAIN`). The command below writes a JSON blob
-to the `PostQ:thread-state` key by reading the contents of `brain/brain.json`:
+Configuration lives in Git alongside Maggie:
 
-```bash
-pnpm wrangler kv key put \
-  --binding BRAIN \
-  --path brain/brain.json \
-  "PostQ:thread-state"
-```
+- `brain/brain.md`, `config/kv-state.json`, and `config/thread-state.json` define the payloads that should live in KV.
+- `kv/worker-kv.json` maps additional KV keys to GitHub secrets; each entry resolves `${ENV}` placeholders at runtime.
 
-You can also inline smaller values without `--path`:
+Automatic KV writes are disabled by default because `isKvWriteAllowed` returns `false` unless you explicitly set
+`ALLOW_KV_WRITES=true`. That means background processes (Workers, scheduled GitHub Actions) can read KV but will be blocked from
+calling `put`. To push updates:
 
-```bash
-pnpm wrangler kv key put --binding BRAIN "feature-flag" "enabled"
-```
+1. Refresh local artifacts with `pnpm updateBrain` after editing `brain/brain.md`.
+2. Run the manual GitHub Action [`.github/workflows/seed-kv.yml`](.github/workflows/seed-kv.yml) or execute `pnpm kv:sync --safe` locally.
+   - Safe mode enforces quota checks (24h window by default) and refuses to write if fewer than 100 operations remain.
+   - Supply the `dry_run` input (or pass `--dry-run`) to preview the writes without touching Cloudflare.
+   - The script resolves both repo files and secrets referenced in `kv/worker-kv.json`, so missing environment variables simply skip keys.
+3. Provide Cloudflare credentials (`CF_ACCOUNT_ID`, `CF_API_TOKEN`, `CF_KV_POSTQ_NAMESPACE_ID`) via GitHub secrets or local env
+   vars before running the workflow or command.
 
-Wrangler will prompt for confirmation before overwriting an existing key and
-reports the namespace, key name, and write status when the upload succeeds.
+Monitoring & guardrails:
+
+- `pnpm kv:usage` (and the scheduled workflow [`.github/workflows/kv-usage-monitor.yml`](.github/workflows/kv-usage-monitor.yml))
+  fetch Cloudflare analytics, warn when fewer than 150 writes remain, and fail when under 100.
+- Set `KV_USAGE_EXPECT_IDLE=true` (with an optional `KV_USAGE_IDLE_THRESHOLD`) to alert if any background job starts writing again.
+- For other scripts, you can toggle `ALLOW_KV_WRITES` / `DISABLE_KV_WRITES`, `KV_SYNC_MIN_WRITES`, `KV_SYNC_USAGE_WINDOW`, and
+  `KV_SYNC_SAFE_MODE` to fine-tune the safety net. `BRAIN_SYNC_SKIP_DIRECT_KV=true` keeps `scripts/updateBrain.ts` in read-only mode.
 
 ## Blob-based KV config
 Maggie's canonical configuration lives in the KV blob stored at
