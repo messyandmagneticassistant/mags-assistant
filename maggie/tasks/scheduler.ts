@@ -5,10 +5,34 @@ import { tgSend } from '../../lib/telegram.js';
 import { formatTask } from '../../lib/helpers/formatTask.js';
 
 const MIN_INTERVAL_MS = 60_000;
-const DEFAULT_INTERVAL_MS = Math.max(
-  MIN_INTERVAL_MS,
-  parseInt(process.env.POST_INTERVAL_MS || '180000', 10)
-);
+const DEFAULT_INTERVAL_MS = 180_000;
+
+function resolveSchedulerInterval(): number {
+  const raw = process.env.POST_INTERVAL_MS;
+  if (!raw) {
+    return DEFAULT_INTERVAL_MS;
+  }
+
+  const trimmed = raw.trim();
+  if (!/^[0-9]+$/.test(trimmed)) {
+    console.warn(
+      `[scheduler] Invalid POST_INTERVAL_MS value "${raw}" — using DEFAULT_INTERVAL_MS (${DEFAULT_INTERVAL_MS}ms).`
+    );
+    return DEFAULT_INTERVAL_MS;
+  }
+
+  const parsed = Number.parseInt(trimmed, 10);
+  if (Number.isNaN(parsed)) {
+    console.warn(
+      `[scheduler] Unable to parse POST_INTERVAL_MS value "${raw}" — using DEFAULT_INTERVAL_MS (${DEFAULT_INTERVAL_MS}ms).`
+    );
+    return DEFAULT_INTERVAL_MS;
+  }
+
+  return Math.max(DEFAULT_INTERVAL_MS, parsed);
+}
+
+const RESOLVED_INTERVAL_MS = resolveSchedulerInterval();
 const DEFAULT_INITIAL_DELAY_MS = Math.max(
   0,
   parseInt(process.env.POST_INITIAL_DELAY_MS || '0', 10)
@@ -110,14 +134,14 @@ async function runSchedulerCycle(trigger: string): Promise<void> {
 }
 
 function normalizeDelayMs(delayMs?: number): number {
-  if (!Number.isFinite(delayMs)) return DEFAULT_INTERVAL_MS;
+  if (!Number.isFinite(delayMs)) return RESOLVED_INTERVAL_MS;
   const value = Number(delayMs);
-  if (Number.isNaN(value)) return DEFAULT_INTERVAL_MS;
+  if (Number.isNaN(value)) return RESOLVED_INTERVAL_MS;
   return Math.max(MIN_INTERVAL_MS, value);
 }
 
 function planNextCycle(delayMs?: number): void {
-  const delay = delayMs === undefined ? DEFAULT_INTERVAL_MS : normalizeDelayMs(delayMs);
+  const delay = delayMs === undefined ? RESOLVED_INTERVAL_MS : normalizeDelayMs(delayMs);
 
   if (schedulerTimer) {
     clearTimeout(schedulerTimer);

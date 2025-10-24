@@ -1,7 +1,6 @@
 import { watchRawFolder } from './maggie/tasks/watch-raw.ts';
 import { runFullScheduler, type SchedulerStatus } from './maggie/tasks/scheduler.ts';
 import { checkForFlops, startFlopMonitor } from './maggie/tasks/retry-flops.ts';
-import { intentParser } from './maggie/intent-router.ts';
 import { agentAct } from './bots/agents/agentbrain.ts';
 import { loadConfigFromKV, type ThreadStateLoadResult } from './utils/loadConfigFromKV.ts';
 import { threadStateKey } from './config/env.ts';
@@ -72,37 +71,49 @@ function logThreadStateSummary(result: ThreadStateLoadResult, verbose: boolean):
   }
 }
 
-async function wireDefaultIntents() {
-  await intentParser.add([
-    {
-      pattern: /^caption (.+)/i,
-      intent: 'setCaption',
-      extract: (text) => ({
-        caption: text.match(/^caption (.+)/i)?.[1] || '',
-      }),
-    },
-    {
-      pattern: /^schedule (.+)/i,
-      intent: 'schedulePost',
-      extract: (text) => ({
-        time: text.match(/^schedule (.+)/i)?.[1] || '',
-      }),
-    },
-    {
-      pattern: /^upload (.+\.mp4)$/i,
-      intent: 'uploadVideo',
-      extract: (text) => ({
-        videoPath: text.match(/^upload (.+\.mp4)$/i)?.[1] || '',
-      }),
-    },
-    {
-      pattern: /^comment (.+)/i,
-      intent: 'addComment',
-      extract: (text) => ({
-        comment: text.match(/^comment (.+)/i)?.[1] || '',
-      }),
-    },
-  ]);
+async function wireDefaultIntents(): Promise<string | null> {
+  try {
+    const { intentParser } = await import('./maggie/intent-router.ts');
+    if (!intentParser?.add) {
+      return '⚠️ Intent parser unavailable; default commands were not registered.';
+    }
+
+    await intentParser.add([
+      {
+        pattern: /^caption (.+)/i,
+        intent: 'setCaption',
+        extract: (text) => ({
+          caption: text.match(/^caption (.+)/i)?.[1] || '',
+        }),
+      },
+      {
+        pattern: /^schedule (.+)/i,
+        intent: 'schedulePost',
+        extract: (text) => ({
+          time: text.match(/^schedule (.+)/i)?.[1] || '',
+        }),
+      },
+      {
+        pattern: /^upload (.+\.mp4)$/i,
+        intent: 'uploadVideo',
+        extract: (text) => ({
+          videoPath: text.match(/^upload (.+\.mp4)$/i)?.[1] || '',
+        }),
+      },
+      {
+        pattern: /^comment (.+)/i,
+        intent: 'addComment',
+        extract: (text) => ({
+          comment: text.match(/^comment (.+)/i)?.[1] || '',
+        }),
+      },
+    ]);
+
+    return null;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return `⚠️ Failed to wire default intents: ${message}`;
+  }
 }
 
 async function startSchedulerLoop(forceImmediate: boolean): Promise<SchedulerStatus> {
@@ -155,7 +166,8 @@ export async function runMaggie(config: RunMaggieConfig = {}): Promise<MaggieRea
   }
 
   // 🧠 Auto-wire Maggie’s default text commands
-  await wireDefaultIntents();
+  const intentWarning = await wireDefaultIntents();
+  if (intentWarning) warnings.push(intentWarning);
 
   // 🔄 Start background task loops
   const loopStatuses: LoopStatus[] = [];
