@@ -5,7 +5,7 @@ import {
   cloudflareApiToken,
   cloudflareNamespaceId,
   resolveThreadStateEnv,
-  threadStateFallbackPaths,
+  canonicalBrainFallbackPaths,
 } from '../config/env.ts';
 
 export type ThreadStateSource = 'kv' | 'local' | 'secret' | 'empty';
@@ -154,7 +154,7 @@ export async function loadConfigFromKV(key?: string, options: LoadConfigOptions 
     return secretResult;
   }
 
-  const fallbackPaths = options.fallbackPaths || threadStateFallbackPaths;
+  const fallbackPaths = options.fallbackPaths || canonicalBrainFallbackPaths;
   const local = await loadFromFallback(fallbackPaths);
   if (local) {
     return local;

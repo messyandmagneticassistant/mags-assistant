@@ -5,6 +5,7 @@ import process from 'node:process';
 import { DEFAULT_KV_DAILY_LIMIT, estimateKvWritesRemaining, fetchKvUsageSummary } from '../lib/cloudflare/kvAnalytics';
 import { putConfig } from '../lib/kv';
 import { describeKvWriteState, isKvWriteAllowed } from '../shared/kvWrites';
+import { CANONICAL_BRAIN_KV_KEY, CANONICAL_BRAIN_REPO_PATH } from '../config/env';
 
 type SyncSource =
   | { type: 'env'; name: string; optional?: boolean }
@@ -89,37 +90,37 @@ function baseEntries(): SyncEntry[] {
     {
       key: 'thread-state',
       contentType: 'application/json',
-      source: { type: 'file', path: 'config/thread-state.json', optional: true },
+      source: { type: 'file', path: CANONICAL_BRAIN_REPO_PATH, optional: true },
       encoding: 'json',
-      label: 'config/thread-state.json',
+      label: `${CANONICAL_BRAIN_REPO_PATH} → thread-state (legacy key)`,
     },
     {
-      key: 'PostQ:thread-state',
+      key: CANONICAL_BRAIN_KV_KEY,
       contentType: 'application/json',
       source: { type: 'env', name: 'BRAIN_DOC_JSON', optional: true },
       encoding: 'json',
       label: 'BRAIN_DOC_JSON',
     },
     {
-      key: 'PostQ:thread-state',
+      key: CANONICAL_BRAIN_KV_KEY,
       contentType: 'text/markdown',
       source: { type: 'env', name: 'BRAIN_DOC_MD', optional: true },
       encoding: 'text',
       label: 'BRAIN_DOC_MD',
     },
     {
-      key: 'PostQ:thread-state',
+      key: CANONICAL_BRAIN_KV_KEY,
       contentType: 'application/json',
-      source: { type: 'file', path: 'brain/brain.json', optional: true },
+      source: { type: 'file', path: CANONICAL_BRAIN_REPO_PATH, optional: true },
       encoding: 'json',
-      label: 'brain/brain.json (thread-state)',
+      label: `${CANONICAL_BRAIN_REPO_PATH} → ${CANONICAL_BRAIN_KV_KEY}`,
     },
     {
       key: 'brain/latest',
       contentType: 'application/json',
-      source: { type: 'file', path: 'brain/brain.json', optional: true },
+      source: { type: 'file', path: CANONICAL_BRAIN_REPO_PATH, optional: true },
       encoding: 'json',
-      label: 'brain/brain.json',
+      label: `${CANONICAL_BRAIN_REPO_PATH} → brain/latest`,
     },
   ];
 }

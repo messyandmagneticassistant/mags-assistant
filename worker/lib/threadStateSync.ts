@@ -2,8 +2,8 @@ import type { Env } from './env';
 
 const DEFAULT_REPO = 'messyandmagneticassistant/mags-assistant';
 const DEFAULT_BRANCH_FALLBACKS = ['chore/nightly-brain-sync', 'main'];
-const DEFAULT_PATH = 'config/thread-state.json';
-const DEFAULT_BRAIN_DOC_PATH = 'brain/brain.json';
+const CANONICAL_REPO_BRAIN_PATH = 'brain/brain.json';
+const DEFAULT_BRAIN_DOC_PATH = CANONICAL_REPO_BRAIN_PATH;
 
 function pickToken(env: Env & Record<string, any>): string | undefined {
   const token =
@@ -73,7 +73,7 @@ function determinePath(env: Env & Record<string, any>): string {
   const value = env.THREAD_STATE_PATH;
   return typeof value === 'string' && value.trim().length
     ? value.trim()
-    : DEFAULT_PATH;
+    : CANONICAL_REPO_BRAIN_PATH;
 }
 
 function determineBrainDocPath(env: Env & Record<string, any>): string {

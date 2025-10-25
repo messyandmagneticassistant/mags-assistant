@@ -1,9 +1,9 @@
 import { Agent } from '@/core/Agent'
 import { loadConfigFromKV } from '@/utils/loadConfigFromKV'
-import { threadStateKey } from '@/config/env'
+import { postqThreadStateKey } from '@/config/env'
 
 export async function spawnAgent(agentName: string): Promise<Agent> {
-  const result = await loadConfigFromKV(threadStateKey)
+  const result = await loadConfigFromKV(postqThreadStateKey)
   const agentConfig = result.config?.agents?.[agentName]
 
   if (!agentConfig) {
