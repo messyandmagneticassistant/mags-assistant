@@ -41,17 +41,21 @@
     "storage": {
       "secretBlob": "thread-state",
       "docs": {
-        "brain": "brain/brain.md"
+        "brain": "brain/brain.json"
       }
     },
     "backups": {
       "github": {
         "branch": "chore/nightly-brain-sync",
-        "path": "config/kv-state.json"
+        "path": "brain/brain.json"
       }
     }
   },
-  "notes": "Blob maintained by manual GitHub Action `seed-kv.yml` with KV usage guardrails.",
+  "notes": [
+    "Canonical GitHub source of truth lives at brain/brain.json.",
+    "Update via pull request; scripts only read from this file.",
+    "Cloudflare KV syncs run manually once quota is restored."
+  ],
   "integrations": {
     "notion": true,
     "telegram": true,
@@ -87,7 +91,7 @@
       "Retry flops automatically, report recoveries, and rebalance queue volume."
     ],
     "syncRoutine": [
-      "Run `pnpm updateBrain` after edits to `brain/brain.md` to refresh repo snapshots.",
+      "Run `pnpm updateBrain` after edits to `brain/brain.json` to refresh local caches and prep KV sync.",
       "Use GitHub Action `.github/workflows/seed-kv.yml` (manual) or `pnpm kv:sync` to batch push config + secrets when quota allows.",
       "Monitor `.github/workflows/kv-usage-monitor.yml` to alert if automated processes resume KV writes."
     ]
@@ -104,6 +108,6 @@
       "Social resonance experiments + analytics"
     ]
   },
-  "lastSynced": "2025-10-08T00:31:06.483Z",
-  "lastUpdated": "2025-10-08T00:31:06.483Z"
+  "lastSynced": null,
+  "lastUpdated": "2025-10-25T15:14:40.321Z"
 }

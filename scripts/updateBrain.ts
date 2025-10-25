@@ -26,6 +26,14 @@ interface BrainSyncLog {
 }
 
 const KV_KEY = 'PostQ:thread-state';
+const COOLDOWN_MINUTES = Number.parseInt(
+  process.env.BRAIN_SYNC_COOLDOWN_MINUTES || '15',
+  10
+);
+const COOLDOWN_MS = Number.isFinite(COOLDOWN_MINUTES)
+  ? Math.max(COOLDOWN_MINUTES, 0) * 60_000
+  : 0;
+const LOG_PATH = path.resolve(process.cwd(), 'brain-status.log');
 
 function normalizeValue(value: unknown): string | undefined {
   if (typeof value === 'string' && value.trim().length > 0) {
@@ -41,150 +49,76 @@ function readBooleanEnv(name: string | undefined): boolean {
 }
 
 async function writeLog(entry: BrainSyncLog) {
-  const logPath = path.resolve(process.cwd(), 'brain-status.log');
   try {
-    await fs.writeFile(logPath, `${JSON.stringify(entry, null, 2)}\n`, 'utf8');
+    await fs.writeFile(LOG_PATH, `${JSON.stringify(entry, null, 2)}\n`, 'utf8');
   } catch (err) {
     console.warn('[updateBrain] Unable to persist brain-status.log:', err);
   }
 }
 
-function asArray(value: unknown): string[] {
-  if (Array.isArray(value)) return value.map((item) => String(item));
-  if (typeof value === 'string') return [value];
-  return [];
-}
-
-function formatList(items: string[], prefix = '-'): string[] {
-  return items.map((item) => `${prefix} ${item}`);
-}
-
-function renderBrainDoc(payload: BrainState, timestamp: string): string {
-  const lines: string[] = ['# Maggie Brain Snapshot', ''];
-  lines.push(`> Auto-synced from [\`brain/brain.md\`](../brain/brain.md) at ${timestamp}.`, '');
-
-  const profile = (payload.profile ?? {}) as Record<string, unknown>;
-  if (Object.keys(profile).length) {
-    lines.push('## Profile');
-    if (profile.name) lines.push(`- **Name:** ${String(profile.name)}`);
-    if (profile.role) lines.push(`- **Role:** ${String(profile.role)}`);
-    const subs = Array.isArray(profile.subdomains)
-      ? (profile.subdomains as string[])
-      : [];
-    if (subs.length) {
-      lines.push('- **Subdomains:**');
-      lines.push(...formatList(subs, '  -'));
+async function readLastLog(): Promise<BrainSyncLog | null> {
+  try {
+    const raw = await fs.readFile(LOG_PATH, 'utf8');
+    const data = JSON.parse(raw) as BrainSyncLog;
+    if (data && typeof data === 'object') {
+      return data;
     }
-    if (profile.kvNamespace) {
-      lines.push(`- **KV namespace:** ${String(profile.kvNamespace)}`);
+  } catch (err: any) {
+    if (err?.code !== 'ENOENT') {
+      console.warn('[updateBrain] Unable to read brain-status.log:', err);
     }
-    lines.push('');
   }
-
-  const logic = (payload.maggieLogic ?? {}) as Record<string, unknown>;
-  if (Object.keys(logic).length) {
-    lines.push('## Maggie Logic');
-    const daily = asArray(logic.dailyLoop);
-    if (daily.length) {
-      lines.push('- **Daily loop:**');
-      lines.push(...formatList(daily, '  -'));
-    }
-    const sync = asArray(logic.syncRoutine);
-    if (sync.length) {
-      lines.push('- **Sync routine:**');
-      lines.push(...formatList(sync, '  -'));
-    }
-    lines.push('');
-  }
-
-  const soul = (payload.soulBlueprint ?? {}) as Record<string, unknown>;
-  if (Object.keys(soul).length) {
-    lines.push('## Soul Blueprint');
-    const principles = asArray(soul.guidingPrinciples);
-    if (principles.length) {
-      lines.push('- **Guiding principles:**');
-      lines.push(...formatList(principles, '  -'));
-    }
-    const focus = asArray(soul.focusAreas);
-    if (focus.length) {
-      lines.push('- **Focus areas:**');
-      lines.push(...formatList(focus, '  -'));
-    }
-    lines.push('');
-  }
-
-  const services = (payload.services ?? {}) as Record<string, unknown>;
-  const automation = (payload.automation ?? {}) as Record<string, unknown>;
-  if (Object.keys(services).length || Object.keys(automation).length) {
-    lines.push('## Operations');
-    if (Object.keys(services).length) {
-      lines.push('- **Services online:**');
-      lines.push(
-        ...formatList(
-          Object.entries(services)
-            .filter(([, value]) => Boolean(value))
-            .map(([key]) => key),
-          '  -'
-        )
-      );
-    }
-    if (Object.keys(automation).length) {
-      lines.push('- **Automations active:**');
-      lines.push(
-        ...formatList(
-          Object.entries(automation)
-            .filter(([, value]) => Boolean(value))
-            .map(([key]) => key),
-          '  -'
-        )
-      );
-    }
-    lines.push('');
-  }
-
-  const threadState = (payload.threadState ?? {}) as Record<string, unknown>;
-  if (Object.keys(threadState).length) {
-    lines.push('## Thread State Sync');
-    if (threadState.kvKey) lines.push(`- **KV key:** \`${String(threadState.kvKey)}\``);
-    if (threadState.workerSubdomain)
-      lines.push(`- **Worker:** \`${String(threadState.workerSubdomain)}\``);
-    if (threadState.workflow) lines.push(`- **GitHub Action:** ${String(threadState.workflow)}`);
-    if (threadState.cron) lines.push(`- **Cron cadence:** ${String(threadState.cron)}`);
-    lines.push('');
-  }
-
-  const integrations = (payload.integrations ?? {}) as Record<string, unknown>;
-  if (Object.keys(integrations).length) {
-    lines.push('## Integrations');
-    lines.push(
-      ...formatList(
-        Object.entries(integrations)
-          .filter(([, value]) => Boolean(value))
-          .map(([key]) => key),
-        '-'
-      )
-    );
-    lines.push('');
-  }
-
-  const notes = payload.notes;
-  if (notes) {
-    lines.push('## Notes');
-    const noteLines = Array.isArray(notes)
-      ? (notes as unknown[]).map((entry) => String(entry))
-      : String(notes).split(/\r?\n/);
-    lines.push(...formatList(noteLines.filter(Boolean), '-'));
-    lines.push('');
-  }
-
-  return `${lines.join('\n').trim()}\n`;
+  return null;
 }
 
 async function run() {
-  const kvPath = path.resolve(process.cwd(), 'config', 'kv-state.json');
   const brainJsonPath = path.resolve(process.cwd(), 'brain', 'brain.json');
-  const brainDocPath = path.resolve(process.cwd(), 'docs', 'brain.md');
   let payload: BrainState;
+
+  if (COOLDOWN_MS > 0) {
+    const lastLog = await readLastLog();
+    if (lastLog?.attemptedAt) {
+      const lastTs = Date.parse(lastLog.attemptedAt);
+      if (!Number.isNaN(lastTs)) {
+        const now = Date.now();
+        if (now - lastTs < COOLDOWN_MS) {
+          const skipReason = `cooldown-active:${COOLDOWN_MINUTES}m`;
+          const attemptedAt = new Date(now).toISOString();
+          const entry: BrainSyncLog = {
+            status: 'prepared',
+            attemptedAt,
+            key: KV_KEY,
+            bytes: 0,
+            source: process.env.GITHUB_WORKFLOW ? 'github-actions' : 'local',
+            trigger: process.env.GITHUB_EVENT_NAME,
+            skipReason,
+          };
+          await Promise.all([
+            writeLog(entry),
+            logBrainSyncToSheet({
+              kvKey: KV_KEY,
+              status: 'success',
+              trigger: entry.trigger,
+              source: entry.source,
+              timestamp: attemptedAt,
+              error: skipReason,
+            }),
+            updateBrainStatus({
+              lastAttemptAt: attemptedAt,
+              status: 'pending',
+              trigger: entry.trigger,
+              source: entry.source,
+              kvKey: KV_KEY,
+              sizeBytes: 0,
+              error: skipReason,
+            }),
+          ]);
+          console.log('[updateBrain] Cooldown active; skipping Cloudflare sync.');
+          return;
+        }
+      }
+    }
+  }
 
   try {
     payload = (await readBrain()) as BrainState;
@@ -232,39 +166,19 @@ async function run() {
   }
 
   const timestamp = new Date().toISOString();
-  payload.lastUpdated = timestamp;
-  payload.lastSynced = timestamp;
-  if (typeof payload.notes === 'string') {
-    payload.notes = payload.notes.trim();
+  const basePayload: BrainState = {
+    ...payload,
+    lastUpdated: timestamp,
+  };
+  if (typeof basePayload.notes === 'string') {
+    basePayload.notes = basePayload.notes.trim();
   }
 
-  const serialized = `${JSON.stringify(payload, null, 2)}\n`;
-  await Promise.all([
-    (async () => {
-      try {
-        await fs.writeFile(kvPath, serialized, 'utf8');
-      } catch (err) {
-        console.warn(`Failed to persist updated timestamp to ${kvPath}.`, err);
-      }
-    })(),
-    (async () => {
-      try {
-        await fs.writeFile(brainJsonPath, serialized, 'utf8');
-      } catch (err) {
-        console.warn(`Failed to refresh ${brainJsonPath}:`, err);
-      }
-    })(),
-    (async () => {
-      try {
-        await fs.mkdir(path.dirname(brainDocPath), { recursive: true });
-        await fs.writeFile(brainDocPath, renderBrainDoc(payload, timestamp), 'utf8');
-      } catch (err) {
-        console.warn(`Failed to render ${brainDocPath}:`, err);
-      }
-    })(),
-  ]);
+  let outboundPayload: BrainState = {
+    ...basePayload,
+    lastSynced: timestamp,
+  };
 
-  const bytes = Buffer.from(serialized).length;
   const source = process.env.GITHUB_WORKFLOW ? 'github-actions' : 'local';
   const trigger = process.env.GITHUB_EVENT_NAME;
 
@@ -319,18 +233,18 @@ async function run() {
 
     let snapshotError: string | null = null;
     try {
-      await putConfig(KV_KEY, payload, {
+      await putConfig(KV_KEY, outboundPayload, {
         accountId,
         apiToken,
         namespaceId,
         contentType: 'application/json',
       });
       console.log(
-        `✅ Synced ${KV_KEY} from brain/brain.md to Cloudflare KV at ${timestamp}.`
+        `✅ Synced ${KV_KEY} from brain/brain.json to Cloudflare KV at ${timestamp}.`
       );
 
       try {
-        await putConfig('brain/latest', payload, {
+        await putConfig('brain/latest', outboundPayload, {
           accountId,
           apiToken,
           namespaceId,
@@ -366,6 +280,23 @@ async function run() {
       const message = `brain/latest: ${snapshotError}`;
       errorMessage = errorMessage ? `${errorMessage}; ${message}` : message;
     }
+  }
+
+  const finalPayload: BrainState =
+    status === 'success'
+      ? outboundPayload
+      : {
+          ...basePayload,
+          lastSynced: payload.lastSynced ?? null,
+        };
+
+  const serialized = `${JSON.stringify(finalPayload, null, 2)}\n`;
+  const bytes = Buffer.from(serialized).length;
+
+  try {
+    await fs.writeFile(brainJsonPath, serialized, 'utf8');
+  } catch (err) {
+    console.warn(`Failed to refresh ${brainJsonPath}:`, err);
   }
 
   const logEntry: BrainSyncLog = {

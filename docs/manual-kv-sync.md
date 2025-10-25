@@ -8,9 +8,8 @@ can safely update `PostQ:thread-state` (and related keys) without blowing throug
 
 Trigger the workflow from the **Actions** tab whenever you need to promote changes in:
 
+- `brain/brain.json`
 - `config/thread-state.json`
-- `config/kv-state.json`
-- `brain/brain.json` or `brain/brain.md`
 - any extra mappings declared in `kv/worker-kv.json`
 
 Missing files or secrets are skipped automatically, so you can reuse the same workflow for partial updates.

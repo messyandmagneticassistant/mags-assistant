@@ -110,9 +110,9 @@ function baseEntries(): SyncEntry[] {
     {
       key: 'PostQ:thread-state',
       contentType: 'application/json',
-      source: { type: 'file', path: 'config/kv-state.json', optional: true },
+      source: { type: 'file', path: 'brain/brain.json', optional: true },
       encoding: 'json',
-      label: 'config/kv-state.json',
+      label: 'brain/brain.json (thread-state)',
     },
     {
       key: 'brain/latest',

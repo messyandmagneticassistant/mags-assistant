@@ -1,7 +1,7 @@
 import { readFile } from 'fs/promises';
 import path from 'path';
 
-const FALLBACK_PATH = path.resolve(process.cwd(), 'config/kv-state.json');
+const FALLBACK_PATH = path.resolve(process.cwd(), 'brain/brain.json');
 
 let fallbackCache: any | null | undefined;
 
@@ -13,7 +13,7 @@ async function loadFallback(): Promise<any | null> {
     fallbackCache = JSON.parse(raw);
   } catch (err) {
     console.warn(
-      `[config] Failed to load fallback KV state from ${FALLBACK_PATH}:`,
+      `[config] Failed to load fallback brain snapshot from ${FALLBACK_PATH}:`,
       err
     );
     fallbackCache = null;

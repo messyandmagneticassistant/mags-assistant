@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { readBrain } from '../brain/readBrain';
 
 describe('brain/readBrain', () => {
-  it('parses the brain markdown front matter into JSON', async () => {
+  it('loads the canonical brain JSON payload', async () => {
     const brain = await readBrain();
 
     expect(brain).toBeTruthy();

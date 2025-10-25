@@ -42,7 +42,7 @@ export const cloudflareApiToken =
 
 export const threadStateFallbackPaths = [
   'config/thread-state.json',
-  'config/kv-state.json',
+  'brain/brain.json',
 ];
 
 export type ThreadStateEnvConfig = {

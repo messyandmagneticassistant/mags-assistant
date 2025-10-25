@@ -21,6 +21,6 @@ This checklist summarizes which external services are wired today and where the 
 - ✅ **Operational tracking** — donor and blueprint flows persist status in Notion while queue state is mirrored to KV. 【F:worker/routes/donors.ts†L1-L34】【F:worker/orders/tally.ts†L32-L51】
 
 ## KV & Brain Sync
-- ✅ **Manual brain + thread-state sync** — the GitHub Action `.github/workflows/seed-kv.yml` (or `pnpm kv:sync --safe`) pushes `config/kv-state.json` and secrets to Cloudflare KV with quota guardrails, and the worker dispatch endpoint forwards manual triggers to that workflow. 【F:.github/workflows/seed-kv.yml†L1-L120】【F:scripts/seedKV.ts†L1-L260】【F:scripts/checkKvUsage.ts†L1-L173】【F:worker/worker.ts†L360-L510】
+- ✅ **Manual brain + thread-state sync** — the GitHub Action `.github/workflows/seed-kv.yml` (or `pnpm kv:sync --safe`) pushes `brain/brain.json` and secrets to Cloudflare KV with quota guardrails, and the worker dispatch endpoint forwards manual triggers to that workflow. 【F:.github/workflows/seed-kv.yml†L1-L120】【F:scripts/seedKV.ts†L1-L260】【F:scripts/checkKvUsage.ts†L1-L173】【F:worker/worker.ts†L360-L510】
 
 If a new integration is needed, this document should be extended with the entry point once the code ships.

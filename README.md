@@ -54,14 +54,25 @@ stripe + Tally funnels with the rest of the stack.
 
 Configuration lives in Git alongside Maggie:
 
-- `brain/brain.md`, `config/kv-state.json`, and `config/thread-state.json` define the payloads that should live in KV.
+- `brain/brain.json` is the canonical Maggie brain that should live in KV. `config/thread-state.json` documents the legacy
+  thread state payload for reference only.
 - `kv/worker-kv.json` maps additional KV keys to GitHub secrets; each entry resolves `${ENV}` placeholders at runtime.
+
+#### Editing + syncing the brain
+
+- Make changes directly in [`brain/brain.json`](brain/brain.json).
+- Run `pnpm updateBrain` to stamp `lastUpdated`, respect the cooldown guard (`BRAIN_SYNC_COOLDOWN_MINUTES`, default 15 minutes),
+  and prepare a Cloudflare sync once quota is available.
+- When Cloudflare writes are allowed, `pnpm updateBrain` will push the payload to both `PostQ:thread-state` and `brain/latest`,
+  logging outcomes to `brain-status.log`, Google Sheets, and the status store.
+- Use `pnpm brain:status` to compare the committed JSON against the remote KV blob. The script prints size, timestamps, and
+  skew so you can audit drift at any time.
 
 Automatic KV writes are disabled by default because `isKvWriteAllowed` returns `false` unless you explicitly set
 `ALLOW_KV_WRITES=true`. That means background processes (Workers, scheduled GitHub Actions) can read KV but will be blocked from
 calling `put`. To push updates:
 
-1. Refresh local artifacts with `pnpm updateBrain` after editing `brain/brain.md`.
+1. Refresh local artifacts with `pnpm updateBrain` after editing `brain/brain.json`.
 2. Run the manual GitHub Action [`.github/workflows/seed-kv.yml`](.github/workflows/seed-kv.yml), trigger the new [manual config sync workflow](.github/workflows/manual-kv-config-sync.yml), or execute `pnpm kv:sync --safe` locally.
    - Safe mode enforces quota checks (24h window by default) and refuses to write if fewer than 100 operations remain.
    - Supply the `dry_run` input (or pass `--dry-run`) to preview the writes without touching Cloudflare.
