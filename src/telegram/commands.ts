@@ -11,7 +11,7 @@ const WORKER_BASE = 'https://maggie.messyandmagnetic.com';
 const INIT_URL = `${WORKER_BASE}/init-blob`;
 const DIAG_URL = `${WORKER_BASE}/diag/config`;
 const HEALTH_URL = `${WORKER_BASE}/health`;
-const KV_STATE_PATH = path.resolve('config', 'kv-state.json');
+const KV_STATE_PATH = path.resolve('brain', 'brain.json');
 const LOCAL_TZ = process.env.MAGGIE_LOCAL_TZ || process.env.TZ || 'America/Los_Angeles';
 const STATUS_SHEET_ID =
   process.env.MAGGIE_LOG_SHEET_ID || process.env.GOOGLE_SHEET_ID || process.env.LOG_SHEET_ID;

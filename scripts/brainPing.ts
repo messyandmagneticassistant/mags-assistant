@@ -25,7 +25,7 @@ function diffMinutes(a?: string, b?: string): number | null {
 }
 
 async function readLocalState(): Promise<{ raw: string; data: BrainState | null }> {
-  const filePath = path.join('config', 'kv-state.json');
+  const filePath = path.join('brain', 'brain.json');
   try {
     const raw = await fs.promises.readFile(filePath, 'utf8');
     return { raw, data: safeParse(raw) };
@@ -81,6 +81,7 @@ async function main() {
     checkedAt: new Date().toISOString(),
     remoteBytes: remoteRaw.length,
     localBytes: localRaw.length,
+    canonicalPath: filePath,
     localLastUpdated: localUpdated,
     remoteLastUpdated: remoteUpdated,
     remoteLastSynced: remoteState?.lastSynced ?? null,

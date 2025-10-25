@@ -53,7 +53,7 @@ function installFetchFallback(): void {
   if (!originalFetch) return;
 
   const localPathEnv = typeof process.env.LOCAL_BRAIN_PATH === 'string' ? process.env.LOCAL_BRAIN_PATH.trim() : '';
-  const defaultPath = path.resolve(process.cwd(), 'brain/brain.md');
+  const defaultPath = path.resolve(process.cwd(), 'brain/brain.json');
 
   globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     const url = requestToUrl(input);
@@ -67,7 +67,7 @@ function installFetchFallback(): void {
       const localPath = localPathEnv ? path.resolve(process.cwd(), localPathEnv) : defaultPath;
       try {
         const body = await readFile(localPath, 'utf8');
-        console.warn('[putBrainSnapshot] ⚠️ Using local brain/brain.md fallback for snapshot sync.');
+        console.warn('[putBrainSnapshot] ⚠️ Using local brain/brain.json fallback for snapshot sync.');
         return new Response(body, {
           status: 200,
           headers: { 'content-type': 'text/plain; charset=utf-8' },

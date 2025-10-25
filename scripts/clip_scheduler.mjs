@@ -168,7 +168,16 @@ async function notifyTelegram(scheduled, posted) {
 async function main() {
   const config = await loadConfig();
   const hours = config.preferredPostingHours || [9, 12, 15, 19, 21];
-  const hints = fssync.existsSync('docs/brain.md') ? await fs.readFile('docs/brain.md', 'utf8') : '';
+  let hints = '';
+  if (fssync.existsSync('brain/brain.json')) {
+    const raw = await fs.readFile('brain/brain.json', 'utf8');
+    try {
+      const parsed = JSON.parse(raw);
+      hints = JSON.stringify(parsed, null, 2);
+    } catch {
+      hints = raw;
+    }
+  }
 
   const queue = await loadJSON(QUEUE_PATH, []);
   const log = await loadJSON(LOG_PATH, []);

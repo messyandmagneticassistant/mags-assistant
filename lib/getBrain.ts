@@ -1,6 +1,6 @@
 const DEFAULT_REPO = 'messyandmagneticassistant/mags-assistant';
 const DEFAULT_BRANCH_FALLBACKS = ['chore/nightly-brain-sync', 'main'];
-const DEFAULT_PATH = 'brain/brain.md';
+const DEFAULT_PATH = 'brain/brain.json';
 
 type AnyEnv = Record<string, unknown> & {
   GITHUB_PAT?: string;
@@ -123,7 +123,7 @@ export async function getBrain(
   for (const branch of branches) {
     const payload = await fetchBrainFromGitHub(resolvedEnv, repo, branch, path);
     if (typeof payload === 'string' && payload.length > 0) {
-      console.log('[getBrain] Loaded brain.md from GitHub', {
+      console.log('[getBrain] Loaded brain.json from GitHub', {
         repo,
         branch,
         path,
@@ -133,7 +133,7 @@ export async function getBrain(
     }
   }
 
-  console.error('[getBrain] Unable to load brain.md from GitHub', { repo, path, branches });
+  console.error('[getBrain] Unable to load brain.json from GitHub', { repo, path, branches });
   return '';
 }
 

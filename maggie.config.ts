@@ -108,7 +108,7 @@ export async function manualBrainUpdate(message: string) {
 
 export function watchBrainFile() {
   try {
-    watch('brain/brain.md', async () => {
+    watch('brain/brain.json', async () => {
       try {
         await updateBrain({ message: 'Local brain file changed', tiers: 'Mini' }, 'watcher');
         const { runMaggieWorkflow } = await import('./runMaggie');

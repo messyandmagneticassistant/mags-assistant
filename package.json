@@ -34,6 +34,7 @@
     "diag:tiktok": "node -r dotenv/config scripts/diag-tiktok.ts",
     "email:test": "tsx scripts/test-email.ts",
     "brain:snapshot": "tsx scripts/putBrainSnapshot.ts",
+    "brain:status": "tsx scripts/brainPing.ts",
     "// --- Deploy & logs (Workers) ---": "---------------------------------",
     "deploy:public": "npx wrangler deploy -c wrangler.toml",
     "deploy:runner": "npx wrangler deploy -c mags-runner/wrangler.toml",
