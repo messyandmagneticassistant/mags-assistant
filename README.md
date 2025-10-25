@@ -62,7 +62,7 @@ Automatic KV writes are disabled by default because `isKvWriteAllowed` returns `
 calling `put`. To push updates:
 
 1. Refresh local artifacts with `pnpm updateBrain` after editing `brain/brain.md`.
-2. Run the manual GitHub Action [`.github/workflows/seed-kv.yml`](.github/workflows/seed-kv.yml) or execute `pnpm kv:sync --safe` locally.
+2. Run the manual GitHub Action [`.github/workflows/seed-kv.yml`](.github/workflows/seed-kv.yml), trigger the new [manual config sync workflow](.github/workflows/manual-kv-config-sync.yml), or execute `pnpm kv:sync --safe` locally.
    - Safe mode enforces quota checks (24h window by default) and refuses to write if fewer than 100 operations remain.
    - Supply the `dry_run` input (or pass `--dry-run`) to preview the writes without touching Cloudflare.
    - The script resolves both repo files and secrets referenced in `kv/worker-kv.json`, so missing environment variables simply skip keys.
@@ -73,6 +73,7 @@ Monitoring & guardrails:
 
 - `pnpm kv:usage` (and the scheduled workflow [`.github/workflows/kv-usage-monitor.yml`](.github/workflows/kv-usage-monitor.yml))
   fetch Cloudflare analytics, warn when fewer than 150 writes remain, and fail when under 100.
+- The [manual KV sync workflow](.github/workflows/manual-kv-config-sync.yml) adds a preflight analytics probe that warns when writes in the selected window pass 900 (configurable) and refuses to run if estimated remaining quota drops under your threshold. See [`docs/manual-kv-sync.md`](docs/manual-kv-sync.md) for details on the knobs it exposes.
 - Set `KV_USAGE_EXPECT_IDLE=true` (with an optional `KV_USAGE_IDLE_THRESHOLD`) to alert if any background job starts writing again.
 - For other scripts, you can toggle `ALLOW_KV_WRITES` / `DISABLE_KV_WRITES`, `KV_SYNC_MIN_WRITES`, `KV_SYNC_USAGE_WINDOW`, and
   `KV_SYNC_SAFE_MODE` to fine-tune the safety net. `BRAIN_SYNC_SKIP_DIRECT_KV=true` keeps `scripts/updateBrain.ts` in read-only mode.

@@ -1,0 +1,96 @@
+name: Manual KV config sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        type: boolean
+        default: false
+        description: "Run in dry-run mode (no writes)"
+      min_writes_remaining:
+        type: number
+        default: 100
+        description: "Abort if estimated remaining writes drop below this threshold"
+      window_seconds:
+        type: number
+        default: 86400
+        description: "Usage window (seconds) for quota checks"
+      warn_at_writes:
+        type: number
+        default: 900
+        description: "Emit a workflow warning if writes in the window reach this value"
+      reason:
+        type: string
+        default: manual-trigger
+        description: "Why are we syncing the config now?"
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      ALLOW_KV_WRITES: true
+      KV_SYNC_SAFE_MODE: true
+      KV_SYNC_ENFORCE_QUOTA: true
+      KV_SYNC_DAILY_LIMIT: 1000
+      KV_SYNC_USAGE_WINDOW: ${{ inputs.window_seconds }}
+      KV_SYNC_MIN_WRITES: ${{ inputs.min_writes_remaining }}
+      KV_SYNC_DRY_RUN: ${{ inputs.dry_run }}
+      KV_MANUAL_USAGE_WINDOW: ${{ inputs.window_seconds }}
+      KV_MANUAL_ABORT_REMAINING: ${{ inputs.min_writes_remaining }}
+      KV_MANUAL_WARN_WRITES: ${{ inputs.warn_at_writes }}
+      KV_SYNC_REASON: ${{ inputs.reason }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup PNPM
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+          run_install: false
+
+      - name: Enable Corepack
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.12.0 --activate
+
+      - name: Enable PNPM cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Log sync reason
+        run: |
+          if [ -n "${KV_SYNC_REASON}" ]; then
+            echo "KV sync reason: ${KV_SYNC_REASON}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Check KV usage (preflight)
+        id: usage
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_KV_POSTQ_NAMESPACE_ID: ${{ secrets.CF_KV_POSTQ_NAMESPACE_ID }}
+        run: pnpm exec tsx scripts/manualKvUsageCheck.ts
+
+      - name: Highlight high usage warning
+        if: steps.usage.outputs.warn == 'true'
+        run: echo "Cloudflare KV writes already exceeded the warning threshold; review the log above." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Sync config JSON to KV
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_KV_POSTQ_NAMESPACE_ID: ${{ secrets.CF_KV_POSTQ_NAMESPACE_ID }}
+          CF_KV_NAMESPACE_ID: ${{ secrets.CF_KV_POSTQ_NAMESPACE_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+        run: pnpm run kv:sync
