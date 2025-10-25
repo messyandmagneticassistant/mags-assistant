@@ -1,11 +1,11 @@
 // bots/agents/verifyConfig.ts
 
 import { loadConfigFromKV } from '@/utils/loadConfigFromKV';
-import { threadStateKey } from '@/config/env';
+import { postqThreadStateKey } from '@/config/env';
 import { postTelegram } from '../utils/notifyTelegram'; // Optional: Only if you're using Telegram notifications
 
 export async function verifyConfig() {
-  const result = await loadConfigFromKV(threadStateKey);
+  const result = await loadConfigFromKV(postqThreadStateKey);
   const config = result.config;
 
   if (!config) {

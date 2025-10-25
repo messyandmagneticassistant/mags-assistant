@@ -5,6 +5,7 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 
 import { runWithCodex } from '../../lib/codex'
+import { CANONICAL_BRAIN_REPO_PATH } from '@/config/env'
 
 type AIProvider = 'Codex' | 'Gemini' | 'ChatGPT'
 
@@ -27,7 +28,7 @@ interface RouteLogEntry {
 const execFileAsync = promisify(execFile)
 
 const KV_FILE = path.resolve('brain', 'kv-store.json')
-const THREAD_STATE_FALLBACK = path.resolve('config', 'thread-state.json')
+const THREAD_STATE_FALLBACK = path.resolve(CANONICAL_BRAIN_REPO_PATH)
 const MEMORY_DIR = path.resolve('memory')
 const MEMORY_FILE = path.join(MEMORY_DIR, 'brain.md')
 

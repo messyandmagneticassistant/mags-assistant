@@ -3,7 +3,7 @@ import { runFullScheduler, type SchedulerStatus } from './maggie/tasks/scheduler
 import { checkForFlops, startFlopMonitor } from './maggie/tasks/retry-flops.ts';
 import { agentAct } from './bots/agents/agentbrain.ts';
 import { loadConfigFromKV, type ThreadStateLoadResult } from './utils/loadConfigFromKV.ts';
-import { threadStateKey } from './config/env.ts';
+import { postqThreadStateKey } from './config/env.ts';
 
 export interface RunMaggieConfig {
   force?: boolean;
@@ -124,7 +124,7 @@ export async function runMaggie(config: RunMaggieConfig = {}): Promise<MaggieRea
   const warnings: string[] = [];
 
   // ✅ Load agent config from KV
-  const threadState = await loadConfigFromKV(threadStateKey);
+  const threadState = await loadConfigFromKV(postqThreadStateKey);
   const fullConfig = threadState.config ?? {};
 
   logThreadStateSummary(threadState, Boolean(config.log));

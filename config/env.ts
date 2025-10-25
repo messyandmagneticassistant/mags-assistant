@@ -1,4 +1,6 @@
-const DEFAULT_THREAD_STATE_KEY = 'PostQ:thread-state';
+// Canonical Maggie brain mapping: Git repo → Cloudflare KV
+export const CANONICAL_BRAIN_REPO_PATH = 'brain/brain.json';
+export const CANONICAL_BRAIN_KV_KEY = 'PostQ:thread-state';
 const FALLBACK_THREAD_STATE_KEY = 'thread-state';
 
 const DEFAULT_ACCOUNT_ID = '5ff52dc210a86ff34a0dd3664bacb237';
@@ -11,10 +13,10 @@ function clean(value: string | undefined | null): string | undefined {
   return trimmed.length ? trimmed : undefined;
 }
 
-export const threadStateKey =
+export const postqThreadStateKey =
   clean(process.env.POSTQ_THREAD_STATE_KEY) ||
   clean(process.env.THREAD_STATE_KEY) ||
-  DEFAULT_THREAD_STATE_KEY;
+  CANONICAL_BRAIN_KV_KEY;
 
 export const fallbackThreadStateKey =
   clean(process.env.THREAD_STATE_FALLBACK_KEY) ||
@@ -40,10 +42,7 @@ export const cloudflareApiToken =
   clean(process.env.API_TOKEN) ||
   DEFAULT_API_TOKEN;
 
-export const threadStateFallbackPaths = [
-  'config/thread-state.json',
-  'brain/brain.json',
-];
+export const canonicalBrainFallbackPaths = [CANONICAL_BRAIN_REPO_PATH];
 
 export type ThreadStateEnvConfig = {
   key: string;
@@ -56,11 +55,11 @@ export type ThreadStateEnvConfig = {
 
 export function resolveThreadStateEnv(): ThreadStateEnvConfig {
   return {
-    key: threadStateKey,
+    key: postqThreadStateKey,
     fallbackKey: fallbackThreadStateKey,
     accountId: cloudflareAccountId,
     namespaceId: cloudflareNamespaceId,
     apiToken: cloudflareApiToken,
-    fallbackPaths: threadStateFallbackPaths,
+    fallbackPaths: canonicalBrainFallbackPaths,
   };
 }

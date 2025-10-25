@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 
+import { CANONICAL_BRAIN_KV_KEY, CANONICAL_BRAIN_REPO_PATH } from '../config/env';
+
 type BrainState = {
   lastUpdated?: string;
   lastSynced?: string | null;
@@ -24,14 +26,14 @@ function diffMinutes(a?: string, b?: string): number | null {
   return Math.round((aTs - bTs) / 60000);
 }
 
-async function readLocalState(): Promise<{ raw: string; data: BrainState | null }> {
-  const filePath = path.join('brain', 'brain.json');
+async function readLocalState(): Promise<{ raw: string; data: BrainState | null; filePath: string }> {
+  const filePath = path.resolve(CANONICAL_BRAIN_REPO_PATH);
   try {
     const raw = await fs.promises.readFile(filePath, 'utf8');
-    return { raw, data: safeParse(raw) };
+    return { raw, data: safeParse(raw), filePath };
   } catch (err) {
     console.error(`[brainPing] Failed to read ${filePath}:`, err);
-    return { raw: '', data: null };
+    return { raw: '', data: null, filePath };
   }
 }
 
@@ -51,9 +53,11 @@ async function main() {
     process.exit(1);
   }
 
-  const { raw: localRaw, data: localState } = await readLocalState();
+  const { raw: localRaw, data: localState, filePath } = await readLocalState();
 
-  const url = `https://api.cloudflare.com/client/v4/accounts/${account}/storage/kv/namespaces/${namespaceId}/values/PostQ:thread-state`;
+  const url = `https://api.cloudflare.com/client/v4/accounts/${account}/storage/kv/namespaces/${namespaceId}/values/${encodeURIComponent(
+    CANONICAL_BRAIN_KV_KEY
+  )}`;
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -82,6 +86,7 @@ async function main() {
     remoteBytes: remoteRaw.length,
     localBytes: localRaw.length,
     canonicalPath: filePath,
+    canonicalKvKey: CANONICAL_BRAIN_KV_KEY,
     localLastUpdated: localUpdated,
     remoteLastUpdated: remoteUpdated,
     remoteLastSynced: remoteState?.lastSynced ?? null,

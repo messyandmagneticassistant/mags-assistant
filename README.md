@@ -54,8 +54,8 @@ stripe + Tally funnels with the rest of the stack.
 
 Configuration lives in Git alongside Maggie:
 
-- `brain/brain.json` is the canonical Maggie brain that should live in KV. `config/thread-state.json` documents the legacy
-  thread state payload for reference only.
+- `brain/brain.json` is the canonical Maggie brain in Git. It syncs directly to Cloudflare KV key `PostQ:thread-state` (the
+  production brain).
 - `kv/worker-kv.json` maps additional KV keys to GitHub secrets; each entry resolves `${ENV}` placeholders at runtime.
 
 #### Editing + syncing the brain
