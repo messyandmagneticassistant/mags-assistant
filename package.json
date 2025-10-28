@@ -10,7 +10,7 @@
   "scripts": {
     "lint": "eslint . --fix || echo lint ok",
     "format": "prettier --write .",
-    "test": "node -e \"const fs=require('fs');fs.mkdirSync('docs',{recursive:true});const p='docs/.brain.md';if(!fs.existsSync(p))fs.writeFileSync(p,'');\" && eslint src/fundraising --no-error-on-unmatched-pattern && vitest run tests/testBrain.test.ts tests/brain-watch.test.ts tests/fundraising.test.ts tests/magnet-bundles.test.ts tests/feedback-qr.test.ts",
+    "test": "node -e \"const fs=require('fs');fs.mkdirSync('docs',{recursive:true});const p='docs/.brain.md';if(!fs.existsSync(p))fs.writeFileSync(p,'');\" && eslint src/fundraising --no-error-on-unmatched-pattern && vitest run tests/testBrain.test.ts tests/brain-watch.test.ts tests/fundraising.test.ts tests/magnet-bundles.test.ts tests/feedback-qr.test.ts tests/brainPing.test.ts",
     "build": "echo build ok",
     "updateBrain": "tsx scripts/updateBrain.ts",
     "typecheck": "tsc --noEmit",
@@ -35,6 +35,7 @@
     "email:test": "tsx scripts/test-email.ts",
     "brain:snapshot": "tsx scripts/putBrainSnapshot.ts",
     "brain:status": "tsx scripts/brainPing.ts",
+    "brain:check": "tsx scripts/checkBrainDrift.ts",
     "// --- Deploy & logs (Workers) ---": "---------------------------------",
     "deploy:public": "npx wrangler deploy -c wrangler.toml",
     "deploy:runner": "npx wrangler deploy -c mags-runner/wrangler.toml",
