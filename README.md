@@ -60,13 +60,17 @@ Configuration lives in Git alongside Maggie:
 
 #### Editing + syncing the brain
 
-- Make changes directly in [`brain/brain.json`](brain/brain.json).
-- Run `pnpm updateBrain` to stamp `lastUpdated`, respect the cooldown guard (`BRAIN_SYNC_COOLDOWN_MINUTES`, default 15 minutes),
-  and prepare a Cloudflare sync once quota is available.
-- When Cloudflare writes are allowed, `pnpm updateBrain` will push the payload to both `PostQ:thread-state` and `brain/latest`,
-  logging outcomes to `brain-status.log`, Google Sheets, and the status store.
-- Use `pnpm brain:status` to compare the committed JSON against the remote KV blob. The script prints size, timestamps, and
-  skew so you can audit drift at any time.
+1. Make edits directly in [`brain/brain.json`](brain/brain.json).
+2. Run `pnpm updateBrain` to stamp `lastUpdated`, respect the cooldown guard (`BRAIN_SYNC_COOLDOWN_MINUTES`, default 15
+   minutes), and prepare a Cloudflare sync once quota is available. When writes are permitted (`ALLOW_KV_WRITES=true`), the
+   script also pushes the payload to both `PostQ:thread-state` and `brain/latest`, logging outcomes to `brain-status.log`,
+   Google Sheets, and the status store.
+3. (Optional) Run `pnpm brain:snapshot` to force a `brain/latest` refresh without touching the full blob. This is handy when
+   you only need the summarized front matter live in KV.
+4. Verify the remote state with `pnpm brain:status` (JSON diff + metadata) or the stricter `pnpm brain:check` command, which
+   exits non-zero if the KV payload differs from the committed JSON. Both commands download the remote document, calculate
+   byte size and timestamp skew, and require Cloudflare credentials (`CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`,
+   `CF_KV_NAMESPACE_ID`).
 
 Automatic KV writes are disabled by default because `isKvWriteAllowed` returns `false` unless you explicitly set
 `ALLOW_KV_WRITES=true`. That means background processes (Workers, scheduled GitHub Actions) can read KV but will be blocked from
@@ -88,6 +92,9 @@ Monitoring & guardrails:
 - Set `KV_USAGE_EXPECT_IDLE=true` (with an optional `KV_USAGE_IDLE_THRESHOLD`) to alert if any background job starts writing again.
 - For other scripts, you can toggle `ALLOW_KV_WRITES` / `DISABLE_KV_WRITES`, `KV_SYNC_MIN_WRITES`, `KV_SYNC_USAGE_WINDOW`, and
   `KV_SYNC_SAFE_MODE` to fine-tune the safety net. `BRAIN_SYNC_SKIP_DIRECT_KV=true` keeps `scripts/updateBrain.ts` in read-only mode.
+- The scheduled workflow [`.github/workflows/brain-drift-monitor.yml`](.github/workflows/brain-drift-monitor.yml) runs hourly and
+  triggers `pnpm brain:check`. It fails (and therefore alerts) when the Cloudflare KV copy drifts from `brain/brain.json`, or
+  when required credentials are missing.
 
 ## Blob-based KV config
 Maggie's canonical configuration lives in the KV blob stored at

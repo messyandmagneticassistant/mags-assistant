@@ -1,0 +1,80 @@
+name: Brain Drift Monitor
+
+on:
+  schedule:
+    - cron: '15 * * * *'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Optional context for manual runs'
+        required: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_PAT: ${{ secrets.GH_PAT }}
+      GITHUB_PAT: ${{ secrets.GH_PAT }}
+      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_KV_NAMESPACE_ID: ${{ secrets.KV_NAMESPACE_ID }}
+      CF_KV_POSTQ_NAMESPACE_ID: ${{ secrets.KV_NAMESPACE_ID }}
+    steps:
+      - name: Verify required secrets
+        id: secrets
+        run: |
+          set -euo pipefail
+          missing=()
+          for key in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN CF_KV_NAMESPACE_ID; do
+            if [ -z "${!key:-}" ]; then
+              missing+=("$key")
+            fi
+          done
+
+          if [ ${#missing[@]} -gt 0 ]; then
+            printf 'missing=true\n' >> "$GITHUB_OUTPUT"
+            printf 'missing_list=%s\n' "${missing[*]}" >> "$GITHUB_OUTPUT"
+            echo "::warning::Brain drift monitor skipped — missing secrets: ${missing[*]}"
+          else
+            printf 'missing=false\n' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Abort due to missing secrets
+        if: steps.secrets.outputs.missing == 'true'
+        run: |
+          echo "Skipping drift monitor because required Cloudflare secrets are missing: ${{ steps.secrets.outputs.missing_list }}"
+
+      - name: Checkout repository
+        if: steps.secrets.outputs.missing == 'false'
+        uses: actions/checkout@v4
+        with:
+          token: ${{ env.GH_PAT || github.token }}
+
+      - name: Setup pnpm
+        if: steps.secrets.outputs.missing == 'false'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        if: steps.secrets.outputs.missing == 'false'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        if: steps.secrets.outputs.missing == 'false'
+        run: pnpm install --frozen-lockfile
+
+      - name: Check for brain drift
+        if: steps.secrets.outputs.missing == 'false'
+        run: pnpm brain:check
